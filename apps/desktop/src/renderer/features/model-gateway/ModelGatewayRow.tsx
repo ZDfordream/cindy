@@ -16,7 +16,7 @@
  * 一次探测的 IPC 入参，不进 React state、不落任何 JSON。协议写死
  * `anthropic-messages`（`testModelConnectivity` 内固定）。
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
@@ -64,18 +64,45 @@ export function ModelGatewayRow({
   const { t } = useTranslation();
   const { toggle, setStatus } = useModelGateway();
   const [retesting, setRetesting] = useState(false);
+  // 最新条目快照：在途重测完成时拿它比对**当前**配置（旧闭包里的 entry 是发起时的）。
+  const latestEntryRef = useRef(entry);
+  latestEntryRef.current = entry;
 
   const handleRetest = useCallback(async () => {
     if (retesting) return;
     setRetesting(true);
+    // 探测发起时的配置指纹（baseUrl/modelId 进指纹；密钥不进 state，见下）。
+    const probedBaseUrl = entry.baseUrl;
+    const probedModelId = entry.modelId;
     try {
       // 密钥只作为本次探测的 IPC 入参，不进 state。
       const apiKey = (await readCustomProviderKey(entry.id, 'claude-code')) ?? '';
       const result = await testModelConnectivity({
-        baseUrl: entry.baseUrl,
+        baseUrl: probedBaseUrl,
         apiKey,
-        modelId: entry.modelId,
+        modelId: probedModelId,
       });
+      // 竞态防护（在途重测 vs 编辑保存）：探测挂起期间同条目被编辑并保存时，
+      // store.update 已按 PRD 把 status 重置为「未测试」；本次结果测的是**旧配置**，
+      // 盖上去会伪造旧端点的连通状态与 lastTestedAt，直接破坏「改字段→未测试」。
+      // 回写前重取当前配置（entry 的 baseUrl/modelId + keychain 现值）与发起时
+      // 指纹比对，不一致就就地丢弃本次结果；keychain 读不到按「已变化」处理
+      // （同 store.update 的「宁可重测也不留陈旧已连通」口径）。条目已删的情况
+      // 仍走 setStatus 既有丢弃语义，此处不重复判。
+      let currentKey: string | null;
+      try {
+        currentKey = (await readCustomProviderKey(entry.id, 'claude-code')) ?? '';
+      } catch {
+        currentKey = null;
+      }
+      const latest = latestEntryRef.current;
+      if (
+        latest.baseUrl !== probedBaseUrl ||
+        latest.modelId !== probedModelId ||
+        currentKey !== apiKey
+      ) {
+        return;
+      }
       setStatus(entry.id, result);
     } finally {
       setRetesting(false);

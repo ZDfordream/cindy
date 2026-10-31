@@ -24,15 +24,18 @@
  *
  * 关闭语义分层（PRD 2026-11-01，**推翻旧「点遮罩可关」偏离登记**）：dirty（任一字段
  * 相对初值被改动）点遮罩 → 不关 + 面板 `shake`；clean 点遮罩 → 关；Esc / 取消 / ✕
- * 任何状态都关。Esc 用 capture + stopPropagation 抢占（Ruling 16 同批修复）：一次
- * 按键只关本弹窗，不级联触发 `useSettingsEscape` 再退一层设置。
+ * 任何状态都关——「任何状态」指**非保存在途**：`busyRef` 门闩挡住的是保存中的关闭，
+ * 这是有意的（防丢落库半截），不是对 PRD「任何状态可关」的偏离。Esc 用 capture +
+ * stopPropagation 抢占（Ruling 16 同批修复）：一次按键只关本弹窗，不级联触发
+ * `useSettingsEscape` 再退一层设置。
  *
  * 保存成功 toast（PRD）：新建「已添加 {model}」/ 编辑「已保存 {model}」。
  *
  * ⚠️ 有意偏离 DESIGN.md（沿用 `AddModelDialog.tsx` 既有偏离登记 / 设计稿 §7，
  * 不新增）：
  *   1. §4「有 Cancel 的对话框不带右上角 ×」——参考图 × 与「取消」并存；
- *   2. §4「单行输入框用 9999px 胶囊圆角」——参考图是 10px 圆角矩形（按钮同款处理）。
+ *   2. §4「单行输入框用 9999px 胶囊圆角」——PRD 2026-11-01 是 14px 圆角矩形
+ *      （按钮同款处理；圆角族登记见 CHANGES.md §9.4）。
  * 弹窗壳复用 ConfirmDialog 的结构（DESIGN.md §4：标题 / 滚动内容区 / 底部按钮 +
  * 共享 `.modal-scrim` / `.modal-panel` 类）；校验 / 错误呈现与遮罩 dirty 抖动
  * （PRD，`shake` 类挂 `.modal-panel`，globals.css）不走 `ConfirmDialog` 组件本体。

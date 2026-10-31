@@ -328,6 +328,48 @@ describe('ModelGatewayList', () => {
     expect(getApi().entries[0]!.status).toEqual({ ok: false, detail: 'boom' });
   });
 
+  it('test_inflight_retest_result_discarded_after_edit_resets_status', async () => {
+    const { getApi } = renderList();
+    await act(async () => {});
+    await addModel(getApi(), 'a');
+
+    // 探测挂起（可控 Promise）——真实模式慢探测会把这个窗口拉得不小。
+    let resolveProbe: (v: { ok: true; latencyMs: number }) => void = () => {};
+    maker.testProviderConnection.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveProbe = resolve;
+        }),
+    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'settings.providers.modelGateway.retest' }),
+      );
+    });
+
+    // 在途期间编辑同一行改 baseUrl 并保存（Form 保存走同一 store 入口 `update`）：
+    // PRD「改字段 → 未测试」已由 store.update 重置 status。
+    await act(async () => {
+      await getApi().update('a', {
+        baseUrl: 'https://changed.example/anthropic',
+        apiKey: 'sk-a',
+        modelId: 'a',
+      });
+    });
+
+    // 旧配置的探测结果到站：必须就地丢弃，不得盖掉「未测试」。
+    await act(async () => {
+      resolveProbe({ ok: true, latencyMs: 128 });
+    });
+    const statusBtn = screen.getByRole('button', {
+      name: 'settings.providers.modelGateway.retest',
+    });
+    expect(statusBtn.textContent).toBe('settings.providers.modelGateway.untested');
+    expect(getApi().entries[0]!.status).toBe('untested');
+    // lastTestedAt 同样不得被这次陈旧回写带上。
+    expect(getApi().entries[0]!.lastTestedAt).toBeUndefined();
+  });
+
   it('test_empty_state_and_title_count', async () => {
     const { getApi, onAdd } = renderList();
     await act(async () => {});
