@@ -182,15 +182,18 @@ export const loginColors = {
 | 信息类文字地板 | 三级及以上的信息类文字对比度 **≥3.0**(页面、卡片、悬停面上实测);占位/禁用/未激活态按 WCAG 豁免不抬 |
 | 豁免不碰 | `login-*` 全族(58 token)、`diff-*`/`error-*`/`overlay-*`、语义状态色、阴影(§10/§16 + `protected-tokens.ts`) |
 
-### 9.2 Light 面阶梯(暖象牙)
+### 9.2 Light 面阶梯
+
+> **2026-10-28 HRBuddy 需求 3(owner 裁决)**:页底/卡片/浮层对齐 WorkBuddy,由暖象牙改为
+> **纯白**。暖象牙阶梯(`#F2F2ED` 页底 / `#FDFDF8` 卡片 / `#FAFAF5` 次级)整体退役,
+> 次级档改为中性 `#FAFAFA`(去暖,不在白底上显脏)。`--login-bg-base` 亮态改引
+> `var(--surface)`(治理合同「新 override 只能引用已治理 token」)。暗色档不动。
 
 | 档 | 值 | 用途 | vs 页底亮度差 |
 |---|---|---|---|
-| 近白 | `#FFFFFA` | composer pill / 控件底 | +11.2% |
-| 卡片 | `#FDFDF8` | 卡片/输入框/弹窗/气泡 | +9.4% |
-| 次级卡片 | `#FAFAF5` | chip-alt / 代码块底(`perm-code-bg`) | +6.8% |
-| **页底** | **`#F2F2ED`** | surface / titlebar / panel | 0 |
-| 侧栏 | `#EEEEE9` @ 85% 玻璃 | 独立面(玻璃遮盖度用户调参) | −3.3% |
+| 次级卡片 | `#FAFAFA` | chip-alt / 代码块底(`perm-code-bg`) | −2% |
+| **页底 / 卡片** | **`#FFFFFF`** | surface / titlebar / panel / 卡片/输入框/弹窗/气泡 | 0 |
+| 侧栏 | `#F5F5F5` @ 85% 玻璃 | 独立面(玻璃遮盖度用户调参;2026-10-28 随白底改中性) | −2% |
 
 交互态与边框(2026-10-22 用户裁决起为墨水,叠在任何底上都偏移同一档;浅色黑 / 深色白):
 

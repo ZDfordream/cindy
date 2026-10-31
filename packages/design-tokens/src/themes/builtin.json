@@ -1351,17 +1351,17 @@
       "surface": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-surface}",
-        "$description": "直映: 页底(暖象牙)"
+        "$description": "直映: 页底(纯白,HRBuddy 对齐)"
       },
       "surface-hsl": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-surface-hsl}",
-        "$description": "页底 -> HSL"
+        "$description": "页底(纯白) -> HSL"
       },
       "surface-elevated": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-surface-elevated}",
-        "$description": "直映: 卡片/输入框(留暖近白)"
+        "$description": "直映: 卡片/输入框(纯白,HRBuddy 对齐)"
       },
       "surface-elevated-soft": {
         "$type": "color",
@@ -1371,7 +1371,7 @@
       "surface-card-ivory": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-surface-card-ivory}",
-        "$description": "直映: 卡片/输入框(留暖近白)"
+        "$description": "直映: 卡片/输入框(纯白,HRBuddy 对齐)"
       },
       "surface-chip": {
         "$type": "color",
@@ -1602,12 +1602,12 @@
       "background": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-background}",
-        "$description": "页底 -> HSL"
+        "$description": "页底(纯白) -> HSL"
       },
       "chat-input-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-chat-input-bg}",
-        "$description": "直映: 卡片/输入框(留暖近白)"
+        "$description": "直映: 卡片/输入框(纯白,HRBuddy 对齐)"
       },
       "chat-input-border-focus": {
         "$type": "color",
@@ -1661,7 +1661,7 @@
       "confirm-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-confirm-bg}",
-        "$description": "直映: 卡片/输入框(留暖近白)"
+        "$description": "直映: 卡片/输入框(纯白,HRBuddy 对齐)"
       },
       "confirm-btn-primary-bg": {
         "$type": "color",
@@ -1731,7 +1731,7 @@
       "msg-user-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-msg-user-bg}",
-        "$description": "直映: 卡片/输入框(留暖近白)"
+        "$description": "直映: 卡片/输入框(纯白,HRBuddy 对齐)"
       },
       "muted": {
         "$type": "color",
@@ -1826,12 +1826,12 @@
       "settings-integration-avatar-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-settings-integration-avatar-bg}",
-        "$description": "直映: 卡片/输入框(留暖近白)"
+        "$description": "直映: 卡片/输入框(纯白,HRBuddy 对齐)"
       },
       "settings-logout-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-settings-logout-bg}",
-        "$description": "直映: 卡片/输入框(留暖近白)"
+        "$description": "直映: 卡片/输入框(纯白,HRBuddy 对齐)"
       },
       "settings-menu-bg-hover": {
         "$type": "color",
@@ -1881,7 +1881,7 @@
       "splash-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-splash-bg}",
-        "$description": "页底 -> HSL"
+        "$description": "页底(纯白) -> HSL"
       },
       "splash-text": {
         "$type": "color",
@@ -1941,7 +1941,7 @@
       "panel-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-panel-bg}",
-        "$description": "直映: 页底(暖象牙)"
+        "$description": "直映: 页底(纯白,HRBuddy 对齐)"
       },
       "primary": {
         "$type": "color",
@@ -1986,7 +1986,7 @@
       "titlebar": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-titlebar}",
-        "$description": "页底 -> HSL"
+        "$description": "页底(纯白) -> HSL"
       },
       "titlebar-border": {
         "$type": "color",
@@ -2036,7 +2036,7 @@
       "surface-translucent-main": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-surface-translucent-main}",
-        "$description": "直映: 页底(暖象牙)"
+        "$description": "直映: 页底(纯白,HRBuddy 对齐)"
       },
       "surface-translucent-overlay": {
         "$type": "color",
@@ -2121,7 +2121,7 @@
       "create-agent-quick-card-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-create-agent-quick-card-bg}",
-        "$description": "直映: 卡片/输入框(留暖近白)"
+        "$description": "直映: 卡片/输入框(纯白,HRBuddy 对齐)"
       },
       "create-agent-quick-card-bg-hover": {
         "$type": "color",
@@ -2141,7 +2141,7 @@
       "create-agent-quick-card-icon-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-create-agent-quick-card-icon-bg}",
-        "$description": "直映: 页底(暖象牙)"
+        "$description": "直映: 页底(纯白,HRBuddy 对齐)"
       },
       "create-agent-quick-card-text": {
         "$type": "color",
@@ -2156,12 +2156,12 @@
       "create-agent-segment-track-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-create-agent-segment-track-bg}",
-        "$description": "直映: 页底(暖象牙)"
+        "$description": "直映: 页底(纯白,HRBuddy 对齐)"
       },
       "create-agent-send-disabled-bg": {
         "$type": "color",
         "$value": "{reference.themes.cindy-light.value-create-agent-send-disabled-bg}",
-        "$description": "直映: 页底(暖象牙)"
+        "$description": "直映: 页底(纯白,HRBuddy 对齐)"
       },
       "create-agent-send-disabled-icon": {
         "$type": "color",
