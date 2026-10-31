@@ -229,6 +229,8 @@ beforeEach(() => {
       requestProviderModelsAutoRefresh: requestAutoRefreshSpy,
       setProviderOrder: setProviderOrderSpy,
       onProviderOAuthProgress: vi.fn(() => () => {}),
+      // ModelGatewayProvider(右栏模型列表)挂载即读条目清单。
+      listProviders: vi.fn(async () => ({ providers: [] })),
     },
   };
 });

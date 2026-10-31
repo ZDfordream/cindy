@@ -3410,6 +3410,22 @@
         },
         "simpleSubtitle": "Multiple models, billed through one account."
       },
+      "modelGateway": {
+        "title": "Models",
+        "add": "Add model",
+        "edit": "Edit",
+        "delete": "Delete",
+        "retest": "Retest",
+        "retestTip": "Retest connection",
+        "untested": "Not tested",
+        "failed": "Unreachable",
+        "toggle": "Show {{name}} in the chat model menu",
+        "deleteConfirm": {
+          "title": "Delete model?",
+          "description": "HRBuddy will no longer use “{{name}}”. Message history is kept, and you can add the model again later.",
+          "confirm": "Delete"
+        }
+      },
       "custom": {
         "tag": "Custom",
         "editAria": "Edit connection settings",

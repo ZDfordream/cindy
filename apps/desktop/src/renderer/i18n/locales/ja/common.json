@@ -3381,6 +3381,22 @@
         },
         "simpleSubtitle": "複数のモデルをひとつのアカウントで精算。"
       },
+      "modelGateway": {
+        "title": "モデル",
+        "add": "モデルを追加",
+        "edit": "編集",
+        "delete": "削除",
+        "retest": "再テスト",
+        "retestTip": "接続を再テスト",
+        "untested": "未テスト",
+        "failed": "接続できません",
+        "toggle": "チャットのモデルメニューに {{name}} を表示",
+        "deleteConfirm": {
+          "title": "モデルを削除しますか？",
+          "description": "削除すると、HRBuddy は「{{name}}」を使用できなくなります。メッセージ履歴は保持され、後から再追加できます。",
+          "confirm": "削除"
+        }
+      },
       "custom": {
         "tag": "カスタム",
         "editAria": "接続設定を編集",

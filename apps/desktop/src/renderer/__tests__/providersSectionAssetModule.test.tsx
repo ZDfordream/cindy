@@ -233,6 +233,8 @@ beforeEach(() => {
       scanLocalCli: vi.fn(async () => ({ detections: [] })),
       requestProviderModelsAutoRefresh: vi.fn(async () => ({ ok: true })),
       setProviderOrder: vi.fn(async () => ({ ok: true })),
+      // ModelGatewayProvider(右栏模型列表)挂载即读条目清单。
+      listProviders: vi.fn(async () => ({ providers: [] })),
     },
     modelAccess: {
       retry: vi.fn(async () => undefined),

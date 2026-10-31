@@ -3381,6 +3381,22 @@
         },
         "simpleSubtitle": "多种模型，统一账户结算。"
       },
+      "modelGateway": {
+        "title": "模型",
+        "add": "添加模型",
+        "edit": "编辑",
+        "delete": "删除",
+        "retest": "重测",
+        "retestTip": "重测连通",
+        "untested": "未测试",
+        "failed": "连不上",
+        "toggle": "在对话的模型菜单中显示 {{name}}",
+        "deleteConfirm": {
+          "title": "删除模型？",
+          "description": "删除后，HRBuddy 将无法再使用「{{name}}」。历史消息会保留，之后可以重新添加。",
+          "confirm": "删除"
+        }
+      },
       "custom": {
         "tag": "自定义",
         "editAria": "编辑连接设置",

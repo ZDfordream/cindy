@@ -3381,6 +3381,22 @@
         },
         "simpleSubtitle": "여러 모델을 하나의 계정으로 결제합니다."
       },
+      "modelGateway": {
+        "title": "모델",
+        "add": "모델 추가",
+        "edit": "편집",
+        "delete": "삭제",
+        "retest": "재테스트",
+        "retestTip": "연결 재테스트",
+        "untested": "미테스트",
+        "failed": "연결할 수 없음",
+        "toggle": "채팅 모델 메뉴에 {{name}} 표시",
+        "deleteConfirm": {
+          "title": "모델을 삭제할까요?",
+          "description": "삭제하면 HRBuddy에서 “{{name}}”을 사용할 수 없게 됩니다. 메시지 기록은 유지되며 나중에 다시 추가할 수 있습니다.",
+          "confirm": "삭제"
+        }
+      },
       "custom": {
         "tag": "사용자 지정",
         "editAria": "연결 설정 편집",

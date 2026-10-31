@@ -123,6 +123,8 @@ import { ProviderShareEntryButton } from '@/features/provider-share/ProviderShar
 import { useLocalProviderGroupsState } from '@/features/provider-group/useLocalProviderGroups';
 import { ProviderShareManagePage } from '@/features/provider-share/ProviderShareManagePage';
 import { ProviderSharePasteButton } from '@/features/provider-share/ProviderSharePasteDialog';
+import { ModelGatewayList } from '@/features/model-gateway/ModelGatewayList';
+import { ModelGatewayProvider } from '@/features/model-gateway/ModelGatewayStore';
 import {
   ProviderShareReceivedDetail,
   ProviderShareReceivedRailGroup,
@@ -3130,6 +3132,7 @@ export function ProvidersSection() {
   ) : null;
 
   return (
+    <ModelGatewayProvider>
     <div className="flex h-full min-h-0 flex-col gap-[14px]">
       {shareManagePage ?? (<>
       <div className="flex shrink-0 items-start justify-between gap-3">
@@ -3283,6 +3286,15 @@ export function ProvidersSection() {
             }
             className="flex min-h-0 min-w-0 flex-1 flex-col"
           >
+
+            {/* 新表单模型列表：右栏顶部常驻（含登录引导面），旧详情块原样保留在下方。 */}
+            <div className="shrink-0 px-5 pt-4">
+              <ModelGatewayList
+                onAdd={() => {}} // Task 4 wires these to the form
+                onEdit={() => {}} // Task 4 wires these to the form
+              />
+            </div>
+
             {selectedShare ? (
               <ProviderShareReceivedDetail share={selectedShare} />
             ) : selectedRemote ? (
@@ -3587,5 +3599,6 @@ export function ProvidersSection() {
         />
       )}
     </div>
+    </ModelGatewayProvider>
   );
 }
