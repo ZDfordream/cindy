@@ -18,6 +18,17 @@
  * `anthropic-messages`。创建时在 runtime 配置上写新表单标记 `catalogPresetId: 'hrbuddy-gateway'`，
  * 加载时只把带标记的条目暴露进 `entries`——旧表单配置留在 localDb 但新列表看不见
  * （清空重来，设计稿 §6.5）。
+ *
+ * **已知限制（Ruling 21，v1）——多窗口并发编辑不做同步**：
+ * - 现象：`persistMeta` / `pushMirror` 都是**整份快照重写**（localStorage blob 与
+ *   `~/.hrbuddy/models.json` 整组替换），`currentModelStore` 的全局当前模型又只在
+ *   模块加载时读一次 localStorage——两个窗口同时编辑时 last-writer-wins，互相覆盖。
+ * - 影响面：另一窗口刚写的 `enabled` / `status` / `lastTestedAt` 会被旧快照抹掉；
+ *   镜像里对方新增/删除的行随整组替换消失；两个窗口的「当前模型」各自为政。
+ * - 恢复方式：被抹掉的启停/连通状态**重开开关或重测**即可重建；镜像在下次任一变更
+ *   时整组重推；当前模型**重开窗口或在菜单里重选**即回到持久值。均不丢凭证
+ *   （密钥只在 keychain）与 provider 配置本体（配置走 custom provider 存储）。
+ * - 跟进：读-合并-写 / 实例同步属独立改造面，挂账不在本轮（本文件头注即台账）。
  */
 import {
   createContext,

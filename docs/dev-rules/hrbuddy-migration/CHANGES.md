@@ -232,6 +232,8 @@ i18n 五语 locale、以及配套测试期望。
 - 3 个测试按新行为改写（`providersSectionDeepLink` / `providersSectionUnavailableModels` / `providersSectionAssetModule`）
 - `design-inventory` 已重新生成（desktop.settings 文件数 209→210，radii 552→535）
 
+⚠️ **已知限制（2026-10-31 模型网关 v1 取代本条入口后带入，Ruling 21）**：多窗口同时编辑模型条目时，启停/连通状态元数据与 `~/.hrbuddy/models.json` 镜像按整份快照 last-writer-wins 互相覆盖、全局当前模型各窗口各持一份（重开开关/重测/重选即可恢复，凭证与配置本体不丢）；多实例同步挂跟进，本轮不做。
+
 **同步提示**：上游若扩展了 AddProviderWizard 的能力，merge 时会撞删除点；请评估是否
 仍要保留在 HRBuddy 的「极简」形态下，需要时把它接到 `ProviderConnectionDialog` 而不是恢复向导。
 
