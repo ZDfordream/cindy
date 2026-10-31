@@ -8,6 +8,48 @@
 
 ---
 
+## 2026-10-31
+
+### 15. 模型供应商重设计：模型网关（实现计划 7 任务一并交付）
+
+> **需求分节对照**：[CHANGES.md](./CHANGES.md) §8（需求 4 模型供应商极度简单设置）、
+> §9（需求 5/6 设置弹窗化 + 添加模型弹窗）的模型供应商条线，由本次重设计取代并收口；
+> 需求 7 的「自定义模型」卡片（本文件 2026-10-29 条目 10）→ 被模型网关列表取代，
+> `~/.hrbuddy/models.json` 自动写入行为保留（条目 13 的裁决不变）。设计定案见
+> `docs/superpowers/specs/2026-10-31-model-provider-redesign-design.md`。
+
+- **改动（计划 7 任务）**：
+  1. **模型条目 store**（`apps/desktop/src/renderer/features/model-gateway/`）：
+     `useModelGateway()` / `ModelEntry` 为模型配置唯一真源（稳定 id 永不因编辑换；
+     `enabled` / `status` / `lastTestedAt` 落 localStorage `hrbuddy.modelGatewayMeta`）。
+     旧配置不迁移（owner「清空重来」），无新表单标记的条目不进列表。
+  2. **连通测试**：保存时 + 手动重测时经 `maker:provider:test-connection` 发
+     `/v1/messages` 最小探测；不做周期巡检；结果写回 status + lastTestedAt。
+  3. **设置右栏模型列表**：`ModelGatewayList` 挂右栏顶部常驻（含 Cindy 登录引导面），
+     可启停行 = 状态点 + 延迟/原因 + 编辑/删除 + 开关（关掉不进聊天下拉但配置还在）。
+  4. **三栏表单**：`ModelGatewayForm`（接口地址 / 密钥 / 模型，协议写死
+     anthropic-messages；**测不通不让存**；密钥只进 keychain/safeStorage）。
+  5. **models.json 镜像**：IPC `hrbuddy-models:export` 把元数据（含 enabled/status，
+     **绝不含密钥**）写 `~/.hrbuddy/models.json`（需求 7 路径裁决不变）。
+  6. **聊天下拉**：输入框右下角 `ChatModelMenu` + 全局当前模型（跨重启记住、作用后续
+     消息），菜单底部弱链跳设置的模型列表。
+  7. **旧多供应商 UI 隐藏（单一恢复点）**：`legacyVisibility.ts` 的
+     `SHOW_LEGACY_PROVIDER_UI`（默认 `false`）把右栏旧详情块整体收起——身份行/断开/
+     「···」菜单、账户资产（余额/套餐/用量）、「允许被远程调用」+ 远程与分享入口、
+     预设/多协议/「获取模型列表」入口。**保留代码**（owner「藏起来以后再说」）；
+     把常量改回 `true` 即整块恢复。⚠️ 与本文件条目 12（`SHOW_PROVIDER_DETAIL` 已回退）
+     的区别：那次收窄后 owner 改口；本次是重设计定案的一部分，默认面就是简单三栏。
+- **动机**：owner「使用方只需要填写三处地方即可快速简单配置使用」「旧功能藏起来以后再说」。
+- **影响面**：Desktop 设置 → 模型供应商 + 主聊天下拉；Mobile 不动。`providersSection*`
+  断言旧详情块的用例按工程约定 §3.2 裁剪/改写（逐条依据见各测试文件就地注释与
+  `providersSectionAssetModule.test.tsx` 头部处置表）。
+- **验证**：desktop typecheck ✅；model-gateway + providersSection* 共 65/65 ✅；
+  `check:i18n` / `design:inventory` / `check:design-colors` / `check:test-hygiene` ✅；
+  `--mock --isolated=hrbuddy-gw7` 实机目检 Light + Dark：右栏只剩模型列表
+  （状态点三态、编辑/删除/开关齐全），身份/资产/远程调用/获取模型列表块全部不渲染。
+
+---
+
 ## 2026-10-29
 
 ### 14. 上下间距改到容器级（所有选项页）

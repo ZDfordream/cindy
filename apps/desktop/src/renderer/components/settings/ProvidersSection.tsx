@@ -124,6 +124,7 @@ import { ProviderShareManagePage } from '@/features/provider-share/ProviderShare
 import { ProviderSharePasteButton } from '@/features/provider-share/ProviderSharePasteDialog';
 import { ModelGatewayList } from '@/features/model-gateway/ModelGatewayList';
 import { ModelGatewayForm } from '@/features/model-gateway/ModelGatewayForm';
+import { isLegacyProviderUiVisible } from '@/features/model-gateway/legacyVisibility';
 import { ModelGatewayProvider } from '@/features/model-gateway/ModelGatewayStore';
 import type { ModelEntry } from '@/features/model-gateway/types';
 import {
@@ -3355,7 +3356,12 @@ export function ProvidersSection() {
                   onClick={() => void signInToCindy()}
                 />
               </div>
-            ) : effectiveSelected ? (
+            /* 旧多供应商详情块整体收在单一恢复点后（owner 2026-10-31「藏起来以后再说」）：
+               身份行/断开/「···」菜单、账户资产、允许被远程调用 + 远程与分享入口、
+               预设/多协议/「获取模型列表」入口，以及该区域的空态占位。开关为 false 时
+               右栏只剩上方模型网关列表；把 legacyVisibility.ts 的常量改回 true 即整块恢复。
+               分享/远程详情与登录引导面不属于旧详情块，保持可见。 */
+            ) : !isLegacyProviderUiVisible() ? null : effectiveSelected ? (
               renderDetailHeader(
                 effectiveSelected,
                 <>
