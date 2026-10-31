@@ -313,3 +313,18 @@ OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新�
 - **可观测性**：`toMirrorRow` 静默丢行不留 warn；`mirrorRowFromEntry` 类型与 main 侧重复可挪 shared/；`status.detail` 落盘已过脱敏+512 截断，将来透传响应体时再加清洗。
 - **多窗口同步**（R21 的正式解）：meta 读-合并-写 / storage 事件同步 / 镜像写前重建。
 - **styleRoots**：`features/model-gateway/` 样式源未纳入 design-inventory 的 styleRoots，Token/裸色计数不覆盖该目录。
+
+### 10.3 集成门收尾补裁（2026-11-01）
+
+| # | 裁决 | 约束 |
+|---|---|---|
+| R22 | `productName`（HRBuddy）与 userData 目录名（Cindy 族）**有意解耦**：userData 由主进程 `app.setPath` 显式钉住，不再等同 productName | 禁止移除该显式钉子；`brand-identity-sync` 已改钉「productName=BRAND_NAME + 钉子存在 + userDataDirName 冻结 Cindy」 |
+| R23 | ChatModelMenu 接受补回「选完模型焦点归还编辑器」（Task 6 换入口时丢的真回归，`chatInputAnnotationAbort` 用例钉住） | 后续改菜单焦点策略时保住该归还 |
+| R24 | effort 档位 UI 自 Task 6 换模型入口后**整面消失**，且 effort「投影优先」显示与发送侧「committed 优先」语义分叉 | **产品待决**（是否恢复档位 UI、统一哪套语义）——原「投影优先」用例因无载体裁剪，未虚构替代行为 |
+| R25 | 远程机器切换入口 `MachineSwitcherMenu` 无人渲染属侧栏清理的**有意移除**（owner「体验不佳」），源码合同改钉新现实 | 别当丢失功能「修回来」；要恢复须先推翻该取舍 |
+
+**收尾挂账（并入 §10.2）**：
+- R24 的 effort 档位产品待决（上面一行）。
+- `MainListScopeHeader.tsx` 残留死 import（侧栏清理遗留）。
+- 既有通过用例里残留永真的 `queryByTestId('model-selector')` 断言，应删或改钉 ChatModelMenu。
+- `chatInputModelLoading` 原 8 条重写为 7 条（唯一删除项 = R24 无载体用例），guest 锁选在 ChatModelMenu 无禁用态承载（deferred），现状钉在用例注释里。
