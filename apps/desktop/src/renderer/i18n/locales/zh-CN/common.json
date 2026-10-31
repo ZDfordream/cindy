@@ -11312,6 +11312,12 @@
     "projectPicker": {
       "addRemoteProject": "添加远程项目"
     },
+    "chatModelMenu": {
+      "triggerAria": "选择模型",
+      "placeholder": "选择模型",
+      "empty": "还没有可用的模型",
+      "openSettings": "去设置"
+    },
     "modelSelector": {
       "displayPricing": {
         "million": "百万",

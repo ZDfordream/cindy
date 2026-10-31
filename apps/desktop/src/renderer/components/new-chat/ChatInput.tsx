@@ -127,9 +127,10 @@ import {
   takeComposerSubmitRequest,
 } from '@/lib/composerActionsBus';
 import { resolveComposerModelSelection } from './composerModelSelection';
+import { ModelGatewayProvider } from '@/features/model-gateway/ModelGatewayStore';
+import { ChatModelMenu } from '@/features/model-gateway/ChatModelMenu';
 import type { SessionRuntimeProfileProjection, SessionRuntimePendingProjection } from '@/lib/ccAgent.types';
 import {
-  ModelSelector,
   resolveRemoteModelListStatus,
   resolveModelSelectorAgentIdentity,
   type EffortChangeOptions,
@@ -9870,208 +9871,12 @@ export function ChatInput({
                             : 'min-w-0')
                     : useNarrowToolbar ? 'min-w-0 shrink' : undefined}
                 >
-                  {!sessionModelLoading && <ModelSelector
-                    providersOverride={sshCodexHostId ? sshCodexProviders.providers : undefined}
-                    providersOverrideState={sshCodexHostId ? sshCodexProviders : undefined}
-                    // 选中态一律是会话 / 草稿持有的 **wire model id**(sessions.model 或
-                    // lastByVendor.model)。面板行的归一化 id 只活在面板内部 —— 从这里递进去
-                    // 会让"当前选中的那一行"在合并行上错位,也会把归一化 id 顺着
-                    // onProviderChange 漏回会话。
-                    modelId={activeModel}
-                    effort={activeEffort}
-                    onModelChange={handleModelChange}
-                    onEffortChange={handleEffortChange}
-                    fastMode={composerSelection.display.fastMode}
-                    currentSelection={sessionId && runtimeAgentKind ? composerSelection.current : undefined}
-                    onFastModeChange={handleFastModeChange}
-                    thinkingEnabled={
-                      currentModelAgentKind && effectiveSourceId
-                        ? (modelMemory?.getThinking?.(
-                            currentModelAgentKind,
-                            effectiveSourceId,
-                            activeModel,
-                          ) ??
-                          (!deviceLinkDeviceId
-                            ? getProviderModelThinking(
-                                currentModelAgentKind,
-                                effectiveSourceId,
-                                activeModel,
-                              )
-                            : undefined) ??
-                          true)
-                        : true
-                    }
-                    onThinkingChange={async (enabled) => {
-                      if (settingsLocked) return;
-                      if (currentModelAgentKind && effectiveSourceId) {
-                        if (modelMemory?.setThinking) {
-                          modelMemory.setThinking(
-                            currentModelAgentKind,
-                            effectiveSourceId,
-                            activeModel,
-                            enabled,
-                          );
-                        } else if (!deviceLinkDeviceId && !sshCodexHostId) {
-                          setProviderModelThinking(
-                            currentModelAgentKind,
-                            effectiveSourceId,
-                            activeModel,
-                            enabled,
-                          );
-                        }
-                      }
-                      // 意图期内(点选尚未发送)必须把开关写回 staged 意图：否则结算回放
-                      // 会按登记时的旧快照下发档位，把用户刚关掉的思考又打开(或反之)。
-                      if (sessionId && currentModelAgentKind) {
-                        const intent = makerChatStore.getAgentSwitchIntent(sessionId);
-                        if (intent) {
-                          await performAgentSwitch(intent.target, intent.model, intent.providerId, {
-                            ...(intent.effort ? { effort: intent.effort as Effort } : {}),
-                            fastMode: intent.fastMode,
-                            thinking: enabled,
-                          });
-                        }
-                      }
-                      if (sessionId) {
-                        const api = deviceLinkDeviceId
-                          ? makerApiForDevice(deviceLinkDeviceId)
-                          : window.electronAPI.maker;
-                        await api.setThinkingEnabled(sessionId, enabled);
-                      }
-                    }}
-                    modelMemory={modelMemory}
-                    vendorKey={
-                      runtimeAgentKind === 'codex'
-                        ? 'codex'
-                        : runtimeAgentKind === 'pi'
-                          ? 'pi'
-                          : runtimeAgentKind === 'claude-code'
-                            ? 'cc'
-                            : vendorKey
-                    }
-                    // 稳态只接受父层已加载的 session/runtime 身份；intent 存在时则明确标成
-                    // “下条消息”的目标。这样冷启动不猜 Claude Code，切换失败保留 intent
-                    // 供重试时也不会长期隐藏身份或把目标冒充为当前 Agent。
-                    agentIdentity={
-                      sessionId
-                        ? composerAgentIdentity
-                        : undefined
-                    }
-                    // 统一模型选择器(M5 新会话 / M6 会话内)。composer 是它的两个真实入口;
-                    // 其余 7 个消费者(scheduler / IM / Hook / Subagent / Worker /
-                    // GhostErrand / 设置)本版一律不开。
-                    // pill 形态(model-selector-unified §1.1):不写 harness 名字,改成
-                    // 「模型名 + 引擎小标 + 思考深度」。会话内取已确认 / 意图中的引擎
-                    // (agentIdentity 同一口径:身份没加载完就不画,不拿 vendorKey 的
-                    // Claude Code 回退冒充);草稿直接取当前引擎。
-                    engineMarkVendor={unifiedPanelActive ? composerEngineMarkVendor : null}
-                    unifiedPanel={unifiedPanelActive}
-                    // 「最近使用」只记**对话**入口(新任务草稿 / 会话内,本组件就是这两个),且
-                    // 远程不记:被控端目录的模型写进本机列表只会得到一行永远不可路由的记录。
-                    // deviceLinkDeviceId 为 undefined = 归属尚未解析(冷启动) —— 宁可这一帧
-                    // 不记,也不把远程选择写成本地记录。
-                    recordRecentUsage={!remoteHostId && deviceLinkDeviceId === null}
-                    // 联合列表只列**运行时已注册**的引擎(撤掉 AgentSelect 后接住它的
-                    // hiddenVendors 门禁);未加载时不传 = 不隐藏任何引擎。会话内没有
-                    // 跨引擎切换事务可走时锁定当前引擎(见 inSessionEngineLocked)。
-                    unifiedAgents={effectiveUnifiedAgents}
-                    // 会话内:同引擎过滤 + 跨引擎走 performAgentSwitch(见 sessionEngineFilter)。
-                    sessionEngineFilter={sessionEngineFilter}
-                    // 新会话:选中直通,引擎跟着模型一起落进草稿(见 handleUnifiedDraftSelect)。
-                    onUnifiedSelect={
-                      !sessionId && unifiedPanelActive && onUnifiedDraftSelect
-                        ? handleUnifiedDraftSelect
-                        : undefined
-                    }
-                    // 草稿取调用方持有的锚点,会话取本组件的内存态(见 effectiveSelectedFavoriteUid)。
-                    selectedFavoriteUid={effectiveSelectedFavoriteUid}
-                    // 会话内同引擎选中一行后回传该行的收藏锚点(跨引擎那一路在
-                    // sessionEngineFilter.onCrossEngineSelect 里按事务真实结果自行记录)。
-                    onSessionFavoriteAnchorChange={
-                      sessionId && unifiedPanelActive ? setSessionFavoriteAnchor : undefined
-                    }
-                    // session-agent-switch:已建会话提供显式两步引擎切换(列表顶部
-                    // Claude/Codex 分段,先选 Agent 再选模型)。device-link 远程会话同样
-                    // 支持(隧道到被控端执行,与手机端同一套 channel),入口按被控端能力位
-                    // 门控。草稿(无 sessionId)与 SSH 远程会话仍不传。
-                    //
-                    // 统一面板下**刻意不传**:那两步分段已被「同引擎默认 + 显式跨引擎入口 +
-                    // 行浮层引擎胶囊」完整取代(见 ModelSelectorContentProps.sessionEngineFilter
-                    // 的 prop 说明),两者同时传会得到一个永远不渲染的分段。
-                    agentSwitch={
-                      !unifiedPanelActive &&
-                      sessionId &&
-                      vendorKey &&
-                      !remoteHostId &&
-                      sessionAgentSwitchSupported
-                        ? {
-                            currentVendor: vendorKey,
-                            // 两步分段的目标是 vendor 口径,确认门按 AgentKind 判(与意图
-                            // 记录同形),在边界上转一次 —— 见 confirmAgentBrowseSwitch。
-                            confirmBrowseSwitch: (targetVendor: 'cc' | 'codex' | 'pi') =>
-                              confirmAgentBrowseSwitch(vendorKeyToAgentKind(targetVendor)),
-                            onSwitch: performAgentSwitch,
-                          }
-                        : undefined
-                    }
-                    deviceId={catalogDeviceId}
-                    // 远程 Agent:面板同时列出其他电脑上的供应商。草稿选中即换 Agent 落点;已建任务
-                    // 选中另一台电脑的模型 = 把 Agent 挪过去(下一条消息生效)。
-                    {...(remoteAgentOptions && unifiedPanelActive && onUnifiedDraftSelect
-                      ? { remoteAgent: remoteAgentOptions }
-                      : sessionRemoteAgentOptions && unifiedPanelActive
-                        ? { remoteAgent: sessionRemoteAgentOptions }
-                        : {})}
-                    // Agent 在另一台电脑运行(草稿或已建任务;意图期按下一条消息时的位置):
-                    // trigger 用带信号波纹的远程 Logo。
-                    agentDevice={
-                      effectiveAgentDeviceId
-                        ? {
-                            deviceId: effectiveAgentDeviceId,
-                            name:
-                              remoteAgentDevices?.find(
-                                (device) => device.deviceId === effectiveAgentDeviceId,
-                              )?.name ??
-                              (effectiveAgentDeviceId === agentDeviceId ? agentDeviceName : null),
-                          }
-                        : null
-                    }
-                    // SSH 远程会话隐藏订阅直连模型(chatgpt/ / xai/):bridge 只挂在本地 compat-proxy,
-                    // 远程模式走 remoteEndpoint 不经翻译,选了必失败。
-                    excludeSubscriptionDirect={!!remoteHostId}
-                    // 同理隐藏 openai-chat 桥接的 Codex 供应商(DeepSeek / Kimi / GLM 等):
-                    // Responses→Chat 桥只挂在本地 codex-proxy,SSH 远程走 daemon 不经它。
-                    excludeChatBridgedCodex={!!remoteHostId}
-                    dense={effectiveDenseToolbar}
-                    // 意图期与 activeModel 同一份目标快照(null = 跟随目标引擎默认路由);
-                    // 无意图才回到会话 runtime 的 selectedProviderId。
-                    currentProviderId={activeProviderId}
-                    sourceDisconnected={selectedSourceDisconnected}
-                    // 断开来源回落到默认来源后,面板会高亮同模型的回落行;点击该行必须重新
-                    // 发出来源选择,把显示中的默认来源钉回会话的显式来源。
-                    reselectEmitsChange={selectedSourceDisconnected}
-                    // 已建会话按实际路由口径解析当前来源(含停用拷贝,跟真实扣费路由);
-                    // 草稿是新路由选择,保持准入口径(PR #744 review 第十轮)。
-                    actualRoute={!!sessionId}
-                    // 有过 Agent 回复 = 供应商组已为这个任务选好电脑,组那一项的用量按那台显示。
-                    taskStarted={taskStarted}
-                    onProviderChange={(providerId, modelId, effort, fast) =>
-                      handleProviderChange(providerId, modelId, effort, undefined, fast)
-                    }
-                    onNavigateToProviders={handleNavigateToProviders}
-                    onReconnectSource={handleReconnectSource}
-                    switching={remoteSwitchInFlight}
-                    disabled={
-                      disabled || settingsLocked || agentSendDispatchInFlight || agentSwitchInFlight
-                    }
-                    visualVariant={isCreateAgentVariant ? 'create-agent' : 'default'}
-                    compactToolbar={useNarrowToolbar}
-                    ultraCompactToolbar={useUltraCompactToolbar}
-                    // composer 工具条(含新建对话框 create-agent)统一走脱身上浮 morph;
-                    // settings/CreateWorker 不传该 prop → Radix 回退,不 morph。
-                    useMorphPopover
-                    restoreFocusTarget={composerSuggestionFocusTarget}
-                  />}
+                  {/* 聊天里的模型菜单（设计稿 §5.3）：输入框右下角取代原「配置模型」
+                      （ModelSelector 触发器）入口；切换的是全局当前模型，作用于后续消息。
+                      条目与当前模型由菜单自取（model-gateway store），挂载方只提供 Provider。 */}
+                  <ModelGatewayProvider>
+                    <ChatModelMenu />
+                  </ModelGatewayProvider>
                 </div>
                 ) : null}
                 <div

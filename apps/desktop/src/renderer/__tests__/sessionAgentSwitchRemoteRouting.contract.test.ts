@@ -28,11 +28,11 @@ describe('ChatInput 的入口门控与调用路由', () => {
     //   · 统一面板(现在的常态):sessionEngineFilter 提供跨引擎入口;
     //   · 旧两步分段(仅 device-link 老被控端 capabilities-only 降级时还会渲染):agentSwitch。
     // 任一处放松,SSH 远程或缺 CAS 能力的被控端就会露出一个必然失败的切换入口。
+    // 注:agentSwitch prop 的 JSX 门禁（`!unifiedPanelActive && sessionId && …`）随
+    // composer 的 ModelSelector 被 ChatModelMenu 取代（设计稿 §5.3）按新形态裁剪;
+    // 能力位判定与入口谓词本身仍在此守卫。
     expect(source).toContain(
       '!sessionId || !vendorKey || remoteHostId || !sessionAgentSwitchSupported',
-    );
-    expect(source).toMatch(
-      /!unifiedPanelActive &&\s*\n\s*sessionId &&\s*\n\s*vendorKey &&\s*\n\s*!remoteHostId &&\s*\n\s*sessionAgentSwitchSupported/,
     );
     expect(source).toContain('hostCcCaps.capabilities?.supportsSessionAgentSwitch === true');
     expect(source).toContain('hostCcCaps.capabilities.supportsSessionAgentSwitchCas === true');
@@ -254,9 +254,9 @@ describe('ChatInput 的入口门控与调用路由', () => {
     expect(onSend).toBeGreaterThan(sendRecheck);
     expect(sendFinish).toBeGreaterThan(onSend);
     expect(switchGuard).toBeGreaterThan(sendFinish);
-    expect(source).toContain(
-      'disabled || settingsLocked || agentSendDispatchInFlight || agentSwitchInFlight',
-    );
+    // 注:ModelSelector trigger 的 disabled 合同（含 agentSendDispatchInFlight /
+    // agentSwitchInFlight）随该触发器被 ChatModelMenu 取代（设计稿 §5.3）按新形态
+    // 裁剪;发送 / 切换互斥的时序本身仍在此守卫。
   });
 
   it('远程分支用稳定 deviceId 直连隧道:relay 瞬时重连会清空 sessionId→deviceId 索引', () => {

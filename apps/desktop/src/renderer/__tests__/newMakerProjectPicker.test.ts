@@ -583,9 +583,11 @@ describe('Shared create project picker', () => {
     // device-link 老被控端的降级分支里保留),上面那条 hiddenVendors 断言因此不再是
     // 常态路径的门禁。**门禁没放松,只是换了承载物**:ChatInput 按同一个 runtime 注册
     // 结果算出 unifiedAgents 交给联合列表,未注册的引擎连行都不出现。
+    // 注:unifiedAgents={effectiveUnifiedAgents} 的 prop 注入点随 composer 的
+    // ModelSelector 被 ChatModelMenu 取代(设计稿 §5.3)按新形态裁剪;runtime 注册
+    // 过滤的谓词与 hiddenVendors 门禁本身仍在此守卫。
     expect(newMakerDraftRouteSource).toContain('hiddenVendors={hiddenSwitcherVendors}');
     expect(chatInputSource).toMatch(/useAvailableAgents\(catalogDeviceId\)/);
-    expect(chatInputSource).toContain('unifiedAgents={effectiveUnifiedAgents}');
     // fail-open:注册结果没回来之前不隐藏任何引擎;当前引擎恒在列。
     expect(chatInputSource).toContain('if (!runtimeAgentsLoaded) return undefined;');
     expect(chatInputSource).toContain(

@@ -11312,6 +11312,12 @@
     "projectPicker": {
       "addRemoteProject": "원격 프로젝트 추가"
     },
+    "chatModelMenu": {
+      "triggerAria": "모델 선택",
+      "placeholder": "모델 선택",
+      "empty": "아직 사용 가능한 모델이 없습니다",
+      "openSettings": "설정 열기"
+    },
     "modelSelector": {
       "displayPricing": {
         "million": "100만",

@@ -11347,6 +11347,12 @@
     "projectPicker": {
       "addRemoteProject": "Add remote project"
     },
+    "chatModelMenu": {
+      "triggerAria": "Choose model",
+      "placeholder": "Choose model",
+      "empty": "No models available yet",
+      "openSettings": "Open Settings"
+    },
     "modelSelector": {
       "displayPricing": {
         "million": "1M",

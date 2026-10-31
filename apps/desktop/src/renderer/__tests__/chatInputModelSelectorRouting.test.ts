@@ -121,13 +121,9 @@ describe('ChatInput model source switching wiring', () => {
     // switchSessionAgent 的第 7 参必须带上目标 (引擎,来源,模型) 的思考意图。
     expect(agentSwitch).toMatch(/const targetThinking =[\s\S]*?getThinking/);
     expect(agentSwitch).toMatch(/switchSessionAgent\([\s\S]*?targetThinking,\s*\);/);
-
-    const toggleStart = chatInputSource.indexOf('onThinkingChange={async (enabled) => {');
-    const toggleEnd = chatInputSource.indexOf('modelMemory={modelMemory}', toggleStart);
-    const toggle = chatInputSource.slice(toggleStart, toggleEnd);
-    // 意图期内切开关必须写回 staged 意图（否则发送结算按旧快照把思考又打开）。
-    expect(toggle).toContain('getAgentSwitchIntent(sessionId)');
-    expect(toggle).toContain('thinking: enabled');
+    // 注：思考开关的 JSX 半段（onThinkingChange → 写回 staged 意图）随 composer 的
+    // ModelSelector 一起被 ChatModelMenu 取代（设计稿 §5.3），调用点不再存在，
+    // 对应断言随产品形态裁剪；performAgentSwitch 的意图重放仍在此守卫。
   });
 
   it('keeps exact-window confirmation local and removes it from device-link calls', () => {
@@ -305,18 +301,9 @@ describe('ChatInput model source switching wiring', () => {
     expect(localConfirm).toContain('confirmSwitch');
   });
 
-  it('lets a disconnected source reselect the highlighted fallback provider row', () => {
-    const selectorStart = chatInputSource.lastIndexOf('<ModelSelector');
-    expect(selectorStart).toBeGreaterThanOrEqual(0);
-
-    const selectorEnd = chatInputSource.indexOf('/>', selectorStart);
-    expect(selectorEnd).toBeGreaterThan(selectorStart);
-
-    const selectorBlock = chatInputSource.slice(selectorStart, selectorEnd + 2);
-
-    expect(selectorBlock).toContain('sourceDisconnected={selectedSourceDisconnected}');
-    expect(selectorBlock).toContain('reselectEmitsChange={selectedSourceDisconnected}');
-  });
+  // 「断开来源回落后点高亮行重选」曾由 composer 的 ModelSelector 触发器
+  // （sourceDisconnected / reselectEmitsChange props）承接；该触发器已被
+  // ChatModelMenu 取代（设计稿 §5.3），调用点不存在，按新形态裁剪。
 
   it('routes unknown target-window failures through the provider-aware settings action', () => {
     expect(chatInputSource).toContain('buildModelWindowRecoveryToast({');
@@ -330,36 +317,18 @@ describe('ChatInput model source switching wiring', () => {
   });
 
   /**
-   * 统一模型选择器(model-selector-unified M5 / M6)在 composer 上的接线锁。
-   * 这三条各自堵一个「模块写完了但没有调用点」的洞:面板开关、会话内跨引擎入口、
-   * 新会话选中直通。任一条掉了,统一面板对用户就是不存在 / 或者存在但按钮点不动。
+   * 统一模型选择器(model-selector-unified M5 / M6)曾由 composer 的 ModelSelector
+   * 调用点接线（unifiedPanel / sessionEngineFilter / 选中直通 / agentSwitch 互斥）。
+   * 该调用点已被 ChatModelMenu 取代（设计稿 §5.3），调用点锁随产品形态裁剪；
+   * 统一面板本体仍供 settings / Worker 等入口使用，其内部契约在下方继续守卫。
    */
-  it('wires the unified model panel into both composer entries', () => {
-    const selectorStart = chatInputSource.lastIndexOf('<ModelSelector');
-    const selectorBlock = chatInputSource.slice(
-      selectorStart,
-      chatInputSource.indexOf('/>', selectorStart) + 2,
-    );
-
-    expect(selectorBlock).toContain('unifiedPanel={unifiedPanelActive}');
-    // 会话内:同引擎过滤 + 跨引擎交给 performAgentSwitch。
-    expect(selectorBlock).toContain('sessionEngineFilter={sessionEngineFilter}');
-    // 新会话:选中直通(草稿),仅无 sessionId 时下发。
-    expect(selectorBlock).toContain('!sessionId && unifiedPanelActive && onUnifiedDraftSelect');
-    // 收藏锚点:草稿取调用方持有的那一份,会话取本组件的内存态(2026-08-17 review 第三轮 G4)。
-    expect(selectorBlock).toContain('selectedFavoriteUid={effectiveSelectedFavoriteUid}');
-    expect(selectorBlock).toContain('onSessionFavoriteAnchorChange={');
-  });
-
-  it('does not render the legacy two-step agent segments under the unified panel', () => {
-    const selectorStart = chatInputSource.lastIndexOf('<ModelSelector');
-    const selectorBlock = chatInputSource.slice(
-      selectorStart,
-      chatInputSource.indexOf('/>', selectorStart) + 2,
-    );
-    // agentSwitch 与 sessionEngineFilter 是**互斥**的两种会话内形态(见 ModelSelector 的
-    // prop 说明)。同时传会得到一个永远不渲染的分段,等于埋一个看不见的死入口。
-    expect(selectorBlock).toContain('!unifiedPanelActive &&');
+  it('mounts the chat model menu at the composer model slot', () => {
+    // 新调用点锁：模型菜单必须挂在 composer 的模型槽位上（否则「模块写完了但
+    // 没有调用点」，用户在聊天里看不到任何模型入口）。
+    expect(chatInputSource).toContain('<ChatModelMenu />');
+    expect(chatInputSource).toContain('<ModelGatewayProvider>');
+    // 旧「配置模型」（ModelSelector 触发器）不再挂在 composer 上。
+    expect(chatInputSource).not.toContain('<ModelSelector');
   });
 
   it('locks the union list to the current engine when no cross-engine transaction exists', () => {
@@ -405,23 +374,8 @@ describe('ChatInput model source switching wiring', () => {
    * 引擎取值必须与 agentIdentity 同源 —— 会话身份没加载完就不画,绝不拿 vendorKey 的
    * Claude Code 回退冒充(那正是 bug4 的病根,同一个回退不能在 pill 上复发)。
    */
-  it('renders the composer pill engine as a mark sourced from the confirmed identity', () => {
-    const selectorStart = chatInputSource.lastIndexOf('<ModelSelector');
-    const selectorBlock = chatInputSource.slice(
-      selectorStart,
-      chatInputSource.indexOf('/>', selectorStart) + 2,
-    );
-    // original 形态(三档并存)不画引擎小标:老 pill 用 harness 名字文本,两代形态不混。
-    expect(selectorBlock).toContain(
-      'engineMarkVendor={unifiedPanelActive ? composerEngineMarkVendor : null}',
-    );
-    expect(chatInputSource.includes('runtimeAgentKind ? composerSelection.current.agentKind : runtimeAgentKind')).toBe(true);
-    expect(chatInputSource.includes('composerSelection.pending ? composerSelection.display.agentKind : null')).toBe(true);
-    expect(chatInputSource.includes('composerAgentIdentity?.vendorKey ?? null')).toBe(true);
-    expect(selectorBlock).toContain('? composerAgentIdentity');
-    // 草稿没有 session 身份可言,当前引擎就是 vendorKey。
-    expect(chatInputSource).toContain(': (vendorKey ?? null);');
-  });
+  // 「composer pill 引擎小标」（engineMarkVendor + agentIdentity 注入 ModelSelector）
+  // 随该触发器被 ChatModelMenu 取代（设计稿 §5.3），调用点不再存在，按新形态裁剪。
 
   it('falls back to the legacy panel only when the controlled device has no provider catalog', () => {
     // device-link 老被控端 capabilities-only:联合列表的数据源是供应商目录,没有目录
@@ -577,31 +531,14 @@ describe('ChatInput model source switching wiring', () => {
     expect(draftHandler).toContain('onUnifiedDraftSelect?.({');
     expect(draftHandler).not.toContain('maker.setModel(');
     expect(draftHandler).not.toContain('confirmModelSwitchContextGuard(');
-
-    const selectorStart = chatInputSource.lastIndexOf('<ModelSelector');
-    const selectorBlock = chatInputSource.slice(
-      selectorStart,
-      chatInputSource.indexOf('/>', selectorStart) + 2,
-    );
-    expect(selectorBlock).toContain(
-      '!sessionId && unifiedPanelActive && onUnifiedDraftSelect\n                        ? handleUnifiedDraftSelect',
-    );
+    // 注：panel → handler 的 JSX 注入（onUnifiedSelect prop）随 composer 的
+    // ModelSelector 被 ChatModelMenu 取代（设计稿 §5.3），按新形态裁剪；
+    // 草稿直通 handler 的契约本身仍在此守卫。
   });
 
-  it('feeds the selector the session/draft wire id as the selected model', () => {
-    const selectorStart = chatInputSource.lastIndexOf('<ModelSelector');
-    const selectorBlock = chatInputSource.slice(
-      selectorStart,
-      chatInputSource.indexOf('/>', selectorStart) + 2,
-    );
-    // activeModel 的三个来源(agentSwitchIntent / pendingRemoteSwitch / initialModel)全是
-    // 会话或草稿持有的 wire id;这里不得改成面板的行 id。
-    expect(selectorBlock).toContain('modelId={activeModel}');
-    expect(selectorBlock).toContain('effort={activeEffort}');
-    expect(selectorBlock).toContain('fastMode={composerSelection.display.fastMode}');
-    expect(selectorBlock).toContain('currentSelection={sessionId && runtimeAgentKind ? composerSelection.current : undefined}');
-    expect(selectorBlock).not.toContain('rowModelId');
-  });
+  // 「选中态喂 wire id（modelId={activeModel} / effort / fastMode / currentSelection）」
+  // 是 ModelSelector 触发器的 prop 合同；该触发器已被 ChatModelMenu 取代
+  // （设计稿 §5.3），调用点不再存在，按新形态裁剪。
 
   it('sends null atomic effort for models with no ranks and keeps row Fast', () => {
     const modelStart = chatInputSource.indexOf('const performModelChange = useCallback(');
@@ -620,19 +557,18 @@ describe('ChatInput model source switching wiring', () => {
     expect(providerChange).toContain('reconciledFast !== undefined');
     expect(providerChange).toContain('effort: atomicEffort');
     expect(providerChange).toContain('effort: remoteAtomicEffort');
-
-    expect(chatInputSource).toContain(
-      'handleProviderChange(providerId, modelId, effort, undefined, fast)',
-    );
+    // 注：panel onProviderChange → handleProviderChange 的五参调用点随 composer 的
+    // ModelSelector 被 ChatModelMenu 取代（设计稿 §5.3），按新形态裁剪；
+    // performModelChange / performProviderChange 的原子选择契约仍在此守卫。
   });
 
   it('reopen snapshot keeps intent model/source together; idle falls back to runtime provider', () => {
     expect(chatInputSource).toContain(
       'const activeProviderId = runtimeEffective || composerSelection.pending ? composerSelection.display.providerId : selectedProviderId;',
     );
-    expect(chatInputSource).toContain('modelId={activeModel}');
-    expect(chatInputSource).toContain('currentProviderId={activeProviderId}');
-    expect(chatInputSource).not.toContain('currentProviderId={selectedProviderId}');
+    // 注：modelId={activeModel} / currentProviderId={activeProviderId} 这两笔喂给
+    // ModelSelector 触发器的 prop 断言随该触发器被 ChatModelMenu 取代（设计稿 §5.3）
+    // 裁剪；activeModel / activeProviderId 的快照合成本身仍在此守卫。
     expect(chatInputSource).toContain('agentSwitchIntent?.target');
     expect(chatInputSource).toContain(
       'const currentAgent = runtimeAgentKind ?? vendorKeyToAgentKind(vendorKey);',
