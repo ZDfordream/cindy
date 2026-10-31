@@ -228,7 +228,8 @@ i18n 五语 locale、以及配套测试期望。
 
 ### 8.3 配套
 
-- i18n 五语新增 `settings.providers.gateway.*`（6 key × 5 语）
+- i18n 五语新增 `settings.providers.gateway.*`（6 key × 5 语）——**已随需求 6 的
+  `AddModelDialog` 取代而零引用，2026-11-01 PRD 对齐收口时 5 语同步删除**（勿在上游 merge 时复活）
 - 3 个测试按新行为改写（`providersSectionDeepLink` / `providersSectionUnavailableModels` / `providersSectionAssetModule`）
 - `design-inventory` 已重新生成（desktop.settings 文件数 209→210，radii 552→535）
 - **视觉偏离登记（2026-11-01 PRD 版式，模型设置面）统一见 §9.4**：列表卡 16 /
@@ -311,6 +312,7 @@ OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新�
 | 11 | 遮罩行为 | dirty 不关 + 面板 shake；clean 可关 | DESIGN §4「点遮罩不得关闭」 | Task 2 已落地（`modal-panel.shake`） | 覆盖 CHANGELOG 条目 8 的「遮罩可关」登记 |
 | 12 | 弹窗 × 与「取消」并存 | 参考图两者都有 | §4「有 Cancel 不带 ×」 | 既有偏离登记 1，保留 | — |
 | 13 | 名称字号 | 14.5px/500（`.name`） | 字号白名单 UI 段 {…14,15…} | `text-14 font-medium` | 14.5 不在白名单（禁 `text-[14.5px]`），取最近档 |
+| 14 | 空态文案字号 | 13.5px（`.empty p`） | 字号白名单 UI 段 {…13,14…} | `text-14` | 13.5 不在白名单（禁小数），取整 14；与表 13 的 14.5→14 同规则（半值取偶数档） |
 
 颜色硬约束：上表任何色值都必须经语义 token（`--switch-*` / `--card-status-done` /
 `--error-fg` / `--text-*` / `--confirm-btn-primary-*`）落地，Light/Dark 双模式同源；
@@ -328,14 +330,22 @@ OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新�
 
 | # | 裁决 | 约束 |
 |---|---|---|
-| R4 | `ModelEntry.id` 是稳定句柄（= custom provider id），`modelId` 另存；排序按 modelId | 任何按 id 索引的消费方（currentModel、models.json）依赖稳定句柄，禁止改回「id=上游 model id」 |
+| R4 | `ModelEntry.id` 是稳定句柄（= custom provider id），`modelId` 另存；~~排序按 modelId~~ **↩ 已推翻**（PRD 2026-11-01）：改插入序、新条目追加末尾 | 任何按 id 索引的消费方（currentModel、models.json）依赖稳定句柄，禁止改回「id=上游 model id」；稳定句柄部分继续有效 |
 | R5 | `enabled`/`status`/`lastTestedAt` 走 localStorage `hrbuddy.modelGatewayMeta` | provider 配置 normalize 会剥未知字段，别往 config 里塞 |
-| R14 | 保存即测试：保存成功即写本次探测结果，不做「改后置 untested」 | 与设计稿 §5.2「正常路径无未测试行」一致 |
+| R14 | ~~保存即测试：保存成功即写本次探测结果，不做「改后置 untested」~~ **↩ 已推翻**（PRD 2026-11-01）：保存不探测、存后「未测试」、点状态文字才测 | ~~与设计稿 §5.2「正常路径无未测试行」一致~~ 以 PRD 2026-11-01 为准 |
 | R17 | `~/.hrbuddy/models.json` 是 store 的 1:1 投影：`exportModels(list)` 整组替换、调用方送全量、`ExportedModel.id` 用稳定句柄 | 不是增量日志；不经 gateway store 建的自定义供应商不进镜像（有意） |
 | R18 | 主聊天发送路径消费全局当前模型（范围仅主聊天；bots/scheduler/aux/plugins 留计划 2） | 切模型必须反映到实际发送，不许做成装饰 |
 | R19 | 旧供应商 UI（含左栏本机 CLI 建议行入口）统一藏在 `SHOW_LEGACY_PROVIDER_UI` 单一恢复点后 | 藏不删；恢复 flag 时入口与表单一并回来 |
 | R20 | **全局当前模型只作用于 claude-code 发送路径**，codex/pi 等引擎路由不受影响 | 网关条目仅配 claude-code runtime + anthropic-messages；要扩大覆盖面须先立新裁决 |
 | R21 | 多窗口并发编辑模型设置为 **v1 已知限制**（整份快照互相覆盖，见 `ModelGatewayStore.ts` 头注） | 做多实例同步前，别在多窗口同时改模型设置 |
+
+**PRD 对齐计划（2026-11-01）推翻的三条旧裁定**（上表行内已标 ↩，此处集中留痕）：
+
+| 旧裁定 | 旧内容 | 现行（PRD 2026-11-01） |
+|---|---|---|
+| R14「保存即测试」 | 保存成功即写探测结果，无「未测试」行 | 保存不探测、存后「未测试」、点状态文字才测 |
+| R4 之一「排序按 modelId」 | 列表按 modelId 字母序 | 插入序、新条目追加末尾 |
+| 「点遮罩可关」（CHANGELOG 条目 8） | 弹窗遮罩一点即关 | clean 可关 / dirty 抖动不关；Esc / 取消 / ✕ 始终可关 |
 
 ### 10.2 挂账跟进（合并前已分流：以下为 defer 项，按需立项）
 
@@ -355,6 +365,12 @@ OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新�
 | R23 | ChatModelMenu 接受补回「选完模型焦点归还编辑器」（Task 6 换入口时丢的真回归，`chatInputAnnotationAbort` 用例钉住） | 后续改菜单焦点策略时保住该归还 |
 | R24 | effort 档位 UI 自 Task 6 换模型入口后**整面消失**，且 effort「投影优先」显示与发送侧「committed 优先」语义分叉 | **产品待决**（是否恢复档位 UI、统一哪套语义）——原「投影优先」用例因无载体裁剪，未虚构替代行为 |
 | R25 | 远程机器切换入口 `MachineSwitcherMenu` 无人渲染属侧栏清理的**有意移除**（owner「体验不佳」），源码合同改钉新现实 | 别当丢失功能「修回来」；要恢复须先推翻该取舍 |
+| R26 | `remove` 走**软去标记**：立即摘列表并 strip `catalogPresetId` + 空 keys；撤销窗口内 undo 重新标记、按原索引插回；5s 窗口后才真删（含 keychain 密钥）；卸载 flush 未决删除 | 撤销窗口内强杀进程，残留配置不得复活到列表；真删不得早于窗口；`REMOVE_UNDO_WINDOW_MS` 为 store 导出同源引用 |
+| R27 | baseUrl URL **拒收 userinfo**：`new URL()` 解析出的 username/password 非空即拒（含仅用户名）；path / query 里的 `@` 不误伤 | 护 `~/.hrbuddy/models.json` 凭证红线（R17）——URL 不得携带凭证；文案 `settings.providers.modelDialog.urlNoCredentials` |
+| R28 | baseUrl `new URL()` **解析失败即拒**（不再空转放行）：按既有 `baseUrlInvalid` 拒收，不新增 key | 堵「正则过 + 解析抛」复合畸形（如 `https://user:pass@host:99999`）把 userinfo 带进镜像的旁路；与 R27 同护 models.json |
+
+> 表内 R22–R25 来自集成门收尾（2026-11-01）；**R26–R28 来自 PRD 对齐计划**（2026-11-01，
+> `.superpowers/sdd/2026-11-01-model-gateway-prd-alignment/`，任务 1–4）。
 
 **收尾挂账（并入 §10.2）**：
 - R24 的 effort 档位产品待决（上面一行）。

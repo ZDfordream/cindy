@@ -120,12 +120,14 @@ export function ModelGatewayList({ onAdd, onEdit }: ModelGatewayListProps) {
         </ul>
       ) : hydrated ? (
         /* PRD `.empty`：虚线框空态。`hydrated` 前不展示——加载窗口里的 []
-           只是「还没读到」，不是「没有可用模型」。 */
+           只是「还没读到」，不是「没有可用模型」。
+           空态文案字号：PRD `.empty p` 13.5px 不在字号白名单（禁小数），
+           取整 14（与 name 的 14.5→14 同规则），见 CHANGES.md §9.4 表 14。 */
         <div
           className="flex flex-col items-center rounded-2xl border border-dashed px-5 py-11 text-center"
           style={{ borderColor: 'var(--border-default)', color: 'var(--text-tertiary)' }}
         >
-          <p className="mb-4 text-13">{t('settings.providers.modelGateway.empty')}</p>
+          <p className="mb-4 text-14">{t('settings.providers.modelGateway.empty')}</p>
           <Button size="xs" variant="secondary" compact onClick={onAdd}>
             <Plus size={13} />
             {t('settings.providers.modelGateway.add')}

@@ -3434,14 +3434,6 @@
         "savedToast": "{{model}} 모델을 저장했습니다",
         "saveFailed": "저장하지 못했습니다. 다시 시도해 주세요."
       },
-      "gateway": {
-        "createTitle": "Anthropic 게이트웨이 추가",
-        "desc": "Claude Code 전용 Anthropic 호환 게이트웨이입니다. 세 가지만 입력하면 바로 사용할 수 있습니다.",
-        "modelHint": "업스트림 모델 ID로, 그대로 게이트웨이에 전송됩니다.",
-        "invalidUrl": "올바른 http(s) URL을 입력하세요",
-        "required": "필수",
-        "saveFailed": "저장하지 못했습니다. 다시 시도해 주세요."
-      },
       "custom": {
         "tag": "사용자 지정",
         "editAria": "연결 설정 편집",

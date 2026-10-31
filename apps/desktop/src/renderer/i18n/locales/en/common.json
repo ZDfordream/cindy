@@ -3463,14 +3463,6 @@
         "savedToast": "Saved {{model}}",
         "saveFailed": "Could not save. Please try again."
       },
-      "gateway": {
-        "createTitle": "Add Anthropic Gateway",
-        "desc": "An Anthropic-compatible gateway for Claude Code only. Three fields and you are done.",
-        "modelHint": "Upstream model ID, sent to the gateway as-is.",
-        "invalidUrl": "Enter a valid http(s) URL",
-        "required": "Required",
-        "saveFailed": "Could not save. Please try again."
-      },
       "custom": {
         "tag": "Custom",
         "editAria": "Edit connection settings",

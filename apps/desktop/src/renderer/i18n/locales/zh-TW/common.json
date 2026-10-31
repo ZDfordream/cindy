@@ -3434,14 +3434,6 @@
         "savedToast": "已儲存 {{model}}",
         "saveFailed": "儲存失敗，請稍後再試"
       },
-      "gateway": {
-        "createTitle": "新增 Anthropic 閘道",
-        "desc": "只支援 Claude Code 的 Anthropic 相容閘道。填好三項即可直接使用。",
-        "modelHint": "上游模型 ID，原樣發給閘道。",
-        "invalidUrl": "請輸入合法的 http(s) 位址",
-        "required": "必填",
-        "saveFailed": "儲存失敗，請稍後再試"
-      },
       "custom": {
         "tag": "自定義",
         "editAria": "編輯連線設定",

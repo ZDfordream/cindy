@@ -8,6 +8,51 @@
 
 ---
 
+## 2026-11-01
+
+### 16. 模型设置对齐 PRD 2026-11-01（PRD 对齐计划 4 任务收口）
+
+> **需求分节对照**：PRD 交互稿 `hrbuddy_prd/design/model-provider-settings.html` 是模型
+> 供应商设置面的视觉与交互权威（覆盖条目 15 的部分语义与条目 7/8 的旧视觉登记）。计划
+> 台账 `.superpowers/sdd/2026-11-01-model-gateway-prd-alignment/`；偏离登记与裁决正本
+> 见 [CHANGES.md](./CHANGES.md) §9.4（14 行表）、§10.1（推翻留痕）、§10.3（R26–R28）。
+
+- **推翻旧裁定三条（均以 PRD 2026-11-01 为准）**：
+  1. **R14「保存即测试」→ 已推翻**：保存不探测、存后「未测试」、点状态文字才测；
+  2. **「排序按 modelId」→ 已推翻**（R4 的排序半句）：插入序、新条目追加末尾（稳定句柄半句仍有效）；
+  3. **「点遮罩可关」→ 已推翻**（条目 8）：clean 可关 / dirty 抖动不关；Esc / 取消 / ✕ 始终可关。
+- **新裁决 R26–R28**（正文见 CHANGES.md §10.3）：
+  - R26 `remove` 软去标记：摘列表 + strip `catalogPresetId`/空 keys，undo 重新标记按原索引插回，
+    5s 窗口后真删（含 keychain）；窗口内强杀进程残留配置不复活；
+  - R27 baseUrl URL 拒收 userinfo（护 `models.json` 凭证红线）；
+  - R28 `new URL()` 解析失败即拒（堵复合畸形旁路）。
+- **改动（计划 4 任务）**：
+
+  | # | 任务 | 交付 commit | 备注 |
+  | --- | --- | --- | --- |
+  | 1 | store 语义对齐 PRD | `4b8eaa550c` | 插入序、add 恒 untested、update 三字段变更重置 untested、remove 5s 撤销（R26）、`--mock` 探测演示规则（url 含 fail → 连不上，否则延迟 60–380ms） |
+  | 2 | 添加/编辑弹窗 | `7784779b63` + `8df85a249f` + `b4f0e91e63` | 合法性门（三项合法前保存禁用）、modelId 重复拦截、dirty 遮罩抖动；fix 轮 R27/R28 URL 校验 |
+  | 3 | 列表/行 + 视觉 | `073a192d69` + `d364cd763a` | 状态点四态 + 点状态文字重测、删除 5s 撤销 toast、行内开关、空态、弹窗 22/14 圆角对齐、§9.4 登记；fix 轮撤销窗口与 toast 同步收口 + 焦点环 |
+  | 4 | 收口 | 本次 commit | CHANGES/CHANGELOG 三条推翻标注 + R26–R28 登记 + §9.4 空态字号行；删零引用 `settings.providers.gateway.*`（6 key × 5 语）；门禁 + 双模式目检 |
+
+- **动机**：owner 提供 PRD 交互稿，要求模型供应商设置面（弹窗 + 列表 + 交互脚本）对齐。
+- **影响面**：Desktop 设置 → 模型供应商 + model-gateway store/表单/列表；`~/.hrbuddy/models.json`
+  镜像与 keychain 凭证红线不变（R17）。Mobile 不动。
+- **验证**：desktop typecheck ✅；model-gateway + new-chat/chatInput 相关 31 文件 345/345 ✅；
+  `check:i18n`（14051 key 五语一致，-6 零引用 gateway key）/ `check:i18n-glossary` /
+  `design:inventory` / `check:design-colors` / `check:test-hygiene` 全 ✅；
+  `--mock --isolated=hrbuddy-prd` 实机目检 **Light + Dark 双模式**各走 PRD 五条交互
+  （添加弹窗合法性门、保存追加末尾「未测试」、点状态文字重测、编辑回填/删除 5s 撤销/开关、
+  Esc/取消/✕ 关 + dirty 遮罩抖动），mock 演示规则（fail→连不上 / 其它→延迟 ms）两模态均生效。
+
+> **收口顺带修复**：`vite.preload.config.ts` 补 `environments.client.keepProcessEnv: true`——
+> Vite 对非 lib 构建默认把 `process.env` 内联成 `{}`，而 forge preload target 走
+> `build.rollupOptions.input`（插件模板为 web 资源改道），导致 preload 的
+> `process.env.XDT_UI_MOCK` 投影被静态替换成空对象、`uiMockData` 恒 false、mock 演示
+> 规则永不生效（实机复现后定位）。`process.env.NODE_ENV` 的死代码消除不受影响。
+
+---
+
 ## 2026-10-31
 
 ### 15. 模型供应商重设计：模型网关（实现计划 7 任务一并交付）
@@ -23,12 +68,18 @@
      `useModelGateway()` / `ModelEntry` 为模型配置唯一真源（稳定 id 永不因编辑换；
      `enabled` / `status` / `lastTestedAt` 落 localStorage `hrbuddy.modelGatewayMeta`）。
      旧配置不迁移（owner「清空重来」），无新表单标记的条目不进列表。
+     - **↩ 「排序按 modelId」已废**（2026-11-01 PRD 对齐计划推翻 R4 排序半句）：
+       改插入序、新条目追加末尾；稳定句柄半句继续有效。
   2. **连通测试**：保存时 + 手动重测时经 `maker:provider:test-connection` 发
      `/v1/messages` 最小探测；不做周期巡检；结果写回 status + lastTestedAt。
+     - **↩ 保存探测已废**（2026-11-01 PRD 对齐计划推翻 R14「保存即测试」）：
+       保存不探测、存后「未测试」、点状态文字才测；现行语义见下方条目 16。
   3. **设置右栏模型列表**：`ModelGatewayList` 挂右栏顶部常驻（含 Cindy 登录引导面），
      可启停行 = 状态点 + 延迟/原因 + 编辑/删除 + 开关（关掉不进聊天下拉但配置还在）。
   4. **三栏表单**：`ModelGatewayForm`（接口地址 / 密钥 / 模型，协议写死
      anthropic-messages；**测不通不让存**；密钥只进 keychain/safeStorage）。
+     - **↩ 「测不通不让存」已废**（2026-11-01 PRD 对齐计划）：合法性门即存，
+       保存不探测；URL 另增 userinfo 拒收（R27）与解析失败即拒（R28）。
   5. **models.json 镜像**：IPC `hrbuddy-models:export` 把元数据（含 enabled/status，
      **绝不含密钥**）写 `~/.hrbuddy/models.json`（需求 7 路径裁决不变）。
   6. **聊天下拉**：输入框右下角 `ChatModelMenu` + 全局当前模型（跨重启记住、作用后续

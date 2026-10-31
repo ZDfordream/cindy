@@ -3434,14 +3434,6 @@
         "savedToast": "已保存 {{model}}",
         "saveFailed": "保存失败，请稍后重试"
       },
-      "gateway": {
-        "createTitle": "添加 Anthropic 网关",
-        "desc": "只支持 Claude Code 的 Anthropic 兼容网关。填好三项即可直接使用。",
-        "modelHint": "上游模型 ID，原样发给网关。",
-        "invalidUrl": "请输入合法的 http(s) 地址",
-        "required": "必填",
-        "saveFailed": "保存失败，请稍后重试"
-      },
       "custom": {
         "tag": "自定义",
         "editAria": "编辑连接设置",

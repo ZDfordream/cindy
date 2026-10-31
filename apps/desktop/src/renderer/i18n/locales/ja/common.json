@@ -3434,14 +3434,6 @@
         "savedToast": "{{model}} を保存しました",
         "saveFailed": "保存できませんでした。もう一度お試しください。"
       },
-      "gateway": {
-        "createTitle": "Anthropic ゲートウェイを追加",
-        "desc": "Claude Code 専用の Anthropic 互換ゲートウェイです。3 つ入力するだけで使えます。",
-        "modelHint": "上流のモデル ID。そのままゲートウェイへ送信します。",
-        "invalidUrl": "有効な http(s) URL を入力してください",
-        "required": "必須",
-        "saveFailed": "保存できませんでした。もう一度お試しください。"
-      },
       "custom": {
         "tag": "カスタム",
         "editAria": "接続設定を編集",
