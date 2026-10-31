@@ -26,6 +26,7 @@ interface MakerMock {
   createCustomProvider: ReturnType<typeof vi.fn>;
   updateCustomProvider: ReturnType<typeof vi.fn>;
   deleteCustomProvider: ReturnType<typeof vi.fn>;
+  exportHrbuddyModels: ReturnType<typeof vi.fn>;
   testProviderConnection: ReturnType<typeof vi.fn>;
 }
 
@@ -68,6 +69,7 @@ describe('ModelGatewayList', () => {
       createCustomProvider: vi.fn(async () => ({ ok: true })),
       updateCustomProvider: vi.fn(async () => ({ ok: true })),
       deleteCustomProvider: vi.fn(async () => ({ ok: true })),
+      exportHrbuddyModels: vi.fn(async () => undefined),
       testProviderConnection: vi.fn(async () => ({ ok: true, latencyMs: 128 })),
     };
     safeStorageRead = vi.fn(async () => 'sk-test');

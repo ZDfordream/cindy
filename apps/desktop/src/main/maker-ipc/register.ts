@@ -1173,6 +1173,7 @@ import {
 import { registerStopAgentTaskHandler } from './stopAgentTaskHandler.js';
 import { registerStopSessionBackgroundTasksHandler } from './stopSessionBackgroundTasksHandler.js';
 import { registerProviderHandlers } from './providerHandlers.js';
+import { registerHrbuddyModelsExportIpc } from '../hrbuddyModelsExport.js';
 import { createLocalCliScanDeps, scanLocalCliAuth } from './localCliDetect.js';
 import { registerMcpHandlers } from './mcpHandlers.js';
 import {
@@ -7522,6 +7523,13 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
   setAccountUsageOwnerStampReader(() => {
     const session = getActiveAppSession();
     return { dataOwnerId: session.dataOwnerId, generation: session.generation };
+  });
+
+  // ~/.hrbuddy/models.json 镜像推送（Ruling 2）：model-gateway store 增删改/开关/
+  // 状态变化后发不含密钥的元数据到这里，main 调 exportModels 写盘。
+  registerHrbuddyModelsExportIpc(createElectronIpcHandlerRegistry(), {
+    assertTrustedSender: (event) =>
+      assertTrustedAppRendererEvent(event as Parameters<typeof assertTrustedAppRendererEvent>[0]),
   });
 
   registerProviderHandlers(createElectronIpcHandlerRegistry(), {

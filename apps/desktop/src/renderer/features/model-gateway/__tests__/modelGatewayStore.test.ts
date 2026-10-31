@@ -24,6 +24,7 @@ interface MakerMock {
   createCustomProvider: ReturnType<typeof vi.fn>;
   updateCustomProvider: ReturnType<typeof vi.fn>;
   deleteCustomProvider: ReturnType<typeof vi.fn>;
+  exportHrbuddyModels: ReturnType<typeof vi.fn>;
 }
 
 /** 最小 localStorage 替身；同用例内多次 render 共享同一份（模拟重启后仍在）。 */
@@ -89,6 +90,7 @@ describe('model gateway store', () => {
       createCustomProvider: vi.fn(async () => ({ ok: true })),
       updateCustomProvider: vi.fn(async () => ({ ok: true })),
       deleteCustomProvider: vi.fn(async () => ({ ok: true })),
+      exportHrbuddyModels: vi.fn(async () => undefined),
     };
     storage = memoryStorage();
     vi.stubGlobal('window', { electronAPI: { maker }, localStorage: storage });
@@ -340,5 +342,52 @@ describe('model gateway store', () => {
     expect((maker.createCustomProvider.mock.calls[0][0] as CustomProviderConfig).id).toBe('xai-2');
     expect(result.current.entries.map((entry) => entry.id)).toEqual(['xai-2']);
     expect(result.current.entries.map((entry) => entry.modelId)).toEqual(['xai']);
+  });
+
+  it('pushes secret-free mirror metadata after toggle and retest (Ruling 2)', async () => {
+    // 测试价值（§3.2）：生产入口 = useModelGateway().toggle/setStatus →
+    // window.electronAPI.maker.exportHrbuddyModels（Ruling 2 的镜像推送）；可观察结果 =
+    // 推送载荷含变更后的 enabled/status/lastTestedAt 且全文无密钥片段。
+    // 规则依据：Ruling 2 + Review Focus #1。覆盖缺口：此前无任何用例钉 store 的推送调用点
+    // （漏推则镜像静默过期，红线也可能被将来 spread 破坏）。最小失败输入 = toggle/setStatus
+    // 后检查 mock.calls。tier：unit（IPC 边界打桩）。
+    maker.listProviders.mockResolvedValue({
+      dataOwnerId: null,
+      ownerGeneration: 1,
+      providers: [
+        userProviderView({
+          providerId: 'gw-a',
+          modelId: 'model-a',
+          catalogPresetId: MODEL_GATEWAY_CATALOG_PRESET_ID,
+        }),
+      ],
+      providerOrder: [],
+    });
+
+    const { result } = renderGateway();
+    await act(async () => {});
+
+    await act(async () => {
+      await result.current.toggle('gw-a', false);
+    });
+    await act(async () => {
+      result.current.setStatus('gw-a', { ok: true, latencyMs: 80 });
+    });
+
+    // 载荷含开关与最近一次测试结果（镜像「能反映」的输入侧）。
+    expect(maker.exportHrbuddyModels.mock.calls.at(-1)?.[0]).toEqual([
+      {
+        id: 'model-a',
+        name: 'model-a',
+        provider: 'model-a',
+        baseUrl: 'https://gw.example/anthropic',
+        wireProtocol: 'anthropic-messages',
+        enabled: false,
+        status: { ok: true, latencyMs: 80 },
+        lastTestedAt: expect.any(String),
+      },
+    ]);
+    // 密钥绝不进 export 调用（红线的调用侧断言；文件侧断言见 hrbuddyModelsExport.test.ts）。
+    expect(JSON.stringify(maker.exportHrbuddyModels.mock.calls)).not.toContain('sk-');
   });
 });

@@ -571,6 +571,12 @@ export const MAKER_INVOKE = {
   PROVIDER_CUSTOM_CREATE: 'maker:provider:custom:create',
   PROVIDER_CUSTOM_UPDATE: 'maker:provider:custom:update',
   PROVIDER_CUSTOM_DELETE: 'maker:provider:custom:delete',
+  /**
+   * `~/.hrbuddy/models.json` 镜像推送（Ruling 2）：model-gateway store 在增删改 /
+   * 开关 / 状态变化后把不含密钥的元数据发给 main，main 调 exportModels 写盘。
+   * 只写元数据，绝不接受凭证字段；不进 device-link allowlist（本机镜像，无远程消费方）。
+   */
+  HRBUDDY_MODELS_EXPORT: 'hrbuddy-models:export',
   /** 本机模型（Ollama）探测 / 后台启动 / 列表 / 拉取。renderer 不传 URL 或路径。 */
   LOCAL_MODEL_STATUS: 'maker:local-model:status',
   LOCAL_MODEL_START: 'maker:local-model:start',

@@ -98,6 +98,36 @@ function metaFor(meta: ModelGatewayMeta, id: string): ModelEntryMeta {
   };
 }
 
+/**
+ * ModelEntry → `~/.hrbuddy/models.json` 镜像行（Ruling 2 的推送载荷）。
+ * **逐字段拷贝，绝不 spread 条目/输入**——`apiKey` 只存在于 `ModelGatewayInput`，
+ * 任何路径都不得进入镜像（Review Focus #1）。`provider` 取展示名、`id` 取上游模型
+ * id，与 providerHandlers 的 create 钩子同一合并键（`provider + id`），两条写入
+ * 路径不会出重复行。已知合并语义边界（镜像只写不读，设计 §6.3）：删除后旧行留档、
+ * 改 modelId 后旧行留档、同 modelId 多条目在镜像内折叠——见 task-5-report concerns。
+ */
+function mirrorRowFromEntry(entry: ModelEntry): {
+  id: string;
+  name: string;
+  provider: string;
+  baseUrl: string;
+  wireProtocol: string;
+  enabled: boolean;
+  status: ModelStatus;
+  lastTestedAt?: string;
+} {
+  return {
+    id: entry.modelId,
+    name: entry.name,
+    provider: entry.name,
+    baseUrl: entry.baseUrl,
+    wireProtocol: 'anthropic-messages',
+    enabled: entry.enabled,
+    status: entry.status,
+    ...(entry.lastTestedAt ? { lastTestedAt: entry.lastTestedAt } : {}),
+  };
+}
+
 function buildModelGatewayConfig(
   providerId: string,
   modelId: string,
@@ -169,6 +199,22 @@ function useModelGatewayStore(): ModelGatewayApi {
     writeMeta(meta);
   }, []);
 
+  /**
+   * 把当前全量行推给 main 写 `~/.hrbuddy/models.json` 镜像（Ruling 2）。
+   * 载荷经 `mirrorRowFromEntry` 逐字段组装，不含密钥；fire-and-forget——镜像是
+   * 便利产物，推送失败不阻断增删改/开关（与 main 侧 warn-not-throws 同口径）。
+   */
+  const pushMirror = useCallback(() => {
+    const payload = rowsRef.current.map(mirrorRowFromEntry);
+    try {
+      Promise.resolve(window.electronAPI.maker.exportHrbuddyModels(payload)).catch(() => {
+        // 镜像写盘失败只告警（main 侧已 warn），这里不向上抛。
+      });
+    } catch {
+      // 同步失败（如桥接未就绪）同样不阻断变更。
+    }
+  }, []);
+
   const ensureLoaded = useCallback((): Promise<void> => {
     loadRef.current ??= window.electronAPI.maker.listProviders().then(({ providers }) => {
       knownProviderIdsRef.current = new Set(
@@ -215,9 +261,10 @@ function useModelGatewayStore(): ModelGatewayApi {
       knownProviderIdsRef.current.add(providerId);
       setRows((prev) => [...prev, entryFromNew(providerId, input)]);
       persistMeta();
+      pushMirror();
       return providerId;
     },
-    [ensureLoaded, persistMeta, setRows],
+    [ensureLoaded, persistMeta, pushMirror, setRows],
   );
 
   const update = useCallback(
@@ -237,8 +284,9 @@ function useModelGatewayStore(): ModelGatewayApi {
             : candidate,
         ),
       );
+      pushMirror();
     },
-    [ensureLoaded, findEntry, setRows],
+    [ensureLoaded, findEntry, pushMirror, setRows],
   );
 
   const remove = useCallback(
@@ -248,8 +296,9 @@ function useModelGatewayStore(): ModelGatewayApi {
       await deleteCustomProvider(entry.id);
       setRows((prev) => prev.filter((candidate) => candidate.id !== entry.id));
       persistMeta();
+      pushMirror();
     },
-    [ensureLoaded, findEntry, persistMeta, setRows],
+    [ensureLoaded, findEntry, persistMeta, pushMirror, setRows],
   );
 
   const toggle = useCallback(
@@ -262,8 +311,9 @@ function useModelGatewayStore(): ModelGatewayApi {
         ),
       );
       persistMeta();
+      pushMirror();
     },
-    [ensureLoaded, findEntry, persistMeta, setRows],
+    [ensureLoaded, findEntry, persistMeta, pushMirror, setRows],
   );
 
   const setStatus = useCallback(
@@ -281,8 +331,9 @@ function useModelGatewayStore(): ModelGatewayApi {
         }),
       );
       persistMeta();
+      pushMirror();
     },
-    [persistMeta, setRows],
+    [persistMeta, pushMirror, setRows],
   );
 
   const entries = useMemo(

@@ -6516,6 +6516,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       options?: CustomProviderUpdateOptions,
     ): Promise<CustomProviderUpdateResult> =>
       ipcRenderer.invoke('maker:provider:custom:delete', providerId, ownerScope, options),
+    /**
+     * `~/.hrbuddy/models.json` 镜像推送（Ruling 2）：model-gateway store 在增删改 /
+     * 开关 / 状态变化后发**不含密钥**的模型元数据，main 落盘。失败只告警，不阻断。
+     */
+    exportHrbuddyModels: (models: import('../main/hrbuddyModelsExport').ExportedModel[]): Promise<void> =>
+      ipcRenderer.invoke('hrbuddy-models:export', models),
     /** 自定义供应商创建模板（目录 presets 段，纯 UI 模板数据）。 */
     listProviderPresets: (): Promise<{
       presets: import('@cindy/model-providers').ProviderPreset[];

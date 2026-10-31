@@ -5658,6 +5658,10 @@ interface ElectronAPI {
       ownerScope?: { dataOwnerId: string | null; ownerGeneration: number },
       options?: CustomProviderUpdateOptions,
     ) => Promise<CustomProviderUpdateResult>;
+    /** `~/.hrbuddy/models.json` 镜像推送（Ruling 2）：只发不含密钥的模型元数据。 */
+    exportHrbuddyModels: (
+      models: import('../main/hrbuddyModelsExport').ExportedModel[],
+    ) => Promise<void>;
     localModelStatus: () => Promise<import('../shared/localModelRuntime').LocalRuntimeStatus>;
     llamaCppEnsure: () => Promise<void>;
     llamaCppStatus: () => Promise<import('../shared/llamaCpp').LlamaCppSnapshot>;
