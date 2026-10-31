@@ -15,7 +15,7 @@
  * 点选即切换全局当前模型，作用于**后续消息**（不回溯已发送的）。
  * 颜色全部走语义 token（Light / Dark 同源），无硬编码色。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -67,6 +67,22 @@ export function ChatModelMenu() {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // 9bc20cf894「选完模型后把焦点送回输入框」在 ModelSelector→ChatModelMenu（设计稿
+  // §5.3）换入口后的行为延续：选项行卸掉会把焦点掉到 body，选完模型还得再点一次
+  // 输入框才能接着打字。菜单自取数据、无 props，这里记住打开前的焦点目标（composer
+  // 场景通常 = 输入框），关闭时若焦点已掉回 body 或仍困在即将卸掉的面板里则归还；
+  // 用户已把焦点挪到别处时不抢。
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    const active = document.activeElement;
+    const focusLost =
+      !(active instanceof HTMLElement) ||
+      active === document.body ||
+      active === document.documentElement ||
+      (panelRef.current?.contains(active) ?? false);
+    if (focusLost) restoreFocusRef.current?.focus();
+  }, []);
   // 面板经 portal 挂 body（composer 工具条 overflow-hidden 会裁掉上浮面板），
   // 按 trigger 的视口坐标固定定位；滚动 / 改尺寸即收起，避免漂移。
   const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
@@ -76,9 +92,14 @@ export function ChatModelMenu() {
 
   const toggleOpen = () => {
     if (open) {
-      setOpen(false);
+      closeMenu();
       return;
     }
+    const active = document.activeElement;
+    restoreFocusRef.current =
+      active instanceof HTMLElement && active !== document.body && active !== document.documentElement
+        ? active
+        : null;
     const rect = triggerRef.current?.getBoundingClientRect();
     if (rect) {
       setAnchor({
@@ -95,15 +116,15 @@ export function ChatModelMenu() {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (rootRef.current?.contains(target) || panelRef.current?.contains(target)) return;
-      setOpen(false);
+      closeMenu();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        setOpen(false);
+        closeMenu();
       }
     };
-    const onGeometryChange = () => setOpen(false);
+    const onGeometryChange = () => closeMenu();
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('resize', onGeometryChange);
@@ -114,7 +135,7 @@ export function ChatModelMenu() {
       window.removeEventListener('resize', onGeometryChange);
       document.removeEventListener('scroll', onGeometryChange, true);
     };
-  }, [open]);
+  }, [open, closeMenu]);
 
   const goSettings = () => {
     setOpen(false);
@@ -129,6 +150,9 @@ export function ChatModelMenu() {
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={t('newChat.chatModelMenu.triggerAria')}
+        // 阻 mousedown 抢焦点（9bc20cf894 同规）：点胶囊不该把光标从输入框挪走。
+        // 键盘 Tab 仍可正常 focus。
+        onMouseDown={(event) => event.preventDefault()}
         onClick={toggleOpen}
         className={cn(
           'flex h-[30px] max-w-[min(220px,100%)] shrink items-center gap-1 overflow-hidden rounded-full',
@@ -196,13 +220,13 @@ export function ChatModelMenu() {
                       data-testid="chat-model-menu-row"
                       onClick={() => {
                         setCurrent(entry.id);
-                        setOpen(false);
+                        closeMenu();
                       }}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
                           setCurrent(entry.id);
-                          setOpen(false);
+                          closeMenu();
                         }
                       }}
                       title={

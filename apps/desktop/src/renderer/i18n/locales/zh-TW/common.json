@@ -3420,7 +3420,7 @@
         "optCustomProtocol": "自訂協定",
         "protocol": "協定",
         "editTitle": "編輯模型",
-        "key": "密鑰",
+        "key": "金鑰",
         "model": "模型",
         "baseUrlPlaceholder": "http://model.mify.ai.srv/anthropic",
         "modelIdPlaceholder": "輸入模型 ID",

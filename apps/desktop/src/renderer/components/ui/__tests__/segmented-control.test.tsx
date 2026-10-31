@@ -92,8 +92,10 @@ function resolveColor(theme: Theme, id: string): string {
 }
 
 // The approved alpha is scoped to the track; theme aliases still resolve for older themes.
+// 2026-10-29 需求 3 白底对齐 WorkBuddy 的有意变更（0d58412ef9）：cindy-light 的
+// segmented-selected-bg 由暖近白 #FDFDF8 改纯白 #FFFFFF，与 builtinThemesFreeze 同批依据。
 describe.each([
-  ['cindy-light', 'rgba(0, 0, 0, 0.06)', '#FDFDF8', '#F0F0EB'],
+  ['cindy-light', 'rgba(0, 0, 0, 0.06)', '#FFFFFF', '#F0F0EB'],
   ['cindy-dark', 'rgba(0, 0, 0, 0.25)', '#353535', '#3B3B3B'],
 ])('%s segmented palette', (themeId, track, fill, border) => {
   it('resolves the approved component-local colors', () => {

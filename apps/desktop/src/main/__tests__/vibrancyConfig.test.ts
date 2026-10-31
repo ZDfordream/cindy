@@ -72,13 +72,16 @@ describe('E4D resolveVibrancyConfig(familyId→vibrancy/backgroundColor 映射)'
   });
 
   it('win32 × Win11 × CINDY:默认 acrylic + 浅色侧栏 backing', () => {
+    // 2026-10-29 需求 3 白底对齐 WorkBuddy 的有意变更（0d58412ef9 / 185a1383d0）：
+    // windowBacking.light 侧栏亚克力去暖 rgba(238,238,233,0.85) → rgba(245,245,245,0.85)，
+    // 与 DS-8 生成物 windowBackdrop.ts 同批同步；vibrancy/材质语义未变。
     expect(
       resolveVibrancyConfig('cindy', false, 'win32', {
         getSystemVersion: () => '10.0.22631',
       }),
     ).toEqual({
       vibrancy: null,
-      backgroundColor: 'rgba(238, 238, 233, 0.85)',
+      backgroundColor: 'rgba(245, 245, 245, 0.85)',
       backgroundMaterial: 'acrylic',
     });
   });

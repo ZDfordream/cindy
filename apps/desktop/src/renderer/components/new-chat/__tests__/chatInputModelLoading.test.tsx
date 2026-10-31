@@ -105,7 +105,7 @@ const attachments: ComponentProps<typeof ChatInput>['attachmentState'] = {
   pendingFileMentionsVersion: 0, consumePendingFileMentions: () => [],
   removeFile: noOp, updateFile: noOp, discardFiles: noOp, clearFiles: noOp, restoreFiles: (files) => [...files],
 };
-beforeEach(() => { h.platform = 'darwin'; h.listening = false; h.processing = null; h.stop.mockClear(); h.selectEffort = undefined; window.electronAPI = api; vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
+beforeEach(() => { h.platform = 'darwin'; h.listening = false; h.processing = null; h.stop.mockClear(); h.selectEffort = undefined; window.electronAPI = api; window.localStorage.removeItem('hrbuddy.currentModel'); vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
 afterEach(() => { cleanup(); clearDraft('queue-shortcut'); clearPromptRecommendationSession('queue-shortcut'); h.remoteProviders = []; h.localProviders = []; h.gatewayProviders = []; h.remoteStatus = 'ready'; h.setModel.mockReset(); h.confirm.mockReset(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const props = {
@@ -193,19 +193,41 @@ it.each([null, ''])('adopts an explicit no-effort session snapshot without reusi
   expect(onSend.mock.calls[0][2]).toBe('');
 });
 
-it('keeps the shared guest model visible but locks selection without locking message input', async () => {
+// 2026-10-31 Task 6（设计稿 §5.3）换入口：原意图「guest 模型可见但不可改选」拆两半——
+// 「菜单入口对 guest 可见 + 消息输入不锁」仍成立，本例钉住；「不可改选」在新 UI 下
+// 暂无禁用态承载（deferred：ChatModelMenu 无 disabled 态，且触发器显示的是全局当前
+// 模型而非会话 guest 模型 initialModel），现状是 guest 也能点开选型、只落全局当前
+// 模型（localStorage），不走 legacy 会话模型 IPC。恢复 ModelSelector 入口后本例按旧
+// 合同回钉 disabled。
+it('keeps the model menu visible and the shared-guest message input unlocked (selection lock deferred)', async () => {
   const onSend = vi.fn().mockResolvedValue(undefined);
+  h.gatewayProviders = [gatewayEntryProvider('gpt-6-sol', 'gw-entry-sol'), gatewayEntryProvider('other-model', 'gw-entry-other')];
   const inputProps = { ...props, hideRuntimeControls: false, initialModel: 'gpt-6-sol', onSend };
   const view = render(<ChatInput {...inputProps} deviceLinkDeviceId={sharedTaskHostPeer('shared', 'host')} />);
-  const selector = () => screen.getByTestId('model-selector') as HTMLButtonElement;
-  expect(selector().textContent).toBe('gpt-6-sol');
-  expect(selector().disabled).toBe(true);
-  await act(async () => { expect(await h.selectModel?.('other-model')).toBe(false); });
-  expect(h.setModel).not.toHaveBeenCalled();
+  const menuRoot = () => screen.getByTestId('chat-model-menu-root');
+  const trigger = () => menuRoot().querySelector('button') as HTMLButtonElement;
+  // 模型入口对 guest 可见（触发器文案 = 全局当前模型，非会话模型）。
+  await waitFor(() =>
+    expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe('gpt-6-sol'),
+  );
+  // deferred：无禁用态承载 —— 现状 trigger 不带 disabled（见用例头注）。
+  expect(trigger().disabled).toBe(false);
+  // 消息输入不锁（原意图后半，新旧一致）。
   expect(h.editor?.isEditable).toBe(true);
+  // 点开选型：落在全局当前模型（触发器换名），不碰 legacy 会话模型 IPC / 记忆表。
+  await act(async () => { fireEvent.click(trigger()); });
+  const nextModel = await screen.findByRole('option', { name: /other-model/ });
+  await act(async () => {
+    nextModel.focus();
+    fireEvent.click(nextModel);
+  });
+  await waitFor(() => expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe('other-model'));
+  expect(h.setModel).not.toHaveBeenCalled();
 
+  // 切回自己的 host：入口与输入保持同一可见 / 可编辑口径（旧「解锁 disabled」无对应承载）。
   await act(async () => { view.rerender(<ChatInput {...inputProps} deviceLinkDeviceId="host" />); });
-  expect(selector().disabled).toBe(false);
+  expect(screen.getByTestId('chat-model-menu-root')).toBeTruthy();
+  expect(h.editor?.isEditable).toBe(true);
 });
 
 const queuedMessage = {
@@ -348,23 +370,38 @@ function QueueEditHarness({
   );
 }
 
-it('lets a new SSH task with no window report reach main on model selection and retry', async () => {
+// 2026-10-31 Task 6（设计稿 §5.3）换入口：原意图「SSH 无窗口任务的选型报到 main、失败
+// 回滚并重试」在新 UI 下无承载——ChatModelMenu 选型 = 全局当前模型 →
+// localStorage(hrbuddy.currentModel)，不经 maker.setModel；原 setModel 报告/回滚/重试
+// 链（handleModelChange）随 ModelSelector 入口 dormant（836d22d541，owner「藏起来以后
+// 再说」保留为恢复路径）。本例钉现状仍成立的可观察行为：新 SSH 任务（无窗口）里真实
+// 菜单选型落到全局当前模型与持久键，且不碰 legacy 报告链与记忆表（原 not-called 边界）。
+it('lets a new SSH task with no window select a model through the menu without the legacy setModel report chain', async () => {
   const remember = vi.spyOn(providerMemory, 'setProviderModelChoice');
   const draft = vi.spyOn(draftMemory, 'patchVendorPrefs');
   const effortPrefs = vi.spyOn(draftMemory, 'setEffortForModel');
   h.remoteProviders = [sshNativeCodexProvider([sshModel('old'), sshModel('remote-new')])];
-  h.setModel.mockRejectedValueOnce(new Error('test host rejected selection')).mockResolvedValue({ deferred: false });
+  h.gatewayProviders = [gatewayEntryProvider('gw-model-alpha', 'gw-entry-alpha'), gatewayEntryProvider('gw-model-beta', 'gw-entry-beta')];
   render(<ChatInput {...props} sessionId="ssh-empty" deviceLinkDeviceId={null} remoteHostId="builder"
     initialModel="old" initialProviderId="openai" initialEffort="low" hideRuntimeControls={false} onSend={vi.fn()} />);
-  await waitFor(() => expect(h.selectModel).toBeTypeOf('function'));
-  await act(async () => { await h.selectModel!('remote-new'); });
-  // Failed optimistic selection restores the previous model through the same IPC.
-  expect(h.setModel).toHaveBeenCalledTimes(2);
-  expect(h.setModel.mock.calls[0].slice(0, 2)).toEqual(['ssh-empty', 'remote-new']);
-  expect(h.setModel.mock.calls[1].slice(0, 2)).toEqual(['ssh-empty', 'old']);
-  await act(async () => { await h.selectModel!('remote-new'); });
-  expect(h.setModel).toHaveBeenCalledTimes(3);
-  expect(h.setModel.mock.calls[2].slice(0, 2)).toEqual(['ssh-empty', 'remote-new']);
+  await waitFor(() =>
+    expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe('gw-model-alpha'),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('chat-model-menu-root').querySelector('button')!);
+  });
+  const nextModel = await screen.findByRole('option', { name: /gw-model-beta/ });
+  await act(async () => {
+    nextModel.focus();
+    fireEvent.click(nextModel);
+  });
+  // 选型落全局当前模型（触发器换名）并写持久键 —— 新契约的持久化落点。
+  await waitFor(() =>
+    expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe('gw-model-beta'),
+  );
+  expect(window.localStorage.getItem('hrbuddy.currentModel')).toBeTruthy();
+  // legacy 会话模型报告链与记忆表全部不碰（原意图的 not-called 边界，防误接回 dormant 链）。
+  expect(h.setModel).not.toHaveBeenCalled();
   expect(remember).not.toHaveBeenCalled();
   expect(draft).not.toHaveBeenCalled();
   expect(effortPrefs).not.toHaveBeenCalled();
@@ -465,18 +502,30 @@ it('keeps a codex send on its own route despite a gateway current model (Ruling 
   expect(onSend.mock.calls[0][6]).toEqual(expect.objectContaining({ providerId: 'openai' }));
 });
 
-// 回归：投影 effort 为 null（目录误判/不可调档）时选择器回落会话已持久化档位，
-// 不能兜底成字面量 'low'；投影有值时仍优先投影值。
-it.each([
-  ['null projection with the persisted session effort instead of a literal low', null, 'high', 'high'],
-  ['the projected effort wins over the initial prop when present', 'medium', 'high', 'medium'],
-] as const)('renders %s', async (_name, projectedEffort, initialEffort, expected) => {
+// 回归：投影 effort 为 null（目录误判/不可调档）时回落会话已持久化档位，
+// 不能兜底成字面量 'low'。（原 it.each 第二行「投影有值时优先投影值」见下。）
+// 2026-10-31 Task 6（设计稿 §5.3）换入口：原载体是 ModelSelector 的 effort 档位
+// 显示（h.selectEffort 捕获 prop，#5780「渲染档位」回归）；ChatModelMenu 不带
+// effort 档 UI，「显示档位」意图暂无承载（deferred）。本例改钉发送路径的可观察
+// 结果：投影为 null 时本 turn 的 effort（onSend 第 3 参）仍是会话已持久化档，
+// 不落字面量 'low'。
+// 裁剪（不属偷懒）：原第二行「投影有值时优先投影值」是显示层规则，新 UI 无档位
+// 显示载体；发送层又自有一套（#692：turn 用已提交档，投影差异不改本 turn），
+// 无法无损承托该意图，故不改写钉发送（钉了会把相反语义冻成合同）。见 fix-14 报告。
+it('sends with the persisted session effort instead of a literal low when the projection is null', async () => {
   h.remoteProviders = [sshNativeCodexProvider([sshModel('remote-only')])];
-  render(<ChatInput {...props} hideRuntimeControls={false} sessionId="ssh-effort-fallback" deviceLinkDeviceId={null} remoteHostId="builder"
-    initialModel="remote-only" initialProviderId="openai" initialEffort={initialEffort}
-    runtimeEffective={{ agentKind: 'codex', model: 'remote-only', providerId: 'openai', effort: projectedEffort, fastMode: false }}
-    onSend={vi.fn()} />);
-  await waitFor(() => expect(h.selectEffort).toBe(expected));
+  const onSend = vi.fn().mockResolvedValue(true);
+  const view = render(<ChatInput {...props} hideRuntimeControls={false} sessionId="ssh-effort-fallback" deviceLinkDeviceId={null} remoteHostId="builder"
+    initialModel="remote-only" initialProviderId="openai" initialEffort="high"
+    runtimeEffective={{ agentKind: 'codex', model: 'remote-only', providerId: 'openai', effort: null, fastMode: false }}
+    onSend={onSend} />);
+  await waitFor(() => expect(view.container.querySelector('[contenteditable]')).not.toBeNull());
+  await act(async () => { h.editor!.commands.setContent('<p>Continue</p>'); });
+  const send = screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement;
+  await waitFor(() => expect(send.disabled).toBe(false));
+  await act(async () => { fireEvent.click(send); });
+  await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+  expect(onSend.mock.calls[0][2]).toBe('high');
 });
 
 it.each([
@@ -605,20 +654,51 @@ it.each(['metadata', 'disabled'] as const)('retains screenshot submission until 
   }
 });
 
+// 2026-10-31 Task 6（设计稿 §5.3）换入口：原「模型名显示在选择器上」（缺模型隐藏 /
+// runtime 恢复显示 / 新草稿默认显示）随 ModelSelector 显示入口下线——ChatModelMenu
+// 的触发器显示的是全局当前模型目录，不承载会话模型名。本例把三条意图钉在仍然成立的
+// 可观察面上：缺失模型不显示幻影模型名（占位）、不放行发送；runtime 恢复后发送路径
+// 拿到恢复出的模型（onSend 第 2 参）；新草稿默认模型同样落在发送参数。
 it('hides a missing existing model, recovers from the effective runtime, and preserves new-draft defaults', async () => {
-  const onSend = vi.fn();
+  const onSend = vi.fn().mockResolvedValue(true);
   const view = render(<ChatInput {...props} hideRuntimeControls={false} onSend={onSend} />);
-  expect(screen.queryByTestId('model-selector')).toBeNull();
+  // 缺失既有模型：菜单只给占位（不显示不存在的模型名），发送不放行。
+  await waitFor(() =>
+    expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe(
+      'newChat.chatModelMenu.placeholder',
+    ),
+  );
+  expect((screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement).disabled).toBe(true);
+  // 从 effective runtime 恢复：模型值落点 = 发送参数（原选择器显示恢复的替代承载）。
   view.rerender(<ChatInput {...props} hideRuntimeControls={false} onSend={onSend}
     runtimeEffective={{ agentKind: 'codex', model: 'gpt-6-astra', providerId: 'openai', effort: 'medium', fastMode: false }} />);
-  expect(screen.getByTestId('model-selector').textContent).toBe('gpt-6-astra');
+  await waitFor(() => expect(view.container.querySelector('[contenteditable]')).not.toBeNull());
+  await act(async () => { h.editor!.commands.setContent('<p>Continue</p>'); });
+  await waitFor(() =>
+    expect((screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement).disabled).toBe(false),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'newChat.sendButton.send' }));
+  });
+  await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+  expect(onSend.mock.calls[0][1]).toBe('gpt-6-astra');
+  // 恢复来源撤回：模型再次缺失，发送回到不放行态。
   view.rerender(<ChatInput {...props} hideRuntimeControls={false} onSend={onSend} />);
-  expect(screen.queryByTestId('model-selector')).toBeNull();
+  await act(async () => { h.editor!.commands.setContent('<p>Continue again</p>'); });
   expect((screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement).disabled).toBe(true);
-  view.rerender(<ChatInput {...props} sessionId={undefined} hideRuntimeControls={false} onSend={onSend} />);
-  expect(screen.getByTestId('model-selector').textContent).toBe('claude-fable-5-1');
+  // 新草稿默认：草稿层记忆的默认模型（claude-fable-5-1）进发送参数。
+  // 本机新草稿（deviceLinkDeviceId 清空）+ 该模型的已连接来源（noConnectedSource 门）。
+  h.localProviders = [sshNativeCodexProvider([sshModel('claude-fable-5-1')])];
+  view.rerender(<ChatInput {...props} sessionId={undefined} deviceLinkDeviceId={null} hideRuntimeControls={false} onSend={onSend} />);
+  // 先落效果（新 draftKey 的草稿恢复会清空编辑器），再写正文，保证 canSend 走内容判据。
   await act(async () => {});
-  expect(onSend).not.toHaveBeenCalled();
+  await act(async () => { h.editor!.commands.setContent('<p>New draft</p>'); });
+  expect(h.editor!.getText()).toBe('New draft');
+  const send = screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement;
+  await waitFor(() => expect(send.disabled).toBe(false));
+  await act(async () => { fireEvent.click(send); });
+  await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+  expect(onSend.mock.calls[1][1]).toBe('claude-fable-5-1');
 });
 
 it('hides queue removal while editing and exits editing from the composer cancel button', async () => {
@@ -661,7 +741,12 @@ it('blocks queue edit saves while voice capture is active', async () => {
   expect(onSubmit).not.toHaveBeenCalled();
 });
 
-// The slot survives missing metadata; only the model control is withheld.
+// The slot survives missing metadata across hydration; the model menu keeps its
+// placeholder (no phantom model name) while the model is unknown.
+// 2026-10-31 Task 6（设计稿 §5.3）换入口：原「缺元数据时槽内空、只保留占位几何」在
+// ChatModelMenu 常驻后不再有「空槽」态——菜单自带 placeholder 且无禁用态，缺元数据
+// 时以占位文案呈现而不是隐藏入口。槽位节点与几何（水合占位宽 / 就绪后收拢）的意图
+// 原样保留；「有模型才出控制」由「菜单常驻、不显示幻影模型名」承接。
 it.each([320, 480, 800])('preserves the model slot across hydration (width=%s)', async (width) => {
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width);
   const narrowToolbar = width < 600;
@@ -671,9 +756,11 @@ it.each([320, 480, 800])('preserves the model slot across hydration (width=%s)',
   const slot = view.container.querySelector('[data-session-model-slot]') as HTMLElement;
   expect(slot).not.toBeNull();
   const geometry = slot.className;
-  expect(slot.textContent).toBe('');
-  expect(slot.querySelector('button, [tabindex]')).toBeNull();
-  expect(screen.queryByTestId('model-selector')).toBeNull();
+  // 水合未就绪：菜单以占位呈现（不显示不存在的模型名），入口常驻在槽内。
+  expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe(
+    'newChat.chatModelMenu.placeholder',
+  );
+  expect(slot.contains(screen.getByTestId('chat-model-menu-root'))).toBe(true);
   view.rerender(<ChatInput {...inputProps} initialModel="gpt-6-astra" />);
   expect(view.container.querySelector('[data-session-model-slot]')).toBe(slot);
   if (narrowToolbar) {
@@ -684,11 +771,15 @@ it.each([320, 480, 800])('preserves the model slot across hydration (width=%s)',
     expect(slot.classList.contains('h-[30px]')).toBe(true);
     expect(slot.classList.contains('min-w-0')).toBe(true);
   }
-  expect(slot.contains(screen.getByTestId('model-selector'))).toBe(true);
+  // 菜单入口一直在槽内（常驻菜单取代旧「有模型才出控制」）。
+  expect(slot.contains(screen.getByTestId('chat-model-menu-root'))).toBe(true);
   view.rerender(<ChatInput {...inputProps} />);
   expect(view.container.querySelector('[data-session-model-slot]')).toBe(slot);
   expect(slot.className).toBe(geometry);
-  expect(slot.textContent).toBe('');
+  // 模型再次缺失：回到占位文案，不显示幻影模型名。
+  expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe(
+    'newChat.chatModelMenu.placeholder',
+  );
   view.rerender(<ChatInput {...inputProps} hideRuntimeControls />);
   expect(view.container.querySelector('[data-session-model-slot]')).toBeNull();
   expect(screen.getByTestId('permission-selector')).toBeTruthy();

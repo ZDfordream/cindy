@@ -33,6 +33,8 @@ import type { InputDeviceRendererAction } from '../../../../shared/inputDevices'
 
 const h = vi.hoisted(() => ({ t: (key: string) => key, confirm: vi.fn(), editor: null as Editor | null, listening: false, stop: vi.fn().mockResolvedValue(undefined),
   setModel: vi.fn(), selectModel: undefined as ComponentProps<typeof ModelSelector>['onModelChange'] | undefined, remoteProviders: [] as ProviderView[],
+  // ChatModelMenu（真实生产入口）的选项来自网关条目目录（maker:listProviders）。
+  gatewayProviders: [] as ProviderView[],
   remoteStatus: 'ready' as 'ready' | 'loading' | 'error',
   scan: vi.fn<typeof scanAtResources>(),
   atPanel: null as ComponentProps<typeof AtMentionPanel> | null,
@@ -113,6 +115,7 @@ const api: any = new Proxy({}, { get: (_obj, key) => {
   if (key === 'listAgentSkills') return h.listAgentSkills;
   if (key === 'listAgentCommands' || key === 'listDesktopCommands') return async () => ({ success: true, commands: [] });
   if (key === 'listSync') return () => ({ ghosts: [] });
+  if (key === 'listProviders') return () => Promise.resolve({ providers: h.gatewayProviders });
   if (key === 'getDataSnapshot') return () => { throw new Error('test bridge unavailable'); };
   if (key === 'setGlobalShortcut') return () => Promise.resolve({ ok: true });
   if (key === 'platform') return 'darwin';
@@ -139,6 +142,8 @@ beforeEach(() => {
   h.uploadChatFolder.mockReset();
   h.listAgentSkills.mockReset().mockResolvedValue({ success: true, skills: [] });
   h.localProviders = [];
+  h.gatewayProviders = [];
+  window.localStorage.removeItem('hrbuddy.currentModel');
   h.editor = null;
   h.documentChanged.mockClear();
   h.listening = false;
@@ -155,7 +160,7 @@ beforeEach(() => {
   window.electronAPI = api;
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 });
-afterEach(() => { cleanup(); clearDraft('composer-regression'); h.remoteProviders = []; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); clearDraft('composer-regression'); h.remoteProviders = []; h.gatewayProviders = []; window.localStorage.removeItem('hrbuddy.currentModel'); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 function renderComposer(extra: Partial<ComponentProps<typeof ChatInput>> = {}) {
   const attachmentState: ComponentProps<typeof ChatInput>['attachmentState'] = {
@@ -410,27 +415,64 @@ it('keeps the voice button anchored beside the main action through its lifecycle
   }
 });
 
+// 网关条目夹具：ChatModelMenu 的选项来自 maker:listProviders 的 user 条目
+// （catalogPresetId=hrbuddy-gateway，与 ModelGatewayStore 收录条件同源）。
+function gatewayModelProvider(modelId: string, id = `gw-entry-${modelId}`): ProviderView {
+  return {
+    id,
+    name: modelId,
+    source: 'user',
+    connected: true,
+    agents: ['claude-code'],
+    auth: { method: 'apiKey' },
+    routing: { 'claude-code': { upstream: 'https://gw.example.test', authStrategy: 'api-key-header' } },
+    models: {
+      'claude-code': [
+        {
+          id: modelId,
+          name: modelId,
+          catalogPresetId: 'hrbuddy-gateway',
+          contextWindow: 200_000,
+          efforts: [],
+          defaultEffort: null,
+        },
+      ],
+    },
+  };
+}
+
 // 9bc20cf894 / composerMorphScope: choosing a model used to drop focus to body.
 // Generic MorphPopover tests supply their own target and miss ChatInput's wiring.
 // Minimal unit input: one real selector choice, then focus returns to the live editor.
+// 2026-10-31 Task 6（设计稿 §5.3）换入口：原「真实选择器」= mock 放行的真 ModelSelector；
+// 现在生产只挂 ChatModelMenu（本文件不 mock 它，菜单即真实选择器），选型落点由
+// onModelDidChange（ModelSelector 链，已 dormant）换成全局当前模型，断言改看触发器
+// 文案与菜单收起。焦点回编辑器的意图原样保留（9bc20cf894 行为在新入口延续）。
 it('returns focus to the editor after choosing a model from the real selector', async () => {
-  h.realModelSelector = true;
-  h.remoteProviders = [sshNativeCodexProvider([sshModel('remote-old'), sshModel('remote-new')])];
-  const onModelDidChange = vi.fn();
-  vi.stubGlobal('matchMedia', () => ({ matches: true, addListener: noOp, removeListener: noOp, addEventListener: noOp, removeEventListener: noOp }));
+  h.gatewayProviders = [gatewayModelProvider('gw-model-alpha'), gatewayModelProvider('gw-model-beta')];
   renderComposer({ hideRuntimeControls: false, sessionId: 'model-focus', remoteHostId: 'builder',
     runtimeAgentKind: 'codex', vendorKey: 'codex', initialModel: 'remote-old',
-    initialProviderId: 'openai', initialEffort: 'low', onModelDidChange });
+    initialProviderId: 'openai', initialEffort: 'low' });
   await waitFor(() => expect(h.editor).not.toBeNull());
-  fireEvent.click(screen.getByRole('button', { name: 'newChat.modelSelector.trigger.ariaWithEffort' }));
-  const nextModel = await screen.findByRole('option', { name: /remote-new/ });
+  await waitFor(() =>
+    expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe('gw-model-alpha'),
+  );
+  // 用户正在打字：焦点在输入框；点胶囊不该把焦点抢走（9bc20cf894 阻 mousedown 抢焦）。
+  // 与生产归还路径同法直接 focus 编辑器 DOM（tiptap commands.focus 在 jsdom 不落焦）。
+  await act(async () => { h.editor!.view.dom.focus(); });
+  const trigger = screen.getByTestId('chat-model-menu-root').querySelector('button')!;
+  fireEvent.mouseDown(trigger);
+  expect(document.activeElement).toBe(h.editor!.view.dom);
+  fireEvent.click(trigger);
+  const nextModel = await screen.findByRole('option', { name: /gw-model-beta/ });
   await act(async () => {
-    fireEvent.pointerDown(nextModel);
     nextModel.focus();
     fireEvent.click(nextModel);
   });
-  await waitFor(() => expect(screen.queryByRole('listbox', { name: 'newChat.modelSelector.modelListAria' })).toBeNull());
-  await waitFor(() => expect(onModelDidChange).toHaveBeenCalledExactlyOnceWith('remote-new'));
+  await waitFor(() => expect(screen.queryByTestId('chat-model-menu')).toBeNull());
+  await waitFor(() =>
+    expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe('gw-model-beta'),
+  );
   await waitFor(() => expect(document.activeElement).toBe(h.editor!.view.dom));
 });
 

@@ -384,7 +384,13 @@ describe('远程机器切换入口并入 SidebarTopNav(置顶段上方,固定不
 
   it('空态 / 远程任务 loading-error / 设备目录 loading / 连接中占位都挂范围标题', () => {
     const headerSource = read('features', 'cc-agent', 'sidebar', 'MainListScopeHeader.tsx');
-    expect(headerSource).toContain('<MachineSwitcherMenu onOpenDisplaySettings=');
+    // 2026-10-31 owner 有意变更(f0c9e9f26e 侧栏清理:「移除『伙伴』段与『全部任务』范围下拉」;
+    // MainListScopeHeader 内注释「移除『全部任务』范围下拉(MachineSwitcherMenu),体验不佳;
+    // 段头本身保留,折叠/过滤动作不受影响」):范围下拉不是迁去别处,是自段头移除后
+    // 生产不再渲染(无新挂点)。原钉「段头内嵌 <MachineSwitcherMenu onOpenDisplaySettings=」
+    // 是移除前旧位置合同,此处改钉有意变更后的新现实:段头仍是范围标题行且不再内嵌范围下拉;
+    // 下方 projectsSection / 占位分支的 <MainListScopeHeader> 断言继续覆盖「都挂范围标题」意图。
+    expect(headerSource).not.toContain('<MachineSwitcherMenu');
     expect(headerSource).not.toContain('filterActiveBadge');
     expect(headerSource).toContain('<SidebarFilterPopover');
     expect(projectsSectionSource).toContain('<MainListScopeHeader');
