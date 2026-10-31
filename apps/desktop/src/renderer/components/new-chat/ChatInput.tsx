@@ -128,6 +128,7 @@ import {
 } from '@/lib/composerActionsBus';
 import { resolveComposerModelSelection } from './composerModelSelection';
 import { ModelGatewayProvider } from '@/features/model-gateway/ModelGatewayStore';
+import { useCurrentModelRoute } from '@/features/model-gateway/currentModelStore';
 import { ChatModelMenu } from '@/features/model-gateway/ChatModelMenu';
 import type { SessionRuntimeProfileProjection, SessionRuntimePendingProjection } from '@/lib/ccAgent.types';
 import {
@@ -1242,7 +1243,20 @@ function resolveModelThinkingIntent(input: {
   return remembered ?? true;
 }
 
-export function ChatInput({
+/**
+ * 发送路径要读全局当前模型（Ruling 18：`useCurrentModel` / `useCurrentModelRoute`
+ * 需要 ModelGatewayProvider 语境），所以 ChatInput 整棵子树都由外层 Provider 包住；
+ * 槽位里的 `<ChatModelMenu />` 直接复用这一份（不再自嵌 Provider）。
+ */
+export function ChatInput(props: ChatInputProps) {
+  return (
+    <ModelGatewayProvider>
+      <ChatInputInner {...props} />
+    </ModelGatewayProvider>
+  );
+}
+
+function ChatInputInner({
   onSend,
   onComposerTyping,
   onComposerVoiceBusyChange,
@@ -2145,21 +2159,32 @@ export function ChatInput({
   const remoteModelListBlocked =
     (!!catalogDeviceId && enforceConnectedSourceGate && remoteModelListStatus !== 'ready') ||
     (!!sshCodexHostId && sshCodexProviders.status !== 'ready');
+  // ── Ruling 18：主聊天发送路径消费全局当前模型 ─────────────────────────────
+  // 点选聊天里的模型菜单（useCurrentModel）即改**后续消息**用的模型，不回溯已发送的
+  // （设计稿 §5.3）。远程会话（device-link / SSH）的模型在被控端目录上路由，本机网关
+  // 条目不在那台电脑上，远程维持既有链路。网关条目恒为 claude-code runtime
+  // （anthropic-messages），发送的 engine 一并钉到 claude-code，避免草稿 Harness 记忆
+  // 与路由错配。无可用网关模型时回落原默认链路（localVendorDefaults / session runtime）。
+  const currentModelRoute = useCurrentModelRoute();
+  const sendRoute =
+    currentModelRoute && !deviceLinkDeviceId && !remoteHostId ? currentModelRoute : null;
+  const sendModel = sendRoute?.modelId ?? activeModel;
+  const sendAgentKind: AgentKind | null = sendRoute ? 'claude-code' : currentModelAgentKind;
   // chatEligibleSourcesForModel(不是裸 sourcesForModel):非聊天模型即便"存在于某个
   // 已连接来源"也不算有可发送来源(issue #882 第 3 点,2026-07 review)——否则 Send
   // 会对着一个 image/embedding 端点放行,而不是显示这里的"去连接"空态。已建会话
   // (sessionId 在)按实际路由口径判(includeDisabled):运行中的会话不因停用打断,
   // 请求仍走原路由,把停用当「无来源」会误禁 Send(PR #744 review 第十轮)。草稿是
   // 新路由选择,保持准入口径(停用拷贝不算可发送来源)。
-  const hasConnectedSendSource = currentModelAgentKind
-    ? chatEligibleSourcesForModel(sendProviders, activeModel, currentModelAgentKind, {
+  const hasConnectedSendSource = sendAgentKind
+    ? chatEligibleSourcesForModel(sendProviders, sendModel, sendAgentKind, {
         onlyConnected: true,
         includeDisabled: !!sessionId,
       }).length > 0
     : false;
   const noConnectedSource =
     enforceConnectedSourceGate &&
-    !!currentModelAgentKind &&
+    !!sendAgentKind &&
     !providersLoading &&
     !remoteModelListBlocked &&
     // 老被控端明确不支持 provider:list 时只能依据 capabilities 放行；不能把缺少
@@ -2174,6 +2199,9 @@ export function ChatInput({
   //   · device-link 远程会话:连接态在被控端,控制端不判。
   // providersLoading 期间不判(规则同 noConnectedSource,避免首帧闪断开态)。
   const selectedSourceDisconnected =
+    // 发送走全局当前模型（sendRoute）时，旧的显式来源断开与否不再约束这条消息
+    // ——路由已整体换成网关条目，不再读那个来源。
+    !sendRoute &&
     !!sessionId &&
     !catalogDeviceId &&
     !preserveSshCodexRoute &&
@@ -2205,7 +2233,8 @@ export function ChatInput({
   // 关键:这里**绝不**把"跟随默认"具体化成原生默认 id(如 'xd')——默认 cohort 必须保持
   //   providerId=null,路由才回落 spawn-aware 默认(字节级不变,no-break);写成显式 'xd'
   //   会改走 catalog gateway-key 路由(见 provider-route.ts),破坏默认 cohort 的路由/缓存基线。
-  const sendProviderId = activeProviderId || null;
+  // sendRoute（Ruling 18）是显式网关条目 id（自定义供应商），不是默认 cohort 的具体化。
+  const sendProviderId = (sendRoute?.providerId ?? activeProviderId) || null;
 
   // 模型预设采用「全局默认 + 已创建会话保护」:
   //   - 本地草稿 / 已创建会话的**非选中行**都读写 providerModelMemory,所以同一
@@ -5646,7 +5675,7 @@ export function ChatInput({
             sessionId: sourceSessionId,
             remoteHostId,
             deviceId: deviceLinkDeviceId,
-            agentKind: currentModelAgentKind,
+            agentKind: sendAgentKind,
             workingDir: workingDirRef.current,
             hasUnsupportedContent:
               attachmentsForSend.length > 0 || commentsForSend.length > 0 ||
@@ -5655,8 +5684,8 @@ export function ChatInput({
             createOptions: {
               // Home needs only a chat container; a project task could bootstrap Git.
               workspaceKind: 'dialogue',
-              agentKind: currentModelAgentKind === 'claude-code' ? 'cc' : currentModelAgentKind ?? undefined,
-              model: activeModel,
+              agentKind: sendAgentKind === 'claude-code' ? 'cc' : sendAgentKind ?? undefined,
+              model: sendModel,
               effort: selectedEffort,
               permissionMode: activePermissionMode,
               providerId: sendProviderId,
@@ -5811,7 +5840,7 @@ export function ChatInput({
         // 非聊天来源不该被当成"可以发"放行(issue #882 第 3 点,2026-07 review)。
         if (
           enforceConnectedSourceGate && !canAttemptBaselineRecovery &&
-          currentModelAgentKind &&
+          sendAgentKind &&
           // 旧被控端明确不支持 provider:list 时，控制端没有可检查的来源镜像；
           // 与模型列表一致交给 capabilities + 被控端发送链路做兼容回退。
           !(deviceLinkDeviceId && remoteProviders.unsupported)
@@ -5821,8 +5850,8 @@ export function ChatInput({
           // 弹「去连接来源」把继续发送挡死(PR #744 review 第十八轮)。草稿保持准入口径。
           const connectedSources = chatEligibleSourcesForModel(
             providers,
-            activeModel,
-            currentModelAgentKind,
+            sendModel,
+            sendAgentKind,
             {
               onlyConnected: true,
               includeDisabled: !!sessionId,
@@ -6277,7 +6306,7 @@ export function ChatInput({
           }
           result = await onSend(
             routedText,
-            activeModel,
+            sendModel,
             effortForSend,
             activePermissionMode,
             filesToSend,
@@ -6335,6 +6364,8 @@ export function ChatInput({
       sessionId,
       onSend,
       activeModel,
+      sendModel,
+      sendAgentKind,
       selectedEffort,
       activePermissionMode,
       sendProviderId,
@@ -9872,11 +9903,10 @@ export function ChatInput({
                     : useNarrowToolbar ? 'min-w-0 shrink' : undefined}
                 >
                   {/* 聊天里的模型菜单（设计稿 §5.3）：输入框右下角取代原「配置模型」
-                      （ModelSelector 触发器）入口；切换的是全局当前模型，作用于后续消息。
-                      条目与当前模型由菜单自取（model-gateway store），挂载方只提供 Provider。 */}
-                  <ModelGatewayProvider>
-                    <ChatModelMenu />
-                  </ModelGatewayProvider>
+                      （ModelSelector 触发器）入口；切换的是全局当前模型，作用于后续消息
+                      （发送路径读 useCurrentModelRoute，见 sendModel）。Provider 由
+                      ChatInput 外层提供，菜单自取数据。 */}
+                  <ChatModelMenu />
                 </div>
                 ) : null}
                 <div

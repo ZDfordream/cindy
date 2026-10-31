@@ -77,3 +77,26 @@ export function useCurrentModel(): CurrentModelApi {
 
   return useMemo(() => ({ currentId: effective, setCurrent }), [effective, setCurrent]);
 }
+
+/** 发送路径读到的路由（Ruling 18）：全局当前模型 → 本条消息要用的 (providerId, modelId)。 */
+export interface CurrentModelRoute {
+  /** 稳定句柄 = 自定义供应商 id，直接作为发送的 providerId。 */
+  providerId: string;
+  /** 上游模型 id，直接作为发送的 wire model。 */
+  modelId: string;
+}
+
+/**
+ * 主聊天发送路径消费的当前路由。`currentId` 经 `useCurrentModel` 回落后恒指向
+ * 存在且 enabled 的条目；这里把它解析成发送需要的 (providerId, modelId) 对。
+ * 无可用模型时返回 null（发送回落调用方原有的默认链路）。
+ */
+export function useCurrentModelRoute(): CurrentModelRoute | null {
+  const { currentId } = useCurrentModel();
+  const { entries } = useModelGateway();
+  return useMemo(() => {
+    if (currentId === null) return null;
+    const entry = entries.find((candidate) => candidate.id === currentId);
+    return entry ? { providerId: entry.id, modelId: entry.modelId } : null;
+  }, [currentId, entries]);
+}

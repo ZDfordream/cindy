@@ -117,11 +117,13 @@ describe('CCAgentSessionView 接线不变式', () => {
       'const enforceConnectedSourceGate = (!sessionId || !catalogDeviceId) && !preserveSshCodexRoute;',
     );
     expect(chatInputSrc).toContain('const preserveSshCodexRoute = !!sessionId && !!sshCodexHostId &&');
+    // 门禁谓词改名 sendAgentKind（Ruling 18：发送引擎随 sendRoute 走，远程时
+    // sendRoute 恒 null = 原 currentModelAgentKind）；门禁结构与跳过条件不变。
     expect(chatInputSrc).toMatch(
-      /const noConnectedSource =\s*enforceConnectedSourceGate &&\s*!!currentModelAgentKind/,
+      /const noConnectedSource =\s*enforceConnectedSourceGate &&\s*!!sendAgentKind/,
     );
     expect(chatInputSrc).toMatch(
-      /if\s*\(\s*enforceConnectedSourceGate\s*&&\s*!canAttemptBaselineRecovery\s*&&\s*currentModelAgentKind\s*&&[\s\S]*?\)\s*\{/,
+      /if\s*\(\s*enforceConnectedSourceGate\s*&&\s*!canAttemptBaselineRecovery\s*&&\s*sendAgentKind\s*&&[\s\S]*?\)\s*\{/,
     );
   });
   it('断线缓存的远程 session 可查看,但生命周期/元数据写操作必须走统一 gate', () => {

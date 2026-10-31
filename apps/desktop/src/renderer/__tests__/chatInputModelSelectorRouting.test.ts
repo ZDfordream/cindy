@@ -10,7 +10,11 @@ const chatInputSource = normalizeSourceText(
 
 describe('ChatInput model source switching wiring', () => {
   it('preserves an explicit connection for submission even when its catalog row is unavailable', () => {
-    expect(chatInputSource).toContain('const sendProviderId = activeProviderId || null;');
+    // 无 sendRoute（Ruling 18 的网关条目）时必须仍逐字走 activeProviderId ||
+    // null（默认 cohort 不得具体化成原生默认 id）；sendRoute 是显式条目 id。
+    expect(chatInputSource).toContain(
+      'const sendProviderId = (sendRoute?.providerId ?? activeProviderId) || null;',
+    );
     expect(chatInputSource).toContain('providerId: sendProviderId');
     expect(chatInputSource).not.toContain('effectiveSourceIdForModel(sendProviders, activeProviderId');
   });
@@ -329,6 +333,15 @@ describe('ChatInput model source switching wiring', () => {
     expect(chatInputSource).toContain('<ModelGatewayProvider>');
     // 旧「配置模型」（ModelSelector 触发器）不再挂在 composer 上。
     expect(chatInputSource).not.toContain('<ModelSelector');
+  });
+
+  it('send path consumes the global current model (Ruling 18)', () => {
+    // 发送路径必须读 useCurrentModelRoute（= useCurrentModel 的路由解析），
+    // 否则菜单切换只改全局值、不作用于后续消息。
+    expect(chatInputSource).toContain('useCurrentModelRoute()');
+    expect(chatInputSource).toMatch(/const sendModel = sendRoute\?\.modelId \?\? activeModel;/);
+    // onSend 用 sendModel（不是裸 activeModel），providerId 走 sendProviderId 的路由覆盖。
+    expect(chatInputSource).toContain('result = await onSend(\n            routedText,\n            sendModel,');
   });
 
   it('locks the union list to the current engine when no cross-engine transaction exists', () => {
