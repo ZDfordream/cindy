@@ -580,7 +580,6 @@ const fanOutSidebarTabWindowStateChanged = createIpcFanOut(
 );
 const fanOutSidebarTabWindowTabReturned = createIpcFanOut('maker:sidebar-tab-window:tab-returned');
 const fanOutRightSidebarTabsChanged = createIpcFanOut('maker:right-sidebar-tabs:changed');
-const fanOutBinaryDownloadProgress = createIpcFanOut('binary-download-progress');
 // Settings →「电脑使用」cua-driver 更新的下载进度(main 侧采样后广播)
 const fanOutComputerDriverUpdateProgress = createIpcFanOut('computer-driver-update-progress');
 const fanOutComputerPermissionGuideCancelled = createIpcFanOut(
@@ -589,7 +588,6 @@ const fanOutComputerPermissionGuideCancelled = createIpcFanOut(
 const fanOutComputerPermissionGuideStatusChanged = createIpcFanOut(
   'maker:computer:permission-guide-status-changed',
 );
-const fanOutAppUpdateProgress = createIpcFanOut('app-update-progress');
 // worktree 回收(归档/删除后的异步链)真正跑完 —— renderer 据此重拉 worktree 快照,
 // 否则徽标会停在回收前的旧条目上。只在本机窗口内广播。
 const fanOutWorktreeChanged = createIpcFanOut('worktree:changed');
@@ -2857,18 +2855,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onChanged: createIpcFanOut('binding:changed'),
   },
 
-  // Environment
-  checkEnvironment: () => ipcRenderer.invoke('check-environment'),
-  onBinaryDownloadProgress: fanOutBinaryDownloadProgress,
-
-  // Splash startup update check is temporarily disabled. Background polling
-  // and the manual update entry use separate UpdateService IPC paths.
-  checkAppUpdate: (): Promise<{
-    hasUpdate: boolean;
-    action?: 'relaunch' | 'none';
-    version?: string;
-    error?: 'manifest_failed' | 'download_failed';
-  }> => Promise.resolve({ hasUpdate: false, action: 'none' }),
+  // 2026-10-28:check-environment 与「唤醒中」splash 随二进制内置整段移除,
+  // 对应的 checkEnvironment / onBinaryDownloadProgress / checkAppUpdate 一并退役。
   getUpdateStatus: (): Promise<{ status: string; version?: string; errorCode?: string }> =>
     ipcRenderer.invoke('update-get-status'),
   getAutoUpdateSettings: (): Promise<{
@@ -2932,8 +2920,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       });
     },
   },
-  onAppUpdateProgress: fanOutAppUpdateProgress,
-
   // apiRequest(renderer → main → 主 server 通用代理)与 imageUpload.putToOss
   // (presign 直传桥)已随 2026-07 apiBaseUrl 清理退役:renderer 对业务 server
   // 零请求;头像等上传走 main 侧 profileEdit 链路。
@@ -4783,17 +4769,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   relaunchToUpdate: (theme: 'light' | 'dark'): void => {
     ipcRenderer.send('update-relaunch', theme);
   },
-
-  /**
-   * Apply a startup-discovered update only after main rechecks the complete
-   * unattended-relaunch policy at the actual execution boundary.
-   */
-  autoRelaunchToUpdate: (
-    theme: 'light' | 'dark',
-  ): Promise<{
-    accepted: boolean;
-    blockReason?: string;
-  }> => ipcRenderer.invoke('update-relaunch-auto', theme),
 
   /**
    * Ask the main process to move the app into /Applications (macOS only).

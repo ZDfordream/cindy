@@ -39,7 +39,9 @@ describe('Pi binary distribution contract', () => {
     );
 
     expect(bootstrap).toContain('PI_AGENT_INSTALL_STARTUP_DEADLINE_MS = 60_000');
-    expect(bootstrap).toContain('signal: piInstallSignal');
+    // 2026-10-28 二进制随包分发后启动期不再下载 Pi;残留的受管 prepare(recovery 重试 /
+    // About 手动更新)仍必须带超时信号,CDN 挂掉不能拖住任何前台路径。
+    expect(bootstrap).toContain('signal: AbortSignal.timeout(PI_AGENT_INSTALL_STARTUP_DEADLINE_MS)');
     expect(binaries).toContain('signal: opts.signal');
   });
 
@@ -69,7 +71,8 @@ describe('Pi binary distribution contract', () => {
     );
 
     expect(bootstrap).toContain('createPiRuntimeRecovery');
-    expect(bootstrap).toContain('piRuntimeRecovery.markUnavailable');
+    // 失败后可后台重试的 recovery 机制仍须挂在启动链上(即使包内副本让首启无需 prepare)。
+    expect(bootstrap).toContain('piRuntimeRecovery.retryNow');
     expect(bootstrap).toContain('registerPiAgentIfAvailable');
   });
 

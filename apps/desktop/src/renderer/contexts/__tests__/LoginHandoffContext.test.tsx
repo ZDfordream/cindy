@@ -53,18 +53,6 @@ vi.mock('@/components/ui/confirm-dialog-provider', () => ({
 }));
 vi.mock('@/hooks/useLogin', () => ({ useLogin: () => svc.loginHook }));
 vi.mock('@/components/title-bar/WindowControls', () => ({ WindowControls: () => null }));
-vi.mock('@/contexts/EnvCheckContext', () => ({
-  useEnvCheck: () => ({
-    status: svc.env.status,
-    downloadProgress: 0,
-    downloadInfo: { progress: 0 },
-    updateVersion: undefined,
-    step: undefined,
-    totalSteps: undefined,
-    resetSignal: 0,
-    checkEnvironment: vi.fn(async () => {}),
-  }),
-}));
 vi.mock('@/hooks/useUpdateStatus', () => ({ useUpdateStatus: () => ({ errorCode: undefined }) }));
 
 import {
@@ -75,7 +63,6 @@ import {
 } from '../LoginHandoffContext';
 import { AuthProvider, useAuth } from '../AuthContext';
 import { LoginBrandStage } from '@/components/login/LoginBrandStage';
-import { SplashScreen } from '@/components/splash/SplashScreen';
 import { LoginPage } from '@/components/login/LoginPage';
 import {
   brandPlacement,
@@ -136,11 +123,9 @@ afterEach(() => {
 
 const T = LOGIN_HANDOFF_TIMINGS;
 
-function fireAnchors({ splashComplete = true }: { splashComplete?: boolean } = {}) {
+function fireAnchors() {
   act(() => {
     probe.current!.reportBrandAssetsReady();
-    probe.current!.reportSplashExited();
-    if (splashComplete) probe.current!.reportSplashExitCompleted();
   });
 }
 
@@ -267,34 +252,6 @@ describe('LoginHandoff 时序(fake-timer)', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('reduced-motion 下 Splash 延迟卸载仍冻结布局,完成后才落终态', () => {
-    setReducedMotion(true);
-    render(
-      <LoginHandoffProvider authResolved authenticated={false}>
-        <LoginBrandStage />
-        <Probe />
-      </LoginHandoffProvider>,
-    );
-    act(() => probe.current!.reportLoginPanelMounted());
-    fireAnchors({ splashComplete: false });
-
-    expect(probe.current!.phase).toBe('awaiting-splash-exit');
-    expect(probe.current!.brandLayout).toBe('splash');
-    expect(probe.current!.panelRevealed).toBe(false);
-    expect(probe.current!.isPlaying).toBe(true);
-
-    act(() => vi.runAllTimers());
-    expect(probe.current!.phase).toBe('awaiting-splash-exit');
-
-    act(() => probe.current!.reportSplashExitCompleted());
-    expect(probe.current!.phase).toBe('done');
-    expect(probe.current!.brandLayout).toBe('login');
-    expect(probe.current!.panelRevealed).toBe(true);
-    expect(probe.current!.sloganRevealed).toBe(true);
-    expect(probe.current!.isPlaying).toBe(false);
-    expect(screen.getByTestId('login-brand-canvas').style.transition).toBe('');
-  });
-
   it('reduced-motion 下品牌布局切换不挂 transform transition', () => {
     setReducedMotion(true);
     render(
@@ -305,14 +262,13 @@ describe('LoginHandoff 时序(fake-timer)', () => {
     );
     act(() => probe.current!.reportLoginPanelMounted());
     fireAnchors();
-    act(() => probe.current!.reportSplashExitCompleted());
 
     expect(probe.current!.phase).toBe('done');
     expect(probe.current!.brandLayout).toBe('login');
     expect(screen.getByTestId('login-brand-canvas').style.transition).toBe('');
   });
 
-  it('已登录分支没有登录面板,始终保持 Splash 构图且不使用 footer 预留', () => {
+  it('已登录分支没有登录面板,始终保持启动构图且不使用 footer 预留', () => {
     render(
       <LoginHandoffProvider authResolved authenticated coverHeld>
         <LoginBrandStage />
@@ -321,8 +277,6 @@ describe('LoginHandoff 时序(fake-timer)', () => {
     );
     act(() => {
       probe.current!.reportBrandAssetsReady();
-      probe.current!.reportSplashExited();
-      probe.current!.reportSplashExitCompleted();
     });
     expect(probe.current!.branch).toBe('authenticated');
     expect(probe.current!.brandLayout).toBe('splash');
@@ -355,7 +309,7 @@ describe('LoginHandoff 时序(fake-timer)', () => {
     expect(probe.current!.panelBottomReserve).toBeNull();
   });
 
-  it('Splash 退场及 shift 期间锁定 Splash 布局,面板显示时才切到登录布局', () => {
+  it('settle/shift 期间锁定启动构图,面板显示时才切到登录布局', () => {
     render(
       <LoginHandoffProvider authResolved authenticated={false}>
         <Probe />
@@ -366,40 +320,14 @@ describe('LoginHandoff 时序(fake-timer)', () => {
     expect(probe.current!.phase).toBe('settle');
     expect(probe.current!.brandLayout).toBe('splash');
 
-    act(() => probe.current!.reportSplashExitCompleted());
-    expect(probe.current!.brandLayout).toBe('splash');
-
     act(() => vi.advanceTimersByTime(T.settleMs + T.shiftMs));
     expect(probe.current!.phase).toBe('panel');
     expect(probe.current!.brandLayout).toBe('login');
   });
 
-  it('Splash 延迟卸载时冻结在 Splash 布局,实际卸载后才进入 panel', () => {
-    render(
-      <LoginHandoffProvider authResolved authenticated={false}>
-        <Probe />
-      </LoginHandoffProvider>,
-    );
-    act(() => probe.current!.reportLoginPanelMounted());
-    fireAnchors({ splashComplete: false });
-
-    act(() => vi.advanceTimersByTime(T.settleMs + T.shiftMs));
-    expect(probe.current!.phase).toBe('awaiting-splash-exit');
-    expect(probe.current!.brandLayout).toBe('splash');
-    expect(probe.current!.panelRevealed).toBe(false);
-    expect(probe.current!.isPlaying).toBe(true);
-
-    act(() => vi.runAllTimers());
-    expect(probe.current!.phase).toBe('awaiting-splash-exit');
-
-    act(() => probe.current!.reportSplashExitCompleted());
-    expect(probe.current!.phase).toBe('panel');
-    expect(probe.current!.brandLayout).toBe('login');
-    expect(probe.current!.panelRevealed).toBe(true);
-  });
 });
 
-/* ── 冷启动集成(real AuthProvider + LoginBrandStage + SplashScreen + LoginPage) ── */
+/* ── 冷启动集成(real AuthProvider + LoginBrandStage + LoginPage) ── */
 
 function HandoffHost({ children }: { children: React.ReactNode }) {
   const { isInitializing, isAuthenticated, canEnterApp } = useAuth();
@@ -425,7 +353,6 @@ function renderColdStart() {
     <AuthProvider>
       <HandoffHost>
         <LoginBrandStage />
-        <SplashScreen />
         <GuestGate />
         <Probe />
       </HandoffHost>
@@ -446,30 +373,6 @@ function loadBrandAssets() {
 }
 
 describe('冷启动集成(resolved snapshot,禁 mock-reject)', () => {
-  it('browser-redirect 无 footer 时，面板与品牌层统一使用 0 bottom reserve', async () => {
-    svc.loginHook.loginState = { step: 'browser-redirect', label: 'Google' };
-    svc.service.initialize.mockResolvedValue({
-      isAuthenticated: false,
-      isCanary: false,
-      deviceId: 'test-device',
-      user: null,
-    });
-    renderColdStart();
-    await flush();
-
-    expect(probe.current!.panelBottomReserve).toBe(0);
-    expect(screen.queryByTestId('login-stage-footer')).toBeNull();
-
-    const panel = panelPlacement(window.innerWidth, window.innerHeight, 1229, 0);
-    expect(screen.getByTestId('login-stage').style.top).toBe(`${panel.topY}px`);
-
-    const brand = splashBrandPlacement(window.innerWidth, window.innerHeight);
-    expect(screen.getByTestId('login-brand-canvas').style.transform).toBe(
-      `translate(-50%, calc(-50% + ${brand.translateY}px)) scale(${brand.scale})`,
-    );
-    expect(probe.current!.brandLayout).toBe('splash');
-  });
-
   it('unauthenticated 冷启动:品牌屏→完整衔接播放;全程单一品牌 DOM/最多一个可见 panel/done 后可点击/overlay 不拦截', async () => {
     // 集成层异常路径口径 = resolved-unauthenticated snapshot(v6.8 消歧)
     svc.service.initialize.mockResolvedValue({
@@ -488,7 +391,6 @@ describe('冷启动集成(resolved snapshot,禁 mock-reject)', () => {
     expect(hero.style.left).toBe('443px'); // wave4 品牌位 = 登录位(379:5xx 实测)
     expect(hero.style.top).toBe('275px');
     expect(screen.getByTestId('login-slogan').style.opacity).toBe('0');
-    expect(screen.getByTestId('splash-panel')).toBeTruthy();
     const group = screen.getByTestId('login-group');
     expect(group.style.opacity).toBe('0'); // splash 期登录面板不可见 → 最多一个可见 panel
     expect(group.style.pointerEvents).toBe('none');
@@ -501,20 +403,16 @@ describe('冷启动集成(resolved snapshot,禁 mock-reject)', () => {
     // overlay 不拦截 hit-test
     expect(screen.getByTestId('login-stage-root').className).toContain('pointer-events-none');
 
-    // ── 品牌资产 onload(推进锚) + 3s 地板后 Splash 退场 → 起播 ──
+    // ── 品牌资产 onload(推进锚)即起播(2026-10-28 起无 splash 与 3s 地板) ──
     loadBrandAssets();
-    await act(async () => {
-      vi.advanceTimersByTime(3_000);
-    });
+    await flush();
     expect(probe.current!.phase).toBe('settle');
     expect(probe.current!.branch).toBe('unauthenticated');
     expect(probe.current!.brandLayout).toBe('splash');
 
-    // splash fade 500ms 后卸载;handoff 尚在 shift 段(t=500 < 950)
     await act(async () => {
       vi.advanceTimersByTime(500);
     });
-    expect(screen.queryByTestId('splash-panel')).toBeNull();
     expect(probe.current!.phase).toBe('shift');
     expect(probe.current!.brandLayout).toBe('splash');
     expect(screen.getByTestId('login-group').style.opacity).toBe('0');
@@ -556,7 +454,6 @@ describe('冷启动集成(resolved snapshot,禁 mock-reject)', () => {
     expect(doneGroup.style.opacity).toBe('1');
     expect(doneGroup.style.pointerEvents).not.toBe('none');
     // 全程单面板:splash 面板已卸载,仅剩 login-panel-identifier 一块
-    expect(screen.queryByTestId('splash-panel')).toBeNull();
     expect(
       document.querySelectorAll(
         '[data-testid^="login-panel-"]:not([data-testid="login-panel-stage-root"])',
@@ -567,7 +464,7 @@ describe('冷启动集成(resolved snapshot,禁 mock-reject)', () => {
     expect(screen.getByTestId('login-stage-root').className).toContain('pointer-events-none');
   });
 
-  it('authenticated 冷启动:品牌 Splash 淡出直入主界面,不闪登录面板,overlay 平滑卸载', async () => {
+  it('authenticated 冷启动:品牌层淡出直入主界面,不闪登录面板,overlay 平滑卸载', async () => {
     svc.service.initialize.mockResolvedValue({
       isAuthenticated: true,
       isCanary: false,
@@ -582,9 +479,7 @@ describe('冷启动集成(resolved snapshot,禁 mock-reject)', () => {
     expect(screen.queryByTestId(/^login-panel-/)).toBeNull();
 
     loadBrandAssets();
-    await act(async () => {
-      vi.advanceTimersByTime(3_000);
-    });
+    await flush();
     expect(probe.current!.branch).toBe('authenticated');
     expect(probe.current!.phase).toBe('brand-exit');
     // 淡出中:保持 Splash 品牌布局,只淡出内容层;背景仍不透明,避免透出
@@ -695,9 +590,7 @@ describe('冷启动集成(resolved snapshot,禁 mock-reject)', () => {
     await flush();
 
     loadBrandAssets();
-    await act(async () => {
-      vi.advanceTimersByTime(3_000);
-    });
+    await flush();
     expect(probe.current!.branch).toBe('authenticated');
     expect(probe.current!.phase).toBe('brand-exit');
   });

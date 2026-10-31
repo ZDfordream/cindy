@@ -9,11 +9,10 @@ import { createPiKernelManager, type PiKernelManager } from './pi-kernel-manager
  *   prepare(kind, opts?)             — 启动安装入口，优先复用后台下载；首装/修复保留网络兜底
  *   prefetch(kind, opts?)            — 后台/About 共用的下载缓存，不切换当前运行路径
  *   getCachedBinaryStatus(kind)      — 同步快查 (DropdownMenu 元 IPC 用), 不触发下载
- *   getReadyBinaryPath(kind)         — 读 prepare() 成功后写入的 cache 路径 (maker-host 构造期同步注入)
- *   peekNeedsDownload(kind)          — splash 顺序检查用
+ *   getReadyBinaryPath(kind)         — 解析当前可用的受管二进制路径 (maker-host 构造期同步注入)
+ *   peekNeedsDownload(kind)          — 判断是否仍需网络下载
  *   getInstallState(kind)            — 详细安装状态
- *   broadcastResetForStep(kind, step, totalSteps) — splash 多步下载切换时归零进度条
- *   broadcastBinaryDownloadProgress  — splash 进度 IPC 推送 (本模块内部 + cleanup hook 外部用)
+ *   broadcastBinaryDownloadProgress  — 下载进度 IPC 推送(当前无 renderer 消费者,保留为通用进度面)
  *
  * 设计:
  *   - 配置表 (CONFIG): 按 kind 描述差异 (vendorKey/manifestField/installSubdir/binaryName/devBinDir/vendorTag),
@@ -266,8 +265,32 @@ export async function updateReadyPiBinary(force: boolean): Promise<string> {
   return getPiKernelManager().install({ source: 'upstream', force });
 }
 
+/**
+ * 启动期基线解析：dev 的 apps/<devBinDir>/<platform>/，或随安装包分发的副本。
+ *
+ * 刻意**不含** userData 受管安装：那份是可变状态，必须先经 prepare() 的版本仲裁
+ * （preserveLocalVersion / Pi 选择）才能被采纳。只读基线不需要仲裁——包内副本与
+ * dev runtime 都是构建期钉死的、始终可用的执行文件。
+ * 因此 prepare() 失败后 getReadyBinaryPath 仍然返回 undefined（不会“复活”磁盘上
+ * 任何未确认的残留），而删掉 check-environment 后的首次启动仍能立刻拿到包内路径。
+ */
+function resolveBaselineBinaryPath(cfg: AgentBinaryConfig): string | undefined {
+  if (!app.isPackaged) {
+    return (
+      findDevBinary({
+        vendorBinDir: cfg.devBinDir,
+        binaryName: cfg.devBinaryName ?? cfg.binaryName,
+      }) ?? undefined
+    );
+  }
+  return findBundledBinary(cfg);
+}
+
 export function getReadyBinaryPath(kind: AgentBinaryKind): string | undefined {
-  return lastReadyPath.get(kind);
+  // prepare() 成功后回填的 cache 优先；否则回落到只读基线（dev runtime / 包内副本）。
+  // 删掉 check-environment 后启动期不再调 prepare()，maker-host 构造期仍能拿到
+  // 可执行路径——这是内置二进制方案能去掉 splash 的前提。
+  return lastReadyPath.get(kind) ?? resolveBaselineBinaryPath(CONFIG[kind]);
 }
 
 /** Background/About share the cache, while the running process keeps its path. */
@@ -276,6 +299,9 @@ export async function prefetch(
   opts: { manifest?: Manifest; signal?: AbortSignal } = {},
 ): Promise<boolean> {
   if (!app.isPackaged) return false;
+  // 随包副本已在位时不再预取同一份资产：否则后台会在首启后再拉一次约 400MB，
+  // 与「内置进安装包」的目标正好相反。需要升级时由 About 显式发起。
+  if (findBundledBinary(CONFIG[kind]) && !findManagedInstall(CONFIG[kind])) return true;
   // An explicit Pi selection (including an intentional downgrade) is authoritative.
   if (kind === 'pi' && getPiKernelManager().hasSelection()) {
     await clearPreparedBinaryDownloads('pi').catch(() => undefined);
@@ -312,6 +338,69 @@ function formatBytes(bytes: number): string {
 
 // ── 同步快查 (不触发下载) ────────────────────────────────────────────────────
 
+/**
+ * 随安装包分发的二进制（2026-10-28 HRBuddy 内置改造）。
+ *
+ * claude / codex / pi / ripgrep 在打包期经 forge prePackage stage 到
+ * `process.resourcesPath/tools/<installSubdir>/<binaryName>`（extraResource 注入的
+ * `resources/tools`，与 ripgrep / android-platform-tools 同一棵树），因此**首启
+ * 不再需要任何网络下载**——这正是删掉 check-environment 与 splash 的前提。
+ *
+ * 优先级约定（保持 userData 为可变区、包内为只读基线）：
+ *   1. userData/<installSubdir>/<version>/ 的受管安装（含自更新、About 手动更新）优先；
+ *   2. 没有受管安装时直接用包内副本，**不复制**到 userData。
+ * 只读约束：包内目录位于 .app / Program Files，可能被签名校验或权限保护，
+ * 本模块任何路径都不得向它写入（codex launcher 补丁已自带 userData 限定，不会误写）。
+ * 旧版 userData 存在时优先它，即使版本旧于包内副本——运行中的安装以用户侧可变状态
+ * 为准，需要升级时由 About「检查 harness 更新」或更新器显式推进。
+ */
+function findBundledBinary(cfg: AgentBinaryConfig): string | undefined {
+  if (!app.isPackaged) return undefined;
+  // Electron packaged 进程才有 resourcesPath;单测的 electron stub 下为 undefined,
+  // 直接 path.join 会抛 TypeError,所以这里先挡掉。
+  const resourcesPath = process.resourcesPath;
+  if (!resourcesPath) return undefined;
+  const candidate = path.join(resourcesPath, 'tools', cfg.installSubdir, cfg.binaryName);
+  try {
+    const stat = fs.statSync(candidate);
+    if (!stat.isFile() || stat.size < MIN_EXPECTED_BIN_BYTES) return undefined;
+    // LFS pointer / 占位文件兜底（打包环境漏 staging 时不该当成可用二进制）。
+    const fd = fs.openSync(candidate, 'r');
+    try {
+      const head = Buffer.alloc(64);
+      const n = fs.readSync(fd, head, 0, head.length, 0);
+      if (head.subarray(0, n).toString('utf8').startsWith('version https://git-lfs')) return undefined;
+    } finally {
+      fs.closeSync(fd);
+    }
+    return candidate;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 包内/受管二进制的最小合理体积，挡 LFS pointer 与误拷的文本文件。 */
+const MIN_EXPECTED_BIN_BYTES = 1024;
+
+/** userData 下是否已有可用的受管安装（`<version>/` + `.verified`）。 */
+function findManagedInstall(cfg: AgentBinaryConfig): string | undefined {
+  try {
+    const installRoot = path.join(app.getPath('userData'), cfg.installSubdir);
+    const versions = fs
+      .readdirSync(installRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+    for (const v of versions) {
+      const p = path.join(installRoot, v, cfg.binaryName);
+      const verified = path.join(installRoot, v, '.verified');
+      if (fs.existsSync(p) && fs.existsSync(verified)) return p;
+    }
+  } catch {
+    // fs 错 (目录不存在等) → 无受管安装
+  }
+  return undefined;
+}
+
 export function getCachedBinaryStatus(kind: AgentBinaryKind): CachedBinaryStatus {
   const cfg = CONFIG[kind];
   const cachedReadyPath = lastReadyPath.get(kind);
@@ -343,22 +432,12 @@ export function getCachedBinaryStatus(kind: AgentBinaryKind): CachedBinaryStatus
   }
 
   // prod / dev fallback miss: 扫 userData/<installSubdir>/<version>/<binary> + .verified
-  try {
-    const installRoot = path.join(app.getPath('userData'), cfg.installSubdir);
-    const versions = fs
-      .readdirSync(installRoot, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
-    for (const v of versions) {
-      const p = path.join(installRoot, v, cfg.binaryName);
-      const verified = path.join(installRoot, v, '.verified');
-      if (fs.existsSync(p) && fs.existsSync(verified)) {
-        return { binaryReady: true, binaryPath: p };
-      }
-    }
-  } catch {
-    // fs 错 (目录不存在等) → 降级 false
-  }
+  const managedPath = findManagedInstall(cfg);
+  if (managedPath) return { binaryReady: true, binaryPath: managedPath };
+
+  // 随包分发副本：无受管安装时直接用包内二进制（只读、不复制），首启零下载。
+  const bundledPath = findBundledBinary(cfg);
+  if (bundledPath) return { binaryReady: true, binaryPath: bundledPath };
 
   return { binaryReady: false };
 }
@@ -408,6 +487,17 @@ export async function prepare(
       return { ready: true, path: devPath, downloaded: false };
     }
     return { ready: false, error: `${kind} dev binary not found for ${getPlatformKey()}`, downloaded: false };
+  }
+
+  // ── 随包分发短路：包内副本已在位且没有受管安装 → 直接可用，不碰网络 ──
+  // 这是「首启不再下载约 400MB」的落点。已有受管安装时不短路：那条路径留给
+  // About「检查 harness 更新」与自更新走正常下载/安装链（它们会写 userData）。
+  {
+    const bundled = findBundledBinary(cfg);
+    if (bundled && !findManagedInstall(cfg)) {
+      lastReadyPath.set(kind, bundled);
+      return { ready: true, path: bundled, downloaded: false };
+    }
   }
 
   opts = { ...opts, checkForUpdates: resolveUpdateCheck(kind, opts.checkForUpdates) };
@@ -715,6 +805,8 @@ export async function peekNeedsDownload(
 ): Promise<boolean> {
   // dev 模式永不下载 (findDevBinary 命中 / 缺失都不走 OSS)
   if (!app.isPackaged) return false;
+  // 随包副本已在位：无需下载（除非已有受管安装需要按 manifest 升级）。
+  if (findBundledBinary(CONFIG[kind]) && !findManagedInstall(CONFIG[kind])) return false;
   opts = { ...opts, checkForUpdates: resolveUpdateCheck(kind, opts.checkForUpdates) };
   // Linux(cc/codex):manifest 有段 → 走通用 CDN peek(与 mac/win 同口径);
   // 无段(旧 canary / 首发渠道)→ 只看私有 fallback 是否已就位(fs 快查)。
@@ -751,20 +843,6 @@ export async function getInstallState(kind: AgentBinaryKind): Promise<VendorRunt
  * reset=true 立即把进度条 set 到 0% (无 transition 动画)。
  * step/totalSteps 由调用方按"本次需要下载的 vendor 序列"给出(2 段或 3 段)。
  */
-export function broadcastResetForStep(
-  kind: AgentBinaryKind,
-  step: 1 | 2 | 3,
-  totalSteps: 2 | 3,
-): void {
-  broadcastBinaryDownloadProgress({
-    progress: 0,
-    step,
-    totalSteps,
-    reset: true,
-    vendor: CONFIG[kind].vendorTag,
-  });
-}
-
 // ── 兼容: 给老 vendor/claude/runtime.ts 用的 BinaryProvisioner 实例 ──────────
 // 等飞书 bot 切 maker.* 后, runtime.ts 退役, 这个 export 一起删。
 

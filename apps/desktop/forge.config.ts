@@ -750,6 +750,105 @@ function ripgrepBinaryName(targetPlatform: string): string {
   return targetPlatform === 'win32' ? 'rg.exe' : 'rg';
 }
 
+/**
+ * 把 claude / codex / pi 的受管运行时按 pin 版本 stage 进 `resources/tools/`
+ * （2026-10-28 内置改造；ripgrep 另有 stageRipgrep）。
+ *
+ * 为什么内置：此前 claude/codex/pi 不进安装包，首次打开的 splash 会从 CDN 拉约
+ * 400MB 到 userData，用户要干等。现在随包分发，`agent-binaries` 的
+ * `findBundledBinary` 直接解析 `process.resourcesPath/tools/<installSubdir>/…`，
+ * 首启零下载——check-environment 阶段与「唤醒中」splash 因此可以整段移除。
+ *
+ * 布局必须与运行时 CONFIG 的 installSubdir / binaryName 对齐：
+ *   resources/tools/claude-code/claude[.exe]        (单文件)
+ *   resources/tools/codex-package/bin/codex[.exe]   (整目录,含 codex-path/、codex-resources/)
+ *   resources/tools/pi/pi[.exe]                     (整目录,含 theme/)
+ * 目录一律整拷，保证 codex-path/codex 启动器、pi 的 theme/ 与 `.version` 标记随包就位。
+ *
+ * 只读约束：这些文件进 .app / Program Files，运行期不得回写（codex launcher 补丁
+ * 自带 userData 限定，不会误改包内副本）。Windows 侧 postPackage 会递归签
+ * resources/tools 下所有 exe，新增的 claude.exe / codex.exe 自动覆盖。
+ */
+function stageAgentBinaries(targetPlatform: string, targetArch: string): void {
+  const key = targetPlatformKey(targetPlatform, targetArch);
+  const ensureScript = path.join(__dirname, '..', '..', 'scripts', 'ensure-agent-binaries.mjs');
+  // kind → 本地落点(apps/<srcDir>/<platform>/) + 包内目录名(= 运行时 installSubdir)
+  const kinds = [
+    { kind: 'claude', srcDir: 'claude-code-bin', dest: 'claude-code', dirDist: false },
+    { kind: 'codex', srcDir: 'codex-package-bin', dest: 'codex-package', dirDist: true },
+    { kind: 'pi', srcDir: 'pi-bin', dest: 'pi', dirDist: true },
+  ];
+
+  for (const { kind, srcDir, dest, dirDist } of kinds) {
+    const srcRoot = path.join(__dirname, '..', srcDir, key);
+    const destDir = path.join(__dirname, 'resources', 'tools', dest);
+
+    // 同 ripgrep：无条件经 ensure 保证目标平台是 tools/<kind>/latest.json 的 pin
+    // 版本（apps/*-bin 会被 gitignore 且跨 pin 升级残留旧文件）。缓存命中即跳过下载。
+    console.log(`[forge:prePackage] ensuring pinned ${kind} ${key} via ${ensureScript}...`);
+    const r = spawnSync(process.execPath, [ensureScript, `--kinds=${kind}`, `--platform=${key}`], {
+      stdio: 'inherit',
+    });
+    if (r.status !== 0) {
+      throw new Error(
+        `[forge] failed to ensure pinned ${kind} ${key}; run "node scripts/ensure-agent-binaries.mjs --kinds=${kind} --platform=${key}" before packaging`,
+      );
+    }
+    if (!fs.existsSync(srcRoot)) {
+      throw new Error(`[forge] ${kind} still missing at ${srcRoot} after ensure`);
+    }
+
+    fs.rmSync(destDir, { recursive: true, force: true });
+    fs.mkdirSync(destDir, { recursive: true });
+    if (dirDist) {
+      fs.cpSync(srcRoot, destDir, { recursive: true });
+      if (targetPlatform !== 'win32') {
+        // 递归补执行位:tar 解出的目录/启动器脚本不能缺 exec,否则 spawn 直接 EACCES。
+        for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
+          if (!entry.isFile()) continue;
+          const p = path.join(destDir, entry.name);
+          try {
+            fs.chmodSync(p, fs.statSync(p).mode | 0o755);
+          } catch { /* best effort */ }
+        }
+        for (const bin of ['bin', 'codex-path']) {
+          const d = path.join(destDir, bin);
+          if (!fs.existsSync(d)) continue;
+          for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+            if (!entry.isFile()) continue;
+            const p = path.join(d, entry.name);
+            try {
+              fs.chmodSync(p, fs.statSync(p).mode | 0o755);
+            } catch { /* best effort */ }
+          }
+        }
+      }
+    } else {
+      // 单文件 kind 目前只有 claude：`claude` / `claude.exe`
+      const file = targetPlatform === 'win32' ? 'claude.exe' : 'claude';
+      const src = path.join(srcRoot, file);
+      if (!fs.existsSync(src)) throw new Error(`[forge] ${kind} binary missing at ${src}`);
+      const dest = path.join(destDir, file);
+      fs.copyFileSync(src, dest);
+      if (targetPlatform !== 'win32') fs.chmodSync(dest, 0o755);
+    }
+
+    // 体积统计:整目录量级约 30–260MB,打进包前打印便于核对安装包膨胀是否符合预期。
+    let bytes = 0;
+    const walk = (d: string): void => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else bytes += fs.statSync(p).size;
+      }
+    };
+    walk(destDir);
+    console.log(
+      `[forge:prePackage] ${kind} ${key} -> ${destDir} (${(bytes / (1024 * 1024)).toFixed(2)} MB)`,
+    );
+  }
+}
+
 function stageRipgrep(targetPlatform: string, targetArch: string): void {
   const key = targetPlatformKey(targetPlatform, targetArch);
   const file = ripgrepBinaryName(targetPlatform);
@@ -1784,7 +1883,7 @@ if (isWin) {
         // 不设时回落 package.json 的 npm 包描述,UAC 提权弹窗、文件属性、
         // 快捷方式悬停提示上就会显示那段面向开发者的文本。
         //
-        // ⚠️ 取 displayName 而非 CINDY_EXE:展示名两区(含 dev)共用 'Cindy',
+        // ⚠️ 取 displayName 而非 CINDY_EXE:展示名两区(含 dev)共用同一展示名,
         // 而 exe 名 dev 派生为 'CindyDev'。用后者会让 dev 包的安装器显示
         // CindyDev、装完的主 exe 却显示 Cindy(win32metadata 同样取
         // displayName)——安装前后自相矛盾,正是本次要消除的那类不一致。
@@ -1860,7 +1959,7 @@ const config: ForgeConfig = {
     // 与主 exe 的「说明」字段必须同值,否则 dev 包会安装前后显示两个名字。
     win32metadata: {
       CompanyName: 'XD',
-      ProductName: 'Cindy',
+      ProductName: BRAND_IDENTITY.displayName,
       FileDescription: BRAND_IDENTITY.displayName,
     },
     icon: 'resources/icon',
@@ -1871,7 +1970,7 @@ const config: ForgeConfig = {
     //          main/deepLink.ts registerDeepLinkProtocol()。
     protocols: [
       // 双 scheme 注册:cindy:// 主 + xdt-maker:// 永久兼容(存量分享链接不死)。
-      { name: 'Cindy Deep Link', schemes: [...allDeepLinkSchemes()] },
+      { name: 'HRBuddy Deep Link', schemes: [...allDeepLinkSchemes()] },
     ],
     // macOS 文件夹右键 "打开方式 → Cindy" 入口:
     //   声明 app 能接受 public.folder, Finder 自动把 Cindy 出现在 "打开方式" 列表。
@@ -2025,6 +2124,7 @@ const config: ForgeConfig = {
         buildCindyUpdater();
       }
       stageRipgrep(targetPlatform, targetArch);
+      stageAgentBinaries(targetPlatform, targetArch);
       stageAndroidPlatformTools(targetPlatform, targetArch);
       buildWindowsVoiceInputFunctionKeyListener(targetPlatform);
       buildMacVoiceInputTextInsertionHelper(platform, arch);

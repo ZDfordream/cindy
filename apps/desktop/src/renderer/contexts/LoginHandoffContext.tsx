@@ -62,7 +62,6 @@ export type LoginHandoffPhase =
   | 'boot' // 等推进锚(品牌资产 ∧ auth init ∧ splash 退场)
   | 'settle' // t=0~300ms
   | 'shift' // t=300~950ms
-  | 'awaiting-splash-exit' // handoff 尚未等到 Splash 实际卸载(例如数据库清理)
   | 'awaiting-panel' // shift 结束但「面板已挂载」信号未到(仅未登录)
   | 'panel' // 面板入场中
   | 'slogan' // Slogan 入场中(面板开始 +100ms)
@@ -74,8 +73,6 @@ export type LoginBrandLayout = 'splash' | 'login';
 
 export interface LoginHandoffStartSignals {
   brandAssetsReady: boolean;
-  splashExited: boolean;
-  splashExitCompleted: boolean;
   loginPanelMounted: boolean;
 }
 
@@ -102,10 +99,6 @@ export interface LoginHandoffContextValue {
   /** 推进锚收到情况,只读,供开屏卡住诊断判断停在哪一步。 */
   startSignals: LoginHandoffStartSignals;
   reportBrandAssetsReady: () => void;
-  /** Splash 开始淡出；用于启动 handoff 时序，但不代表布局可以切换。 */
-  reportSplashExited: () => void;
-  /** Splash 淡出完成并卸载后，未登录分支才允许切到登录布局。 */
-  reportSplashExitCompleted: () => void;
   reportLoginPanelMounted: () => void;
   reportLoginPanelUnmounted: () => void;
   reportPanelBottomReserve: (reserve: number | null) => void;
@@ -129,13 +122,9 @@ const FALLBACK_VALUE: LoginHandoffContextValue = Object.freeze({
   sloganRevealed: true,
   startSignals: Object.freeze({
     brandAssetsReady: true,
-    splashExited: true,
-    splashExitCompleted: true,
     loginPanelMounted: false,
   }),
   reportBrandAssetsReady: () => {},
-  reportSplashExited: () => {},
-  reportSplashExitCompleted: () => {},
   reportLoginPanelMounted: () => {},
   reportLoginPanelUnmounted: () => {},
   reportPanelBottomReserve: () => {},
@@ -166,8 +155,6 @@ export function LoginHandoffProvider({
   const [phase, setPhase] = useState<LoginHandoffPhase>('boot');
   const [branch, setBranch] = useState<LoginHandoffBranch>(null);
   const [brandReady, setBrandReady] = useState(false);
-  const [splashExited, setSplashExited] = useState(false);
-  const [splashExitCompleted, setSplashExitCompleted] = useState(false);
   const [panelMounted, setPanelMounted] = useState(false);
   const [panelBottomReserve, setPanelBottomReserve] = useState<number | null>(null);
 
@@ -175,7 +162,6 @@ export function LoginHandoffProvider({
   const playedRef = useRef(false);
   const panelMountedRef = useRef(false);
   const reducedMotionRef = useRef(false);
-  const splashExitCompletedRef = useRef(false);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const schedule = useCallback((fn: () => void, ms: number) => {
@@ -193,11 +179,6 @@ export function LoginHandoffProvider({
   }, []);
 
   const reportBrandAssetsReady = useCallback(() => setBrandReady(true), []);
-  const reportSplashExited = useCallback(() => setSplashExited(true), []);
-  const reportSplashExitCompleted = useCallback(() => {
-    splashExitCompletedRef.current = true;
-    setSplashExitCompleted(true);
-  }, []);
   const reportLoginPanelMounted = useCallback(() => {
     panelMountedRef.current = true;
     setPanelMounted(true);
@@ -211,30 +192,27 @@ export function LoginHandoffProvider({
     [],
   );
 
-  // ── 推进锚:品牌资产 onload ∧ auth 初始化完成 ∧ Splash 退场 → 起播(一次) ──
+  // ── 推进锚:品牌资产 onload ∧ auth 初始化完成 → 起播(一次) ──
+  // 2026-10-28:check-environment 与「唤醒中」splash 随二进制内置整段移除,
+  // 不再存在「等 Splash 退场」这一锚;原 awaiting-splash-exit 冻结态一并去掉。
   useEffect(() => {
     if (playedRef.current) return;
-    if (!brandReady || !splashExited || !authResolved) return;
+    if (!brandReady || !authResolved) return;
     playedRef.current = true;
 
     const nextBranch: LoginHandoffBranch = authenticated ? 'authenticated' : 'unauthenticated';
     setBranch(nextBranch);
 
-    // reduced-motion 直落终态:无位移/无渐入过程;但仍要等 Splash 实际卸载,
-    // 否则延迟的数据库清理会让登录面板/品牌布局在 Splash 上方提前显现。
+    // reduced-motion 直落终态:无位移/无渐入过程。
     const reducedMotion = prefersReducedMotion();
     reducedMotionRef.current = reducedMotion;
     if (reducedMotion) {
-      if (!splashExitCompletedRef.current) {
-        setPhase('awaiting-splash-exit');
-        return;
-      }
       setPhase('done');
       return;
     }
 
     if (nextBranch === 'authenticated') {
-      // 品牌 Splash 淡出直入主界面,不闪登录面板。
+      // 品牌层淡出直入主界面,不闪登录面板。
       setPhase('brand-exit');
       schedule(() => setPhase('done'), LOGIN_HANDOFF_TIMINGS.brandExitMs);
       return;
@@ -243,28 +221,10 @@ export function LoginHandoffProvider({
     setPhase('settle');
     schedule(() => setPhase('shift'), LOGIN_HANDOFF_TIMINGS.settleMs);
     schedule(
-      // 未登录分支必须等 Splash 真正卸载后才进入 panel,否则延迟卸载的
-      // 数据库清理会让 phase 先走完,随后 brandLayout 在 done 终态硬切。
-      () => {
-        if (!splashExitCompletedRef.current) {
-          setPhase('awaiting-splash-exit');
-          return;
-        }
-        setPhase(panelMountedRef.current ? 'panel' : 'awaiting-panel');
-      },
+      () => setPhase(panelMountedRef.current ? 'panel' : 'awaiting-panel'),
       LOGIN_HANDOFF_TIMINGS.settleMs + LOGIN_HANDOFF_TIMINGS.shiftMs,
     );
-  }, [brandReady, splashExited, authResolved, authenticated, schedule]);
-
-  // Splash 延迟卸载时冻结;实际卸载后再恢复终态或 panel/awaiting-panel。
-  useEffect(() => {
-    if (phase !== 'awaiting-splash-exit' || !splashExitCompleted) return;
-    if (reducedMotionRef.current) {
-      setPhase('done');
-      return;
-    }
-    setPhase(panelMountedRef.current ? 'panel' : 'awaiting-panel');
-  }, [phase, splashExitCompleted]);
+  }, [brandReady, authResolved, authenticated, schedule]);
 
   // awaiting-panel → panel:面板挂载信号到达即刻放行。
   useEffect(() => {
@@ -297,8 +257,7 @@ export function LoginHandoffProvider({
       // the artwork shrink while the panel is still hidden. Authenticated
       // startup has no login panel, so it never switches to login geometry.
       brandLayout:
-        (branch === 'unauthenticated' && splashExitCompleted && panelRevealed) ||
-        (phase === 'done' && panelMounted)
+        (branch === 'unauthenticated' && panelRevealed) || (phase === 'done' && panelMounted)
           ? 'login'
           : 'splash',
       panelBottomReserve,
@@ -315,13 +274,9 @@ export function LoginHandoffProvider({
       sloganRevealed: phase === 'slogan' || phase === 'done',
       startSignals: {
         brandAssetsReady: brandReady,
-        splashExited,
-        splashExitCompleted,
         loginPanelMounted: panelMounted,
       },
       reportBrandAssetsReady,
-      reportSplashExited,
-      reportSplashExitCompleted,
       reportLoginPanelMounted,
       reportLoginPanelUnmounted,
       reportPanelBottomReserve,
@@ -332,12 +287,8 @@ export function LoginHandoffProvider({
     panelMounted,
     coverHeld,
     brandReady,
-    splashExited,
-    splashExitCompleted,
     panelBottomReserve,
     reportBrandAssetsReady,
-    reportSplashExited,
-    reportSplashExitCompleted,
     reportLoginPanelMounted,
     reportLoginPanelUnmounted,
     reportPanelBottomReserve,

@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppShellCover } from '@/contexts/AppShellCoverContext';
-import { useEnvCheck } from '@/contexts/EnvCheckContext';
 import { useLoginHandoff } from '@/contexts/LoginHandoffContext';
 import { WINDOW_NO_DRAG_STYLE } from '@/components/layout/windowDrag';
 import { OpenLogsRow, UploadLogsActionRow } from './LogSupportActions';
@@ -18,14 +17,9 @@ export function StartupLogSupport() {
   const upload = useManualLogUpload();
   const { canEnterApp, isInitializing, isAuthenticated, mode } = useAuth();
   const { localDbGateStatus, coverHeld } = useAppShellCover();
-  const { status } = useEnvCheck();
   const { brandStageMounted, phase, branch, panelRevealed, startSignals } = useLoginHandoff();
   const visible =
-    isInitializing ||
-    !canEnterApp ||
-    status !== 'passed' ||
-    localDbGateStatus !== 'ready' ||
-    brandStageMounted;
+    isInitializing || !canEnterApp || localDbGateStatus !== 'ready' || brandStageMounted;
   // 登录面板已显示 = 等用户登录,不是卡住。只看挂载不够:未登录冷启动时登录页会先挂在开屏
   // 底下,此时开屏若卡住,用户看到的仍是开屏。
   const awaitingUserLogin = startSignals.loginPanelMounted && panelRevealed;
@@ -34,7 +28,6 @@ export function StartupLogSupport() {
     authMode: mode,
     authenticated: isAuthenticated,
     canEnterApp,
-    envStatus: status,
     localDbGate: localDbGateStatus,
     coverHeld,
     handoffPhase: phase,

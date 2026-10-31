@@ -15,25 +15,12 @@ export const STARTUP_GATE_STALL_CHANNEL = 'startup-gate:stalled';
 /** 开屏停留超过这么久才算卡住:正常冷启动(含数据库迁移)在 10 秒内完成。 */
 export const STARTUP_GATE_STALL_AFTER_MS = 20_000;
 
-const ENV_STATUSES = [
-  'idle',
-  'checking_update',
-  'updating',
-  'update_done',
-  'manifest_failed',
-  'download_failed',
-  'checking',
-  'downloading',
-  'passed',
-  'failed',
-] as const;
 const LOCAL_DB_GATE_STATUSES = ['pending', 'ready', 'fatal'] as const;
 const AUTH_MODES = ['signed-out', 'local', 'cloud'] as const;
 const HANDOFF_PHASES = [
   'boot',
   'settle',
   'shift',
-  'awaiting-splash-exit',
   'awaiting-panel',
   'panel',
   'slogan',
@@ -53,7 +40,6 @@ export interface StartupGateStallSnapshot {
   authMode: (typeof AUTH_MODES)[number];
   authenticated: boolean;
   canEnterApp: boolean;
-  envStatus: (typeof ENV_STATUSES)[number];
   localDbGate: (typeof LOCAL_DB_GATE_STATUSES)[number];
   coverHeld: boolean;
   handoffPhase: (typeof HANDOFF_PHASES)[number];
@@ -61,8 +47,6 @@ export interface StartupGateStallSnapshot {
   brandStageMounted: boolean;
   /** 品牌交接起播的三个推进锚(另一个是 auth 初始化完成)。 */
   brandAssetsReady: boolean;
-  splashExited: boolean;
-  splashExitCompleted: boolean;
   loginPanelMounted: boolean;
 }
 
@@ -76,15 +60,12 @@ const FIELD_RULES: { readonly [K in keyof StartupGateStallSnapshot]: FieldRule }
   authMode: { kind: 'enum', values: AUTH_MODES },
   authenticated: { kind: 'boolean' },
   canEnterApp: { kind: 'boolean' },
-  envStatus: { kind: 'enum', values: ENV_STATUSES },
   localDbGate: { kind: 'enum', values: LOCAL_DB_GATE_STATUSES },
   coverHeld: { kind: 'boolean' },
   handoffPhase: { kind: 'enum', values: HANDOFF_PHASES },
   handoffBranch: { kind: 'enum', values: HANDOFF_BRANCHES },
   brandStageMounted: { kind: 'boolean' },
   brandAssetsReady: { kind: 'boolean' },
-  splashExited: { kind: 'boolean' },
-  splashExitCompleted: { kind: 'boolean' },
   loginPanelMounted: { kind: 'boolean' },
 };
 

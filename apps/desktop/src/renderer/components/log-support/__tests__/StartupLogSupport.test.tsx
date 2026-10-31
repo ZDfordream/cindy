@@ -16,8 +16,6 @@ const mocks = vi.hoisted(() => ({
     panelRevealed: true,
     startSignals: {
       brandAssetsReady: true,
-      splashExited: true,
-      splashExitCompleted: true,
       loginPanelMounted: false,
     },
   },
@@ -31,7 +29,6 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => mocks.auth }));
 vi.mock('@/contexts/AppShellCoverContext', () => ({ useAppShellCover: () => mocks.db }));
-vi.mock('@/contexts/EnvCheckContext', () => ({ useEnvCheck: () => mocks.env }));
 vi.mock('@/contexts/LoginHandoffContext', () => ({ useLoginHandoff: () => mocks.handoff }));
 vi.mock('@/lib/toast', () => ({ toast: { error: mocks.error, success: mocks.success } }));
 
@@ -53,7 +50,6 @@ beforeEach(() => {
   mocks.auth.mode = 'signed-out';
   mocks.db.localDbGateStatus = 'pending';
   mocks.db.coverHeld = false;
-  mocks.env.status = 'passed';
   mocks.handoff.brandStageMounted = false;
   mocks.handoff.phase = 'done';
   mocks.handoff.branch = null;
@@ -234,11 +230,10 @@ describe('startup log support', () => {
 
   it('stays reachable through startup failure and disappears when the app is ready', () => {
     mocks.auth.canEnterApp = true;
-    mocks.db.localDbGateStatus = 'ready';
-    mocks.env.status = 'failed';
+    mocks.db.localDbGateStatus = 'pending';
     const view = render(<StartupLogSupport />);
     expect(screen.getByRole('button', { name: zhCN.logSupport.title })).toBeTruthy();
-    mocks.env.status = 'passed';
+    mocks.db.localDbGateStatus = 'ready';
     view.rerender(<StartupLogSupport />);
     expect(screen.queryByRole('button', { name: zhCN.logSupport.title })).toBeNull();
   });
@@ -272,7 +267,6 @@ describe('startup gate stall report', () => {
     expect(mocks.reportStartupGateStall.mock.calls[0][0]).toMatchObject({
       authenticated: true,
       canEnterApp: true,
-      envStatus: 'passed',
       localDbGate: 'ready',
       handoffPhase: 'boot',
       handoffBranch: 'none',

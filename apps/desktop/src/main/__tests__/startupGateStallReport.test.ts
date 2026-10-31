@@ -17,15 +17,12 @@ const snapshot: StartupGateStallSnapshot = {
   authMode: 'cloud',
   authenticated: true,
   canEnterApp: true,
-  envStatus: 'passed',
   localDbGate: 'ready',
   coverHeld: false,
   handoffPhase: 'boot',
   handoffBranch: 'none',
   brandStageMounted: true,
   brandAssetsReady: true,
-  splashExited: false,
-  splashExitCompleted: false,
   loginPanelMounted: false,
 };
 
@@ -49,15 +46,14 @@ describe('startup gate stall report', () => {
       'startup gate held for 20s (renderer up 48s): elapsedMs=48300 waitingMs=20400 ' +
         'documentVisible=true ' +
         'authInitializing=false authMode=cloud authenticated=true canEnterApp=true ' +
-        'envStatus=passed localDbGate=ready coverHeld=false handoffPhase=boot handoffBranch=none ' +
-        'brandStageMounted=true brandAssetsReady=true splashExited=false ' +
-        'splashExitCompleted=false loginPanelMounted=false',
+        'localDbGate=ready coverHeld=false handoffPhase=boot handoffBranch=none ' +
+        'brandStageMounted=true brandAssetsReady=true loginPanelMounted=false',
     );
   });
 
   it.each([
     ['an extra field carrying text', { ...snapshot, note: 'C:\\Users\\alice\\secret.txt' }],
-    ['a free-text enum value', { ...snapshot, envStatus: 'typed by user' }],
+    ['a free-text enum value', { ...snapshot, authMode: 'typed by user' }],
     ['a missing field', { ...snapshot, loginPanelMounted: undefined }],
     ['a non-integer duration', { ...snapshot, elapsedMs: 1.5 }],
   ])('drops a payload with %s', (_label, payload) => {

@@ -273,7 +273,6 @@ import {
 import {
   prepare as binaryPrepare,
   peekNeedsDownload as binaryPeekNeedsDownload,
-  broadcastResetForStep as binaryBroadcastResetForStep,
   type AgentBinaryKind,
   type PrepareResult,
 } from './agent-binaries';
@@ -1256,7 +1255,7 @@ initBotAutonomy();
  * 都满足时尝试启动"，幂等性由 startScheduler 自己保证；切账号场景 `resetScheduler()`
  * 把 `_scheduler` 置 null，下次进来自然会重新启动。
  *
- * IPC 注册模型(重构):maker:schedule:* handler 在 registerMakerIpcsAfterSplash 内
+ * IPC 注册模型(重构):maker:schedule:* handler 在 registerMakerIpcs 内
  * 通过 `registerScheduleHandlers()` 提前一次性注册,**不依赖 scheduler 实例**;
  * 本函数拿到 scheduler 后只调 `attachSchedulerEventListeners(scheduler, storage)`
  * 把 scheduler.on 挂上 + setSchedulerReady 喂入实例 + broadcast 'ready'。
@@ -1279,7 +1278,7 @@ function attemptStartScheduler(): Promise<void> {
 
 async function attemptStartSchedulerOnce(): Promise<void> {
   // 两个前置条件必须满足才能启动：
-  //   1. maker 单例已构造 (splash check-environment 完成 → registerMakerIpcsAfterSplash)
+  //   1. maker 单例已构造 (createWindow 前的 registerMakerIpcs)
   //   2. DbClient 已 smoke 通过 (user login → renderer 触发 'local-db:ensure-ready' IPC)
   // 任一未满足时 getMakerCore() / getDbClient() 抛错，整体 try/catch 兜住，等下次触发。
   let maker: Maker;
@@ -1301,10 +1300,10 @@ async function attemptStartSchedulerOnce(): Promise<void> {
     );
     return;
   }
-  // 若本调用是 getMakerCore() 的首次调用（onReady 在 registerMakerIpcsAfterSplash 之前
+  // 若本调用是 getMakerCore() 的首次调用（onReady 在 registerMakerIpcs 之前
   // 触发时可能发生），_initialCustomMcpRefresh 刚启动但尚未落地；在 startScheduler 前
   // await，确保第一个 scheduler tick 能看到用户已保存的自定义 MCP 配置。
-  // 若 Maker 已被 registerMakerIpcsAfterSplash 构造过，promise 早已 resolve，no-op。
+  // 若 Maker 已被 registerMakerIpcs 构造过，promise 早已 resolve，no-op。
   const goalGenBefore = getGoalTeardownGeneration();
   await waitForInitialCustomMcpRefresh();
   // If a teardown raced the await, bail out — the next account's activation
@@ -1338,7 +1337,7 @@ async function attemptStartSchedulerOnce(): Promise<void> {
     // scheduler 真正 ready 后挂 listener + 喂入 readiness holder。WeakSet 按实例
     // 去重:localDb onReady 重试可能再次拿到同实例，此时 no-op；
     // 切账号后新实例不在 set 里，会重新 attach。
-    // 注意:schedule:* IPC handler 不在这里注册 — 它们在 registerMakerIpcsAfterSplash
+    // 注意:schedule:* IPC handler 不在这里注册 — 它们在 registerMakerIpcs
     // 内通过 registerScheduleHandlers() 提前挂好,handler 内部 awaitReady 等本行
     // setSchedulerReady 调用。
     if (!_scheduleIpcRegistered.has(scheduler)) {
@@ -4450,7 +4449,8 @@ function parseOptionalDeviceLinkDeviceId(value: unknown): string | null | undefi
   return trimmed;
 }
 
-const registerIpcHandlers = () => {
+/** registerIpcHandlers 返回 Maker IPC 注册器:ready 流程在 createWindow 前 await 它。 */
+const registerIpcHandlers = (): (() => Promise<void>) => {
   ipcMain.handle('database-size-warning:get-settings', (event) => {
     assertTrustedAppRendererEvent(event);
     const state = readDatabaseSizeWarningSettingsState();
@@ -6306,7 +6306,7 @@ const registerIpcHandlers = () => {
     void piRuntimeRecovery.retryNow('window-focus');
   };
   disposePiRuntimeRecovery = () => piRuntimeRecovery.dispose();
-  const registerMakerIpcsAfterSplash = async (): Promise<void> => {
+  const registerMakerIpcsImpl = async (): Promise<void> => {
     if (makerIpcsRegistered) return;
     // Compose here: IM runtime and hook IPC depend on maker-host, so the host
     // receives a reader instead of importing those modules during tool calls.
@@ -6523,187 +6523,9 @@ const registerIpcHandlers = () => {
     // 这里不再直启，避免 scheduler 在账号模型发现完成前抢先选路由。
   };
 
-  // Environment check IPC handler — 顺序检查 claude → codex → pi 三个 vendor binary。
-  // 提前 peekNeedsDownload 决定 (x/y) 标签：两个及以上需要下载时给 step/totalSteps，
-  // 否则不带标签（splash 显示单一 "唤醒 Cindy 中..." 文案）。
-  // pi 是可选实验 agent:清单无资产 / 下载失败都不算环境检查失败(失败不广播
-  // failed payload),本次不注册 pi。
-  ipcMain.handle('check-environment', async () => {
-    // splash 首个 invoke = renderer 存活的强信号(与 renderer:log 双保险)。
-    rendererBootGuard?.markAlive();
-    const platform = process.platform as 'darwin' | 'win32' | 'linux';
-    // Packaged Linux may install both CLIs during one startup check. Share a
-    // single deadline so sequential fallback installs cannot each consume the
-    // full timeout.
-    const linuxInstallSignal =
-      platform === 'linux' && app.isPackaged
-        ? AbortSignal.timeout(LINUX_AGENT_INSTALL_STARTUP_DEADLINE_MS)
-        : undefined;
-
-    // ── Phase 0: peek 各 vendor 是否需要下载（决定 (x/y) 标签）────────────────
-    const needySteps: AgentBinaryKind[] = [];
-    for (const kind of ['claude-code', 'codex', 'pi'] as const) {
-      try {
-        if (await binaryPeekNeedsDownload(kind)) needySteps.push(kind);
-      } catch {
-        /* 保守: peek 失败按 false 处理，进入 prepare 内部错误流程 */
-      }
-    }
-    const isMultiDownload = needySteps.length >= 2;
-    const totalSteps = Math.min(needySteps.length, 3) as 2 | 3;
-    const stepOptsFor = (kind: AgentBinaryKind): { step?: 1 | 2 | 3; totalSteps?: 2 | 3 } =>
-      isMultiDownload && needySteps.includes(kind)
-        ? { step: (needySteps.indexOf(kind) + 1) as 1 | 2 | 3, totalSteps }
-        : {};
-    // 上一段真的发生过下载、且当前段也要下载时,先广播 reset payload 让 splash
-    // 进度条瞬间归零(不走 transition 动画),随后当前段从 0% 开始正常累加。
-    const resetBeforeSegment = (kind: AgentBinaryKind, anyPreviousDownloaded: boolean): void => {
-      const stepOpts = stepOptsFor(kind);
-      if (anyPreviousDownloaded && stepOpts.step && stepOpts.totalSteps) {
-        binaryBroadcastResetForStep(kind, stepOpts.step, stepOpts.totalSteps);
-      }
-    };
-
-    // ── Phase 1: claude 段 ───────────────────────────────────────────────────
-    let claudeRes: PrepareResult;
-    try {
-      claudeRes = await binaryPrepare('claude-code', {
-        ...stepOptsFor('claude-code'),
-        signal: linuxInstallSignal,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        claudeCode: { status: 'failed' as const, error: message },
-        codex: { status: 'skipped' as const },
-        pi: { status: 'skipped' as const },
-        allPassed: false,
-        platform,
-      };
-    }
-
-    if (!claudeRes.ready || !claudeRes.path) {
-      return {
-        claudeCode: {
-          status: 'failed' as const,
-          error: claudeRes.error ?? 'Claude Code binary not available',
-        },
-        codex: { status: 'skipped' as const },
-        pi: { status: 'skipped' as const },
-        allPassed: false,
-        platform,
-      };
-    }
-
-    // setClaudeCodePath 已退役 —— agent-binaries.prepare() 成功时已写 lastReadyPath cache;
-    // 任何需要 claude binary 路径的地方一律走 getReadyBinaryPath('claude-code')。
-
-    // 启动时那次 CLI 登录态读取往往早于二进制就绪(读不到);就绪后补读一次,结果变化经
-    // onClaudeCliLoginStatusChange 广播,供应商页随之更新连接态。已有结果时是 no-op。
-    if (!isNativeProviderAuthRevoked('anthropic')) void readClaudeCliLoginStatus();
-
-    // ── Phase 2: codex 段 ────────────────────────────────────────────────────
-    resetBeforeSegment('codex', claudeRes.downloaded === true);
-
-    let codexRes: PrepareResult;
-    try {
-      codexRes = await binaryPrepare('codex', {
-        ...stepOptsFor('codex'),
-        signal: linuxInstallSignal,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        claudeCode: { status: 'passed' as const, path: claudeRes.path },
-        codex: { status: 'failed' as const, error: message },
-        pi: { status: 'skipped' as const },
-        allPassed: false,
-        platform,
-      };
-    }
-
-    if (!codexRes.ready || !codexRes.path) {
-      return {
-        claudeCode: { status: 'passed' as const, path: claudeRes.path },
-        codex: { status: 'failed' as const, error: codexRes.error ?? 'Codex binary not available' },
-        pi: { status: 'skipped' as const },
-        allPassed: false,
-        platform,
-      };
-    }
-
-    // ── Phase 2.5: bundled ripgrep(必需,codex spawn env 与 file-browser 搜索的
-    // 硬依赖)──────────────────────────────────────────────────────────────
-    // 探测已惰性化(import 不再触发,issue #1956),启动期 fail-fast 落在 splash
-    // 这里:缺失时与 claude/codex binary 缺失同一体验(splash failed + 可重试,
-    // dev 补跑 pnpm install:ripgrep 后重试即过),而不是 import 期硬崩、也不是
-    // maker:* IPC 静默不注册的降级启动。memoize 后此处探测近零成本。
-    try {
-      ensureBundledRipgrepReady();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      // splash 失败态 UI 不渲染 error 字段,这行日志是缺 rg 时唯一的诊断出口
-      // (补装指引在 message 里);与下方 pi 失败的 console.warn 同一既有惯例。
-      console.error('[bootstrap-electron] bundled ripgrep check failed:', message);
-      return {
-        claudeCode: { status: 'passed' as const, path: claudeRes.path },
-        codex: { status: 'passed' as const, path: codexRes.path },
-        pi: { status: 'skipped' as const },
-        ripgrep: { status: 'failed' as const, error: message },
-        allPassed: false,
-        platform,
-      };
-    }
-
-    // ── Phase 3: pi 段（可选,失败不阻塞启动）──────────────────────────────────
-    // broadcastFailure: false —— pi 下载失败不能把 splash 打进失败态;静默禁用
-    // 本次 pi 注册，Claude Code / Codex 与 Cindy 本身仍照常可用。
-    // 只从 Pi 阶段开始计时，不能让前面的必需 binary 下载吃掉 Pi 自己的预算。
-    const piInstallSignal = app.isPackaged
-      ? AbortSignal.timeout(PI_AGENT_INSTALL_STARTUP_DEADLINE_MS)
-      : undefined;
-    resetBeforeSegment('pi', claudeRes.downloaded === true || codexRes.downloaded === true);
-
-    let piInfo: { status: 'passed' | 'failed'; path?: string; error?: string };
-    try {
-      const piRes = await binaryPrepare('pi', {
-        ...stepOptsFor('pi'),
-        broadcastFailure: false,
-        signal: piInstallSignal,
-      });
-      piInfo =
-        piRes.ready && piRes.path
-          ? { status: 'passed' as const, path: piRes.path }
-          : { status: 'failed' as const, error: piRes.error ?? 'pi binary not available' };
-    } catch (err: unknown) {
-      piInfo = {
-        status: 'failed' as const,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-    if (piInfo.status === 'failed') {
-      piRuntimeRecovery.markUnavailable(piInfo.error);
-      console.warn(
-        `[bootstrap-electron] pi binary prepare failed (non-fatal, recovery scheduled): ${piInfo.error}`,
-      );
-    }
-
-    // 必装 binary 都 ready,现在才能安全构造 Maker 单例并挂 maker:* / 相关 IPC。
-    await registerMakerIpcsAfterSplash();
-    startBinaryBackgroundUpdates();
-
-    return {
-      claudeCode: { status: 'passed' as const, path: claudeRes.path },
-      codex: { status: 'passed' as const, path: codexRes.path },
-      pi: piInfo,
-      ripgrep: { status: 'passed' as const },
-      allPassed: true,
-      platform,
-    };
-  });
 
   // Codex 元 IPC (auth/binary/usage) 已升级到 maker:* 命名空间, 详见
-  // maker-ipc/auth.ts / status.ts / usage.ts, 注册于 registerMakerIpcsAfterSplash 内。
+  // maker-ipc/auth.ts / status.ts / usage.ts, 注册于 registerMakerIpcs 内。
 
   const allowedSystemSettingsUrls = new Set([
     'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
@@ -8959,6 +8781,7 @@ const registerIpcHandlers = () => {
       }
     },
   );
+  return registerMakerIpcsImpl;
 };
 
 // ── Smoke-test mode (release-*.mjs post-build verification) ──────────────
@@ -9262,17 +9085,16 @@ app.on('ready', async () => {
     devServerOrigin: parseOrigin(cspDevServerUrl),
   });
 
-  registerIpcHandlers();
+  const registerMakerIpcs = registerIpcHandlers();
   rebindDatabaseSizeWarningSettingsWatcher();
   startInputDeviceRuntime();
   startInputDevices();
   // 本机 FS 目录浏览(项目选择器「添加远程项目」逐级浏览;device-link 经隧道在被控端执行)。
   // 无 DB / 无登录依赖,随其它顶层 handler 一起注册即可。
   registerFsBrowseIpc();
-  // 「我的 Issue」列表查询。刻意注册在这里而不是 registerMakerIpcsAfterSplash:
-  // 它不依赖 Maker 与 agent 二进制,而 /issues 在 splash check-environment 完成前
-  // (或二进制 provision 失败时)就可能被打开 —— 挂在 splash 之后会让页面拿到
-  // "No handler registered" 且不会自动恢复。
+  // 「我的 Issue」列表查询。刻意注册在这里而不是 registerMakerIpcs:
+  // 它不依赖 Maker 与 agent 二进制,提前注册可让 /issues 在 Maker 组装完成前
+  // 就能打开,不会拿到 "No handler registered" 且无法自动恢复。
   registerMyIssuesIpc();
   // chat-data-localization F2/F5：注册 localDb IPC + 干净退出快照钩子。
   // 不立即开 db；ensureReady 由 AuthContext 在登录成功后通过 IPC 触发。
@@ -9873,6 +9695,11 @@ app.on('ready', async () => {
   if (getActiveAppSession().mode === 'local') {
     await warmStaleProcessProvenance();
   }
+  // Maker Core IPC 必须在 createWindow 之前注册:getMaker() 构造期就读 binary 路径,
+  // renderer 起来后第一波 maker:* invoke 找不到 handler 会直接 reject。二进制随包
+  // 分发后路径解析是本地同步操作,这里的 await 主要是目录加载(失败回落内置目录)。
+  await registerMakerIpcs();
+  startBinaryBackgroundUpdates();
   startupWindowCreationAllowed = true;
   createWindow();
   // The macOS release watcher stays disarmed until a task drag begins. Start
@@ -9935,7 +9762,7 @@ app.on('ready', async () => {
     })
     .catch(() => undefined);
   // 注:invoke-capture 自检(assertCaptureHealthy)不在这里——maker:create-session / maker:send
-  // 由 splash 后的 registerMakerIpcsAfterSplash 延迟注册,此刻尚未注册。自检已挪到该函数末尾
+  // 由 splash 后的 registerMakerIpcs 延迟注册,此刻尚未注册。自检已挪到该函数末尾
   // (见上方),那里所有 sentinel 都已就位,结果才准确。
 
   // 睡醒白屏取证:suspend/resume/lock/unlock 全部落日志,给 renderer 侧
