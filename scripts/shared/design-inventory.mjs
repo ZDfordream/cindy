@@ -677,7 +677,7 @@ export function catalogSurfaces() {
       title: '设置',
       productionEntry:
         'hash `/settings`（SettingsModalHost 弹窗壳 → SettingsView；tab 含 general / personalization / providers / billing / usage / voice-input / im-bot / shortcuts / agent-island / import / remote-control / ghosts / builtin-tools / computer-use / help / about；2026-10-29 需求 5 改弹窗形态）',
-      reachableComponents: ['SettingsModalHost', 'SettingsView', 'AddModelDialog'],
+      reachableComponents: ['SettingsModalHost', 'SettingsView', 'ModelGatewayForm'],
       styleRoots: [
         'apps/desktop/src/renderer/components/settings',
         // providers tab 的拖拽排序行(provider-settings-sortable-row)样式定义在
