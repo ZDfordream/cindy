@@ -676,8 +676,8 @@ export function catalogSurfaces() {
       platform: 'desktop',
       title: '设置',
       productionEntry:
-        'hash `/settings`（SettingsView；tab 含 general / personalization / providers / billing / usage / voice-input / im-bot / shortcuts / agent-island / import / remote-control / ghosts / builtin-tools / computer-use / help / about）',
-      reachableComponents: ['SettingsView'],
+        'hash `/settings`（SettingsModalHost 弹窗壳 → SettingsView；tab 含 general / personalization / providers / billing / usage / voice-input / im-bot / shortcuts / agent-island / import / remote-control / ghosts / builtin-tools / computer-use / help / about；2026-10-29 需求 5 改弹窗形态）',
+      reachableComponents: ['SettingsModalHost', 'SettingsView', 'AddModelDialog'],
       styleRoots: [
         'apps/desktop/src/renderer/components/settings',
         // providers tab 的拖拽排序行(provider-settings-sortable-row)样式定义在
@@ -686,7 +686,7 @@ export function catalogSurfaces() {
         'apps/desktop/src/renderer/styles/sortable.css',
       ],
       routerPaths: ['/settings'],
-      routeEntryComponents: { '/settings': 'SettingsView' },
+      routeEntryComponents: { '/settings': 'SettingsModalHost' },
     },
     {
       id: 'desktop.plugins.installed',
@@ -1024,21 +1024,6 @@ export function catalogSurfaces() {
       routerPaths: [],
     },
     {
-      id: 'desktop.overlay.splash',
-      platform: 'desktop',
-      title: '启动遮罩',
-      productionEntry:
-        'App → SplashScreen；同源 gating 下并挂 LoginBrandStage（z-9980 品牌画布，启动期即可见、Splash(z-9999) 之下）',
-      reachableComponents: ['SplashScreen', 'LoginBrandStage'],
-      // LoginBrandStage 同时是登录页品牌层（desktop.auth.login 已登记）；此处并挂是
-      // 同一组件的启动期可达事实，样式根共享故统计一致。
-      styleRoots: [
-        'apps/desktop/src/renderer/components/splash',
-        'apps/desktop/src/renderer/components/login/LoginBrandStage.tsx',
-      ],
-      routerPaths: [],
-    },
-    {
       id: 'desktop.overlay.route-error',
       platform: 'desktop',
       title: '路由错误页',
@@ -1365,7 +1350,6 @@ const PROTECTED_TAGS = {
   'desktop.auth.legacy-migration': [
     'DESIGN.md §16 登录链路（消费 --login-callback-* 品牌豁免族 component token）',
   ],
-  'desktop.overlay.splash': ['DESIGN.md §16 登录链路'],
   'desktop.shell.main-layout': [
     'DESIGN.md §15 CINDY 皮肤族（侧栏 vibrancy / 选中 pill）',
     '外部主题导入保护 token',
