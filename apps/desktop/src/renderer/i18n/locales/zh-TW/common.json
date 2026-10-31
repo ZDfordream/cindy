@@ -3424,7 +3424,7 @@
         "model": "模型",
         "baseUrlPlaceholder": "http://model.mify.ai.srv/anthropic",
         "modelIdPlaceholder": "輸入模型 ID",
-        "saveProbeFailed": "連通測試未通過，模型未保存"
+        "saveProbeFailed": "連通測試未通過，模型未儲存"
       },
       "gateway": {
         "createTitle": "新增 Anthropic 閘道",
