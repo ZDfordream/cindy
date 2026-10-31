@@ -916,18 +916,18 @@ describe('production Session event pipeline', () => {
     },
   );
   it.each([
-    ['zh-CN', 'Pi 扩展未能完成刷新。请重启 Cindy 后再使用 Pi。'],
-    ['zh-TW', 'Pi 擴充功能未能完成重新整理。請重新啟動 Cindy 後再使用 Pi。'],
-    ['en', 'Pi extensions could not be refreshed. Restart Cindy before using Pi again.'],
-    ['ja', 'Pi 拡張機能を更新できませんでした。Pi を再び使用する前に Cindy を再起動してください。'],
-    ['ko', 'Pi 확장을 새로 고치지 못했습니다. Pi를 다시 사용하기 전에 Cindy를 다시 시작하세요.'],
+    ['zh-CN', 'Pi 扩展未能完成刷新。请重启 HRBuddy 后再使用 Pi。'],
+    ['zh-TW', 'Pi 擴充功能未能完成重新整理。請重新啟動 HRBuddy 後再使用 Pi。'],
+    ['en', 'Pi extensions could not be refreshed. Restart HRBuddy before using Pi again.'],
+    ['ja', 'Pi 拡張機能を更新できませんでした。Pi を再び使用する前に HRBuddy を再起動してください。'],
+    ['ko', 'Pi 확장을 새로 고치지 못했습니다. Pi를 다시 사용하기 전에 HRBuddy를 다시 시작하세요.'],
   ] as const)('persists and broadcasts localized post-terminal recovery in %s', async (locale, text) => {
     setMainLocale(locale);
     const h = harness();
     // Production redaction preserves text events; the general harness replaces all data.
     h.deps.redactEventForRenderer.mockImplementation((value: AgentEvent) => value);
     h.emit(event('done', { status: 'completed', result: 'saved' }, { source: 'pi' }));
-    const data = { isFinal: true, text: '[Cindy Pi package runtime convergence receipt] {"recoveryAction":"restart-cindy-to-refresh-packages"}' };
+    const data = { isFinal: true, text: '[HRBuddy Pi package runtime convergence receipt] {"recoveryAction":"restart-cindy-to-refresh-packages"}' };
     const receipt = event('text', data, {
       source: 'pi', runtimeRecovery: true,
       sessionInstanceId: h.session.instanceId, sessionTurnGeneration: 0,
@@ -1044,7 +1044,7 @@ describe('production Session event pipeline', () => {
     [null, 1],
     ['openai', 0],
     ['custom-provider', 0],
-  ] as const)('reports a Cindy AI key rejection at turn end for provider %s (%s times)', async (providerId, reports) => {
+  ] as const)('reports a HRBuddy AI key rejection at turn end for provider %s (%s times)', async (providerId, reports) => {
     const h = harness();
     h.deps.reportAgentCindyGatewayKeyRejected.mockClear();
     // The production predicate, bound to this session's provider.
@@ -1061,7 +1061,7 @@ describe('production Session event pipeline', () => {
     } finally { await h.dispose(); }
   });
 
-  it('does not report other Cindy AI turn failures or retryable key errors', async () => {
+  it('does not report other HRBuddy AI turn failures or retryable key errors', async () => {
     const h = harness();
     h.deps.reportAgentCindyGatewayKeyRejected.mockClear();
     h.deps.isGatewayProxyTokenRecoveryErrorEvent.mockImplementation((_sessionId, value) =>

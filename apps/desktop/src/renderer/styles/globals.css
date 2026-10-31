@@ -170,11 +170,6 @@
     background: transparent;
   }
 
-  [data-theme='cindy-light'][data-splash-active] .bg-content-area,
-  [data-theme='cindy-dark'][data-splash-active] .bg-content-area {
-    background: transparent;
-  }
-
   html[data-computer-permission-overlay='true'],
   html[data-computer-permission-overlay='true'] body,
   html[data-computer-permission-overlay='true'] #root {

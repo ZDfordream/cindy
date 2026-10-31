@@ -623,7 +623,7 @@ describe('AgentIslandService native publishing', () => {
     let avatar!: (value: string) => void;
     mocks.companionAvatarThumbnail.mockReturnValueOnce(new Promise(resolve => { avatar = resolve; }));
     const input = { groupId: 'group', name: 'Product', messageId: 'message', mentioned: false,
-      preview: 'hello', lastMessageAt: 1, members: [{ name: 'Cindy', avatar: 'cindy://avatar/preset/cindy', avatarColor: 'blue' }] };
+      preview: 'hello', lastMessageAt: 1, members: [{ name: 'HRBuddy', avatar: 'cindy://avatar/preset/cindy', avatarColor: 'blue' }] };
     service.setGroupChat('group', input);
     service.setEnabled(false);
     expect(service.notifyGroupChat('group')).toBe(false);
@@ -707,7 +707,7 @@ describe('AgentIslandService native publishing', () => {
     service.registerDeviceSessionIpc();
     const sync = registeredIpcHandler(AGENT_ISLAND_SET_COMPANION_CHATS_CHANNEL);
     const chat = { sessionId: 'offline-chat', botId: 'remote-bot', deviceId: 'offline-home',
-      companion: { name: 'Cindy', avatar: 'cindy://avatar/preset/cindy', avatarColor: 'blue' }, visible: true, unread: true,
+      companion: { name: 'HRBuddy', avatar: 'cindy://avatar/preset/cindy', avatarColor: 'blue' }, visible: true, unread: true,
       lastMessageAt: 1, preview: 'Unread reply' };
     const snapshot = { dataOwnerId: 'test-owner', ownerGeneration: 1, chats: [chat] };
     sync({ sender: mainWindow.webContents }, { ...snapshot, ownerGeneration: 0 });
@@ -751,7 +751,7 @@ describe('AgentIslandService native publishing', () => {
     service.setSoundSettings({ enabled: true, sounds: { ...DEFAULT_AGENT_ISLAND_SOUND_SETTINGS.sounds,
       complete: customSound('complete.wav') } });
     const input = { sessionId: 'local-chat', botId: 'local-bot', deviceId: null,
-      companion: { name: 'Cindy', avatar: '', avatarColor: 'blue' }, visible: true, unread: false,
+      companion: { name: 'HRBuddy', avatar: '', avatarColor: 'blue' }, visible: true, unread: false,
       lastMessageAt: 1, preview: '' };
     service.setCompanionChats([input]);
     service.handleUserPrompt({ sessionId: input.sessionId }, 'hello');
@@ -785,7 +785,7 @@ describe('AgentIslandService native publishing', () => {
     const counts = vi.fn();
     const unsubscribe = service.subscribeAttentionCount(counts);
     const chat = { sessionId: 'unread-chat', botId: 'bot', deviceId: 'offline-home',
-      companion: { name: 'Cindy', avatar: '', avatarColor: 'blue' }, visible: true, unread: true,
+      companion: { name: 'HRBuddy', avatar: '', avatarColor: 'blue' }, visible: true, unread: true,
       lastMessageAt: 1, preview: 'Unread reply' };
     service.handleUserPrompt({ sessionId: 'running-task' }, 'work');
     expect(service.getAttentionCount()).toBe(0);
@@ -2217,7 +2217,7 @@ describe('AgentIslandService native publishing', () => {
       void frameOrFrames;
       return true;
     });
-    const workingDir = '/Users/alice/Library/Application Support/Cindy/owners/o1/bots/b1/workspace';
+    const workingDir = '/Users/alice/Library/Application Support/HRBuddy/owners/o1/bots/b1/workspace';
     const identity = (name: string): AgentIslandCompanionIdentity => ({
       botId: 'b1',
       companion: { name, hue: 'violet', glyph: name[0]!, glyphIsInitial: true },
@@ -2859,7 +2859,7 @@ describe('AgentIslandService native publishing', () => {
       expect(mocks.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
         type: 'warning',
         title: 'macOS folder access denied',
-        message: 'Cindy cannot access your Desktop folder',
+        message: 'HRBuddy cannot access your Desktop folder',
         buttons: ['Open System Settings', 'Cancel'],
       }));
       expect(mocks.openExternal).not.toHaveBeenCalled();
@@ -2897,7 +2897,7 @@ describe('AgentIslandService native publishing', () => {
       ));
       expect(mocks.showMessageBox).toHaveBeenCalledWith(
         mainWindow,
-        expect.objectContaining({ message: 'Cindy cannot access your Documents folder' }),
+        expect.objectContaining({ message: 'HRBuddy cannot access your Documents folder' }),
       );
     } finally {
       platformSpy.mockRestore();

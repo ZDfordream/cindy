@@ -431,9 +431,9 @@ export function UpdateBanner({ isCollapsed, onOpenVersionNotice }: UpdateBannerP
         <ConfirmDialog
           open={showSpawnFailedDialog}
           onOpenChange={() => {}}
-          title={t('splash.spawnFailed.title')}
-          description={t('splash.spawnFailed.description')}
-          confirmText={t('splash.spawnFailed.confirm')}
+          title={t('update.spawnFailed.title')}
+          description={t('update.spawnFailed.description')}
+          confirmText={t('update.spawnFailed.confirm')}
           showCancel={false}
           onConfirm={handleSpawnFailedDownload}
         />

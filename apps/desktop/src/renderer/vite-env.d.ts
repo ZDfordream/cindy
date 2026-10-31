@@ -70,19 +70,6 @@ interface NewMakerWorktreeBranchPreferenceSnapshot {
   revision: number;
 }
 
-/* ── Environment check ── */
-
-interface EnvCheckResult {
-  claudeCode: { status: 'passed' | 'failed'; path?: string; error?: string };
-  codex: { status: 'passed' | 'failed' | 'skipped'; path?: string; error?: string };
-  /** pi 可选实验 agent:failed 不影响 allPassed；本次启动会禁用 pi。 */
-  pi?: { status: 'passed' | 'failed' | 'skipped'; path?: string; error?: string };
-  /** bundled ripgrep(必需):failed 时 allPassed=false,splash 进失败态可重试 (#1956)。 */
-  ripgrep?: { status: 'passed' | 'failed' | 'skipped'; error?: string };
-  allPassed: boolean;
-  platform: 'darwin' | 'win32' | 'linux';
-}
-
 // Voice-input wire types: re-export from voice-input-core to keep the IPC
 // surface and the core package's contract in sync. `VoiceInputShortcut` is
 // renderer-only (defined in voice-input/shortcut.ts) so it stays inline.
@@ -408,27 +395,6 @@ interface ComputerDriverUpdateProgress {
   phase: 'downloading' | 'installing' | 'done';
   downloadedBytes: number | null;
   totalBytes: number | null;
-}
-
-/* ── CCD Progress ── */
-
-interface BinaryDownloadProgressPayload {
-  progress: number;
-  speed?: string; // e.g. "2.5 MB/s"
-  downloaded?: string; // e.g. "15.3 MB"
-  total?: string; // e.g. "80.0 MB"
-  /** Terminal failure flag from main; renderer should escape splash & show retry. */
-  failed?: boolean;
-  /** DownloadError code (e.g. 'NETWORK', 'CHECKSUM', 'HTTP_4XX', 'manifest_failed'). */
-  error?: string;
-  /** D 场景（两个及以上需要下载）: 当前阶段 1 / 2 / 3；B/C 场景缺省。 */
-  step?: 1 | 2 | 3;
-  /** D 场景 = 本次需要下载的二进制段数(2 或 3)；B/C 场景缺省。 */
-  totalSteps?: 2 | 3;
-  /** step 切换瞬间的同步信号——splash 收到立即 set 进度=0，禁用 transition 动画。 */
-  reset?: boolean;
-  /** 失败/调试文案使用，标识当前推进度的 vendor。 */
-  vendor?: 'claude' | 'codex' | 'pi';
 }
 
 /* ── App Update Progress ── */
@@ -2644,20 +2610,7 @@ interface ElectronAPI {
         userId: string | null;
       }) => void,
     ) => () => void;
-  };
-
-  checkEnvironment: () => Promise<EnvCheckResult>;
-  onBinaryDownloadProgress: (
-    callback: (payload: BinaryDownloadProgressPayload) => void,
-  ) => () => void;
-  checkAppUpdate: () => Promise<{
-    hasUpdate: boolean;
-    action?: 'relaunch' | 'none';
-    version?: string;
-    error?: 'manifest_failed' | 'download_failed';
-  }>;
-  onAppUpdateProgress: (callback: (payload: AppUpdateProgressPayload) => void) => () => void;
-  fileBrowser: {
+  };  fileBrowser: {
     listDir: (params: {
       /** Return all ordinary entries without presentation filtering. */
       includeIgnored?: boolean;
@@ -4074,11 +4027,6 @@ interface ElectronAPI {
    *  forwarded to cindy-updater so its splash matches the app the user is seeing. */
   relaunchToUpdate: (theme: 'light' | 'dark') => void;
   /** Startup-only apply path; main performs a final unattended-safety check. */
-  autoRelaunchToUpdate: (theme: 'light' | 'dark') => Promise<{
-    accepted: boolean;
-    blockReason?: string;
-  }>;
-
   /** macOS only — ask the main process to move the app bundle into
    *  /Applications (works around App Translocation). Resolves with
    *  `{ moved: false }` on non-darwin or when the app is already in

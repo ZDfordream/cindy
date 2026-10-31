@@ -16,11 +16,9 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { PluginReviewUpdatesProvider } from '@/contexts/PluginReviewUpdatesContext';
 import { AppShellCoverProvider, useAppShellCover } from '@/contexts/AppShellCoverContext';
 import { LoginHandoffProvider } from '@/contexts/LoginHandoffContext';
-import { EnvCheckProvider, EnvCheckGuard } from '@/contexts/EnvCheckContext';
 import { WorktreeProvider } from '@/contexts/WorktreeContext';
 import { PrRefsProvider } from '@/contexts/PrRefsContext';
 import { MainViewHistoryProvider } from '@/contexts/MainViewHistoryContext';
-import { SplashScreen } from '@/components/splash/SplashScreen';
 import { LoginFirstLaunchLightGateBridge } from '@/components/login/LoginFirstLaunchLightGateBridge';
 import { LoginBrandStage } from '@/components/login/LoginBrandStage';
 import { StartupLogSupport } from '@/components/log-support/StartupLogSupport';
@@ -438,26 +436,24 @@ export function App() {
         <WallpaperSettingsProvider>
           <LocaleProvider>
             <ConfirmDialogProvider>
-              <EnvCheckProvider>
+              <>
                 <AuthProvider>
                   <PluginReviewUpdatesProvider>
                   <AppShellCoverProvider>
                     <WorktreeProvider>
                       <PrRefsProvider>
                         <Tooltip.Provider>
-                          {/* LoginHandoffProvider 包 SplashScreen + RouterProvider(Step 3b
-                          WHAT2 宿主契约):Splash→登录/主界面衔接动画状态机。
+                          {/* LoginHandoffProvider 包 RouterProvider(Step 3b
+                          WHAT2 宿主契约):登录/主界面衔接动画状态机。
                           LoginBrandStage = 品牌视觉唯一渲染者(白底体系背景 + 立绘/
-                          字标/Slogan),overlay pointer-events:none,仅主窗挂载(与
-                          Splash gating 同源;副窗/sidebar 窗不挂)。 */}
+                          字标/Slogan),overlay pointer-events:none,仅主窗挂载
+                          (副窗/sidebar 窗不挂)。
+                          2026-10-28:check-environment 阶段与「唤醒中」splash 已随
+                          二进制内置进安装包整段移除 —— 首启不再下载约 400MB,主 UI
+                          直接挂载,maker:* IPC 在 createWindow 前已注册。 */}
                           <LoginHandoffHost>
-                            {/* 副窗口(「在新窗口打开」)/ 右侧栏子窗口跳过 splash:env/热更检查
-                            由主窗启动时完成,附属窗 EnvCheckProvider 初始即 'passed',
-                            不需要也不应再走 splash 流程。 */}
                             {!isSecondaryWindow() && !isSidebarWindow() && <LoginBrandStage />}
-                            {!isSecondaryWindow() && !isSidebarWindow() && <SplashScreen />}
-                            <EnvCheckGuard>
-                              <MakerBootstrap />
+                            <MakerBootstrap />
                               {!isSecondaryWindow() && !isSidebarWindow() && <RemoteDesktopHost />}
                               <ProjectAutomationNotifyBridge />
                               {/* confirm 槽:插件请主机弹确认框。必须在 ConfirmDialogProvider
@@ -470,7 +466,6 @@ export function App() {
                               <GhostInstallConsentHost />
                               <PluginPublisherConfirmHost />
                               <OwnerScopedRouter />
-                            </EnvCheckGuard>
                             {!isSecondaryWindow() && !isSidebarWindow() && <StartupLogSupport />}
                           </LoginHandoffHost>
                           <FindInPageBar />
@@ -483,7 +478,7 @@ export function App() {
                   </AppShellCoverProvider>
                   </PluginReviewUpdatesProvider>
                 </AuthProvider>
-              </EnvCheckProvider>
+              </>
             </ConfirmDialogProvider>
           </LocaleProvider>
         </WallpaperSettingsProvider>

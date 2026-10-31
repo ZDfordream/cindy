@@ -75,7 +75,7 @@ export function registerRelaunchBusyActivityIpc(
 ): void {
   currentSources = resolveSources;
   currentDescribeTurns = options?.describeTurns;
-  // 幂等注册,不是防御性冗余:调用点(bootstrap-electron 的 registerMakerIpcsAfterSplash)
+  // 幂等注册,不是防御性冗余:调用点(bootstrap-electron 的 registerMakerIpcs)
   // 在它之后还有会抛的初始化,而那个 try 的 catch 明写下次 splash retry 再尝试,重试时
   // makerIpcsRegistered 仍是 false —— 于是这行会被执行第二次。ipcMain.handle 对同一 channel
   // 第二次注册会抛 Attempted to register a second handler,那不只是本 handler 注册失败:

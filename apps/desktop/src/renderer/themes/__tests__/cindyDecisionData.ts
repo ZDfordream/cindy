@@ -201,15 +201,15 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   // 用户裁决 2026-09-18: Segmented v8 低对比选中药丸。
   'segmented-option-fg': { light: '#6B6B67', dark: '#AAAAAA' },
   'segmented-hover-bg': { light: '#E4E4DF', dark: '#292929' },
-  'segmented-selected-bg': { light: '#FDFDF8', dark: '#353535' },
+  'segmented-selected-bg': { light: '#FFFFFF', dark: '#353535' },
   'segmented-selected-border': { light: '#F0F0EB', dark: '#3B3B3B' },
-  surface: { light: '#F2F2ED', dark: '#181818' },
-  'surface-hsl': { light: '60.0 16.1% 93.9%', dark: '0 0% 9.4%' },
-  'surface-elevated': { light: '#FDFDF8', dark: '#1F1F1F' },
-  'surface-elevated-soft': { light: '#FAFAF5', dark: '#1D1D1D' },
-  'surface-card-ivory': { light: '#FDFDF8', dark: '#1F1F1F' },
+  surface: { light: '#FFFFFF', dark: '#181818' },
+  'surface-hsl': { light: '0.0 0.0% 100.0%', dark: '0 0% 9.4%' },
+  'surface-elevated': { light: '#FFFFFF', dark: '#1F1F1F' },
+  'surface-elevated-soft': { light: '#FAFAFA', dark: '#1D1D1D' },
+  'surface-card-ivory': { light: '#FFFFFF', dark: '#1F1F1F' },
   'surface-chip': { light: 'rgba(0, 0, 0, 0.05)', dark: 'rgba(255, 255, 255, 0.06)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  'surface-chip-alt': { light: '#FAFAF5', dark: '#1D1D1D' },
+  'surface-chip-alt': { light: '#FAFAFA', dark: '#1D1D1D' },
   'surface-hover': { light: 'rgba(0, 0, 0, 0.05)', dark: 'rgba(255, 255, 255, 0.06)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'surface-hover-soft': { light: 'rgba(0, 0, 0, 0.035)', dark: 'rgba(255, 255, 255, 0.04)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'surface-hover-hsl': { light: '0.0 0.0% 0.0% / 0.05', dark: '0.0 0.0% 100.0% / 0.06' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
@@ -235,7 +235,7 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   'text-disabled-tertiary': { light: 'rgba(0, 0, 0, 0.44)', dark: 'rgba(255, 255, 255, 0.40)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'slider-track': { light: '#A3A39E', dark: '#626262' },
   'slider-fill': { light: '#3C3F43', dark: '#EEEEEE' },
-  'slider-thumb': { light: '#FDFDF8', dark: '#FCFCFC' },
+  'slider-thumb': { light: '#FFFFFF', dark: '#FCFCFC' },
   'switch-track-off': { light: '#808080', dark: '#787878' }, // 用户裁决 2026-10-22: light 随悬停墨水加深 #888888→#808080,压在悬停行上保住 3:1;沿革: 用户调参 2026-08-05:两端都顶到 3:1 底线内的极值拉开开/关差距——light 最亮档 #888888(×surface 3.03),dark 最深档 #787878(×elevated 3.01,等效白 36% 透明)
   'switch-track-on': { light: '#417CDD', dark: '#417CDD' }, // 用户裁决 2026-09-15:两模式开启轨道改为蓝色,替代 2026-08-05 中性开启态;亮色滑块后续裁决见下
   'switch-thumb-on': { light: 'hsl(var(--background))', dark: '#FCFCFC' }, // 用户批准 2026-09-16:暗色亮滑块,浅色保留别名
@@ -250,8 +250,8 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   accent: { light: '0.0 0.0% 0.0% / 0.05', dark: '0.0 0.0% 100.0% / 0.06' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'agent-actions-rail': { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.10)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'ask-checkbox-border': { light: 'rgba(0, 0, 0, 0.70)', dark: 'rgba(255, 255, 255, 0.66)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  background: { light: '60.0 16.1% 93.9%', dark: '0 0% 9.4%' },
-  'chat-input-bg': { light: '#FDFDF8', dark: '#1F1F1F' },
+  background: { light: '0.0 0.0% 100.0%', dark: '0 0% 9.4%' },
+  'chat-input-bg': { light: '#FFFFFF', dark: '#1F1F1F' },
   'chat-input-border-focus': {
     light: 'rgba(107, 107, 103, 0.30)',
     dark: 'rgba(193, 193, 193, 0.30)',
@@ -259,7 +259,7 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   'chat-input-chip-border': { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.10)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'chat-input-text': { light: 'rgba(0, 0, 0, 0.88)', dark: 'rgba(255, 255, 255, 0.82)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'color-primary': { light: 'rgba(0, 0, 0, 0.88)', dark: 'rgba(255, 255, 255, 0.82)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  'confirm-bg': { light: '#FDFDF8', dark: '#1F1F1F' },
+  'confirm-bg': { light: '#FFFFFF', dark: '#1F1F1F' },
   'confirm-btn-primary-bg': { light: '#3C3F43', dark: '#EEEEEE' }, // E1D
   'confirm-btn-primary-text': { light: '#FCFCFC', dark: '#151515' }, // 2026-08 §9 更新;沿革: E1D
   'confirm-btn-secondary-border': { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.10)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
@@ -275,7 +275,7 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   'model-trigger-hover': { light: 'rgba(0, 0, 0, 0.05)', dark: 'rgba(255, 255, 255, 0.06)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'msg-link': { light: '#1D4ED8', dark: '#93C5FD' },
   'msg-scrollbar-hover': { light: 'rgba(0, 0, 0, 0.10)', dark: 'rgba(255, 255, 255, 0.13)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  'msg-user-bg': { light: '#FDFDF8', dark: '#1F1F1F' },
+  'msg-user-bg': { light: '#FFFFFF', dark: '#1F1F1F' },
   muted: { light: '0.0 0.0% 0.0% / 0.05', dark: '0.0 0.0% 100.0% / 0.06' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'muted-foreground': { light: '0.0 0.0% 0.0% / 0.56', dark: '0.0 0.0% 100.0% / 0.55' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'perm-auto-selected-text': { light: '#417CDD', dark: '#417CDD' }, // E5D 定稿 2026-07-17
@@ -290,7 +290,7 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   'send-btn-disabled-icon': { light: '#585555', dark: '#464646' },
   'perm-allow-kbd-bg': { light: 'rgba(255, 255, 255, 0.16)', dark: 'rgba(0, 0, 0, 0.08)' }, // 2026-07-19 修复:kbd 随按钮反相
   'perm-allow-kbd-border': { light: 'rgba(255, 255, 255, 0.30)', dark: 'rgba(0, 0, 0, 0.20)' },
-  'perm-code-bg': { light: '#FAFAF5', dark: '#191919' },
+  'perm-code-bg': { light: '#FAFAFA', dark: '#191919' },
   'perm-item-selected-bg': { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.10)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'plan-outline-active-bg': { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.10)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'plan-toolbar-btn-hover-bg': { light: 'rgba(0, 0, 0, 0.05)', dark: 'rgba(255, 255, 255, 0.06)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9);沿革: 2026-08 §9 更新、用户改稿 2026-07-23(ask 卡整改):原值贴着卡底(#F8F8F8/#312F2F)不可见,借 settings-menu-bg-hover(light)/send-btn-disabled-bg(dark)同档
@@ -301,8 +301,8 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   'settings-btn-primary-text': { light: '#FCFCFC', dark: '#151515' }, // 2026-08 §9 更新;沿革: E1D
   'settings-btn-secondary-hover-bg': { light: 'rgba(0, 0, 0, 0.05)', dark: 'rgba(255, 255, 255, 0.06)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'text-placeholder': { light: 'rgba(0, 0, 0, 0.32)', dark: 'rgba(255, 255, 255, 0.30)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  'settings-integration-avatar-bg': { light: '#FDFDF8', dark: '#1D1D1D' },
-  'settings-logout-bg': { light: '#FDFDF8', dark: '#1F1F1F' },
+  'settings-integration-avatar-bg': { light: '#FFFFFF', dark: '#1D1D1D' },
+  'settings-logout-bg': { light: '#FFFFFF', dark: '#1F1F1F' },
   'settings-menu-bg-hover': { light: 'rgba(0, 0, 0, 0.05)', dark: 'rgba(255, 255, 255, 0.06)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9);沿革: 2026-08 §9 更新、用户改稿 2026-07-21:原值贴着页底(#EDEDED/#2A2828)不可见,light 压暗 / dark 提亮到 ~5-6% 亮度差
   'settings-menu-bg-selected': { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.10)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9);沿革: 2026-08-13: dark 从页底锚定 #1D1D1D 抬到卡片之上,与 settings-menu-bg-hover 同档
   'settings-source-link': { light: '#1D4ED8', dark: '#93C5FD' },
@@ -312,7 +312,7 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   'sidebar-item-active-foreground': { light: '#FCFCFC', dark: '#151515' }, // 2026-08 §9 更新;沿革: 用户二次改稿 2026-07-20:反相胶囊浅字/深字(同 accent-pure-cta-fg)
   'sidebar-item-active-border': { light: 'transparent', dark: 'transparent' }, // 用户三次改稿 2026-07-20:去描边
   'sidebar-item-active': { light: '214.3 5.5% 24.9%', dark: '0.0 0.0% 93.3%' }, // 用户二次改稿 2026-07-20:反相胶囊 #3C3F43/#EEEEEE(同 accent-cta-bg)
-  'splash-bg': { light: '60.0 16.1% 93.9%', dark: '0 0% 9.4%' },
+  'splash-bg': { light: '0.0 0.0% 100.0%', dark: '0 0% 9.4%' },
   'splash-text': { light: '0.0 0.0% 0.0% / 0.56', dark: '0.0 0.0% 100.0% / 0.55' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'splash-text-destructive': { light: '0.0 0.0% 10.2%', dark: '0.0 0.0% 100.0%' },
   'splash-text-muted': { light: '0.0 0.0% 0.0% / 0.44', dark: '0.0 0.0% 100.0% / 0.40' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
@@ -322,16 +322,16 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   'update-btn-border': { light: '#3C3F43', dark: '#EEEEEE' }, // E1D
   'update-btn-text': { light: '#FCFCFC', dark: '#151515' }, // 2026-08 §9 更新;沿革: E1D
   'accent-foreground': { light: '0.0 0.0% 0.0% / 0.88', dark: '0.0 0.0% 100.0% / 0.82' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  'panel-bg': { light: '#F2F2ED', dark: '#181818' },
+  'panel-bg': { light: '#FFFFFF', dark: '#181818' },
   primary: { light: '214.3 5.5% 24.9%', dark: '0.0 0.0% 93.3%' }, // E1D
   ring: { light: '217.3 69.7% 56.1%', dark: '217.3 69.7% 56.1%' }, // E5D 定稿 2026-07-17 #417CDD HSL(取代 #3b82f6)
-  'settings-theme-auto-light': { light: '#F2F2ED', dark: '#F2F2ED' },
+  'settings-theme-auto-light': { light: '#FFFFFF', dark: '#F2F2ED' },
   foreground: { light: '0.0 0.0% 0.0% / 0.88', dark: '0.0 0.0% 100.0% / 0.82' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   border: { light: '0.0 0.0% 0.0% / 0.08', dark: '0.0 0.0% 100.0% / 0.10' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   input: { light: '0.0 0.0% 0.0% / 0.08', dark: '0.0 0.0% 100.0% / 0.10' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'secondary-foreground': { light: '0.0 0.0% 0.0% / 0.88', dark: '0.0 0.0% 100.0% / 0.82' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'popover-foreground': { light: '0.0 0.0% 0.0% / 0.88', dark: '0.0 0.0% 100.0% / 0.82' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  titlebar: { light: '60.0 16.1% 93.9%', dark: '0 0% 9.4%' },
+  titlebar: { light: '0.0 0.0% 100.0%', dark: '0 0% 9.4%' },
   'titlebar-border': { light: '0.0 0.0% 0.0% / 0.08', dark: '0.0 0.0% 100.0% / 0.10' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'titlebar-button-hover': { light: '0.0 0.0% 0.0% / 0.05', dark: '0.0 0.0% 100.0% / 0.06' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'titlebar-control-hover': { light: '0.0 0.0% 0.0% / 0.05', dark: '0.0 0.0% 100.0% / 0.06' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
@@ -349,9 +349,9 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
     light: 'rgba(255, 255, 250, 0.55)',
     dark: 'rgba(0, 0, 0, 0.25)',
   }, // 用户裁决 2026-07-21:玻璃面搜索输入框半透明化(与 hover 叠加方向相反,保证"可输入"字段感)
-  'surface-translucent-main': { light: '#F2F2ED', dark: '#181818' }, // 2026-08 §9 更新;沿革: E4D 主面板:用户勘误 2026-07-17 撤销毛玻璃,改不透明等价 surface(原 rgba 半透明)
+  'surface-translucent-main': { light: '#FFFFFF', dark: '#181818' }, // 2026-08 §9 更新;沿革: E4D 主面板:用户勘误 2026-07-17 撤销毛玻璃,改不透明等价 surface(原 rgba 半透明)
   'surface-translucent-overlay': {
-    light: 'rgba(251, 251, 246, 0.90)',
+    light: 'rgba(255, 255, 255, 0.90)',
     dark: 'rgba(21, 21, 21, 0.80)',
   }, // E4D R1 模式3
   'composer-pill-bg': { light: '#FFFFFA', dark: '#272727' }, // 2026-08 §9 更新;沿革: E2 composer pill 底(取代 glass-pill-bg)
@@ -371,15 +371,15 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   'create-agent-control-border': { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.10)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'create-agent-control-icon': { light: 'rgba(0, 0, 0, 0.88)', dark: 'rgba(255, 255, 255, 0.82)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'create-agent-control-text': { light: 'rgba(0, 0, 0, 0.88)', dark: 'rgba(255, 255, 255, 0.82)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  'create-agent-quick-card-bg': { light: '#FDFDF8', dark: '#1F1F1F' },
+  'create-agent-quick-card-bg': { light: '#FFFFFF', dark: '#1F1F1F' },
   'create-agent-quick-card-bg-hover': { light: 'rgba(0, 0, 0, 0.05)', dark: 'rgba(255, 255, 255, 0.06)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'create-agent-quick-card-border': { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.10)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'create-agent-quick-card-icon': { light: 'rgba(0, 0, 0, 0.88)', dark: 'rgba(255, 255, 255, 0.82)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  'create-agent-quick-card-icon-bg': { light: '#F2F2ED', dark: '#181818' },
+  'create-agent-quick-card-icon-bg': { light: '#FFFFFF', dark: '#181818' },
   'create-agent-quick-card-text': { light: 'rgba(0, 0, 0, 0.88)', dark: 'rgba(255, 255, 255, 0.82)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'create-agent-segment-inactive-text': { light: 'rgba(0, 0, 0, 0.44)', dark: 'rgba(255, 255, 255, 0.40)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
-  'create-agent-segment-track-bg': { light: '#F2F2ED', dark: '#181818' },
-  'create-agent-send-disabled-bg': { light: '#F2F2ED', dark: '#323232' },
+  'create-agent-segment-track-bg': { light: '#FFFFFF', dark: '#181818' },
+  'create-agent-send-disabled-bg': { light: '#FFFFFF', dark: '#323232' },
   'create-agent-send-disabled-icon': { light: 'rgba(0, 0, 0, 0.32)', dark: 'rgba(255, 255, 255, 0.30)' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9)
   'create-agent-send-icon': { light: '#FCFCFC', dark: '#151515' },
   'md-table-bg': { light: 'rgba(241, 241, 236, 0.55)', dark: 'rgba(26, 26, 26, 0.55)' },

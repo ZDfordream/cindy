@@ -1,7 +1,7 @@
 /**
  * Phase 3: scheduler-host 单例 + 启停。
  *
- * 启动时机（bootstrap-electron.ts:557 registerMakerIpcsAfterSplash 内）：
+ * 启动时机（bootstrap-electron.ts:557 registerMakerIpcs 内）：
  *   splash → 两个 binary provision → maker 构造 → 全部 maker:* IPC 注册 → startScheduler
  * 此时 (a) getMaker() 可调 (b) DbClient 不抛（用户登录在前，localDb ensureReady 已完成）
  *      (c) mainWindow 已 createWindow。

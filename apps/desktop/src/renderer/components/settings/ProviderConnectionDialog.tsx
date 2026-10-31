@@ -4,7 +4,7 @@ import { providerEndpointBindings, canonicalProviderEndpoint, BUNDLED_CATALOG, m
 import { matchOfficialProviders, bindDetectedProvider, isAgentSelectableModel, isLoopbackProviderUrl } from '@cindy/model-providers';
 import type { ProviderConnectionTestResult } from '../../../shared/providerConnectionTest';
 import type { DetectedProviderDraft, DetectionCatalog } from '../../../shared/providerDetection';
-import { OFFICIAL_API_PRESETS } from './AddProviderWizard';
+import { OFFICIAL_API_PRESETS } from './providerPresets';
 let detectionRequestSequence = 0;
 /**
  * Connection credentials and advanced routing only. Model capabilities are imported into the

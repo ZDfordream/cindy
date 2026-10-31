@@ -13,7 +13,7 @@ import { subscriptionAccountState, isXaiSubscriptionProviderId, resetSubscriptio
  *        - env 兜底：XDT_MODELS_URL（完整覆盖 URL）/ XDT_DISABLE_MODELS_FETCH（强制不联网）。
  *      **每进程拉一次、存内存、无 TTL**：启动总是先拉远端；失败时才读按端点隔离的
  *      last-known-good 快照，最后回退 bundled。
- *      启动期（splash）由 bootstrap-electron 在构造 Maker 前 await 一次（见 registerMakerIpcsAfterSplash）。
+ *      启动期（启动期）由 bootstrap-electron 在构造 Maker 前 await 一次（见 registerMakerIpcs）。
  *   2. `getDesktopProviderService`：把 active-catalog + 连接状态读取器注入 provider-service。
  *      连接状态直接复用现有凭证存储——XD = 托管 gateway key 是否存在、
  *      Anthropic = 内置 Claude Code CLI 是否已登录(且 Cindy 获准使用)、OpenAI = Codex 是否 OAuth 登录。
@@ -458,9 +458,9 @@ function handleProviderSecretsCleared(): void {
 }
 
 /**
- * 启动期（splash）await 一次：加载远端目录写入 active-catalog。幂等 + 并发去重。
+ * 启动期（createWindow 前）await 一次：加载远端目录写入 active-catalog。幂等 + 并发去重。
  * loadCatalog 永不抛（最差回落 bundled），故本函数也不会抛。
- * 调用点：bootstrap-electron 的 registerMakerIpcsAfterSplash，第一次 getMaker() 构造之前。
+ * 调用点：bootstrap-electron 的 registerMakerIpcs，第一次 getMaker() 构造之前。
  */
 export function ensureActiveCatalogLoaded(): Promise<Catalog> {
   // 接通自定义供应商密钥读取器（idempotent）：provider-route 用 setter 注入避免触电，

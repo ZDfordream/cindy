@@ -1349,7 +1349,7 @@ describe('hook session-runner 的 userSendAt 时序(未分类误判回归)', () 
         source: { im: 'telegram', channelName: 'Release topic', userText: 'hello' },
         origin: {
           connectionId: 'slack:account:telegram',
-          connectionName: 'Cindy Telegram',
+          connectionName: 'HRBuddy Telegram',
           externalKey: 'telegram:dm:bot:user:g0',
         },
       }),
@@ -2983,7 +2983,7 @@ describe('上游过载自动重试期间的渠道进度(零产出窗口)', () =>
     expect(outcome.errorMessage).toContain('Telegram 官方 bot');
     expect(outcome.errorMessage).toContain('GPT-6 Astra');
     expect(outcome.errorMessage).toContain('测试任务（sess-new）');
-    expect(outcome.errorMessage).toContain('在 Cindy 里打开这个任务');
+    expect(outcome.errorMessage).toContain('在 HRBuddy 里打开这个任务');
     expect(outcome.errorMessage).not.toContain('/new');
   });
 

@@ -138,7 +138,7 @@
     Pop $R1
   ${EndIf}
   ${If} $R0 != 0
-    MessageBox MB_OK|MB_ICONSTOP "Could not stop the Cindy remote desktop service. Run the uninstaller as administrator and try again."
+    MessageBox MB_OK|MB_ICONSTOP "Could not stop the HRBuddy remote desktop service. Run the uninstaller as administrator and try again."
     Abort
   ${EndIf}
   cindy_remote_service_done:

@@ -138,7 +138,7 @@ async function fixture() {
       process.platform + '-' + process.arch,
     );
     await mkdir(artifacts, { recursive: true });
-    const name = 'Cindy-Setup.exe';
+    const name = 'HRBuddy-Setup.exe';
     await writeFile(path.join(artifacts, name), 'installer bytes');
     await writeFile(
       path.join(artifacts, 'build-info.json'),
@@ -473,7 +473,7 @@ describe('personal source integration and packaging', () => {
               args[2],
               'apps/desktop/release/artifacts/global/unversioned',
               process.platform + '-' + process.arch,
-              'Cindy-Setup.exe',
+              'HRBuddy-Setup.exe',
             );
             await writeFile(installer, 'modified after packaging');
           }
@@ -535,7 +535,7 @@ describe('personal source integration and packaging', () => {
     'retains the app from personal and cleans unpublished copies (cancel: %s)',
     async (cancel) => {
       const h = await fixture();
-      h.task.profile = { userData: h.userData, appName: 'Cindy', region: 'global', passive: false };
+      h.task.profile = { userData: h.userData, appName: 'HRBuddy', region: 'global', passive: false };
       const id = '11111111-1111-4111-8111-111111111111';
       const retainedDirectory = versionStore.versionDirectory(h.userData, id);
       const packaged = path.join(
@@ -543,12 +543,12 @@ describe('personal source integration and packaging', () => {
         'apps',
         'desktop',
         'out',
-        'Cindy-' + process.platform + '-' + process.arch,
+        'HRBuddy-' + process.platform + '-' + process.arch,
       );
       vi.spyOn(versionStore, 'retainPersonalVersion').mockImplementation(async (input) => {
         expect(h.locked()).toBe(true);
         expect(input.sourceDirectory).toBe(
-          process.platform === 'darwin' ? path.join(packaged, 'Cindy.app') : packaged,
+          process.platform === 'darwin' ? path.join(packaged, 'HRBuddy.app') : packaged,
         );
         await mkdir(retainedDirectory, { recursive: true });
         await writeFile(path.join(retainedDirectory, 'pending.txt'), 'retained app');

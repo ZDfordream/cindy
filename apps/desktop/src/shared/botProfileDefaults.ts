@@ -3,9 +3,9 @@ export function buildDefaultBotIdentity(displayName: string, description = ''): 
   // It has the same size limit as identitySource; adding a wrapper could make a
   // valid description impossible to edit or duplicate through the profile API.
   if (description.trim()) return description.trim();
-  const name = displayName.trim() || 'Cindy Bot';
+  const name = displayName.trim() || 'HRBuddy';
   return [
-    `You are ${name}, an intelligent AI assistant running as a Cindy Bot.`,
+    `You are ${name}, an intelligent AI assistant running as a HRBuddy Bot.`,
     'You are helpful, knowledgeable, and direct. Communicate clearly, admit uncertainty when appropriate, and prioritize being genuinely useful over being verbose.',
   ].join(' ');
 }

@@ -406,7 +406,7 @@ describe('harness wake-ups of an IM-bound task (real Session)', () => {
   }
 
   it.each(['telegram:group:bot:-100200:user-7:g1', 'slack:T:C:1.2'])(
-    '%s keeps desktop-started background results in Cindy after a channel turn', async (externalKey) => {
+    '%s keeps desktop-started background results in HRBuddy after a channel turn', async (externalKey) => {
     let live: ReturnType<typeof wakeableSession> | undefined;
     const run = vi.fn(async (req: HookRunRequest): Promise<HookRunOutcome> => {
       live = wakeableSession(req.sessionId);
@@ -476,7 +476,7 @@ describe('harness wake-ups of an IM-bound task (real Session)', () => {
       await h.emit({ type: 'done' });
       await new Promise((resolve) => setTimeout(resolve, 10));
       expect(turnEnds()).toHaveLength(3);
-      // Regression: a task created in Slack later runs tests from Cindy. Their completion
+      // Regression: a task created in Slack later runs tests from HRBuddy. Their completion
       // wakes the provider without Session.send; it must inherit the desktop destination.
       for (const report of ['Desktop test results.', 'Desktop final report.']) {
         await h.emit({ type: 'text', data: { text: report, isFinal: true } });
@@ -515,11 +515,11 @@ describe('harness wake-ups of an IM-bound task (real Session)', () => {
 
 describe('post-terminal runtime recovery delivery', () => {
   it.each([
-    ['en', 'Pi extensions could not be refreshed. Restart Cindy before using Pi again.'],
-    ['zh-CN', 'Pi 扩展未能完成刷新。请重启 Cindy 后再使用 Pi。'],
-    ['zh-TW', 'Pi 擴充功能未能完成重新整理。請重新啟動 Cindy 後再使用 Pi。'],
-    ['ja', 'Pi 拡張機能を更新できませんでした。Pi を再び使用する前に Cindy を再起動してください。'],
-    ['ko', 'Pi 확장을 새로 고치지 못했습니다. Pi를 다시 사용하기 전에 Cindy를 다시 시작하세요.'],
+    ['en', 'Pi extensions could not be refreshed. Restart HRBuddy before using Pi again.'],
+    ['zh-CN', 'Pi 扩展未能完成刷新。请重启 HRBuddy 后再使用 Pi。'],
+    ['zh-TW', 'Pi 擴充功能未能完成重新整理。請重新啟動 HRBuddy 後再使用 Pi。'],
+    ['ja', 'Pi 拡張機能を更新できませんでした。Pi を再び使用する前に HRBuddy を再起動してください。'],
+    ['ko', 'Pi 확장을 새로 고치지 못했습니다. Pi를 다시 사용하기 전에 HRBuddy를 다시 시작하세요.'],
   ] as const)('delivers localized %s recovery after the observer unsubscribes, without replay', async (locale, expected) => {
     setMainLocale(locale);
     let terminal!: () => void;

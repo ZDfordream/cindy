@@ -50,7 +50,7 @@ afterEach(async () => {
 
 describe('explicit Make command ownership', () => {
   it.each([
-    'fix Cindy and build my version',
+    'fix HRBuddy and build my version',
     '请检查环境',
     'cindy-make',
     'cindy-make-doctor',
@@ -175,12 +175,12 @@ describe('native environment-check entry', () => {
   );
 
   it.each([
-    ['en', 'Cindy Make · Environment'],
-    ['zh-CN', 'Cindy Make · 环境检查'],
-    ['zh-TW', 'Cindy Make · 環境檢查'],
-    ['ja', 'Cindy Make · 環境チェック'],
-    ['ko', 'Cindy Make · 환경 검사'],
-  ])('uses the selected language for a new Doctor title, keeping Cindy Make fixed: %s', async (locale, title) => {
+    ['en', 'HRBuddy Make · Environment'],
+    ['zh-CN', 'HRBuddy Make · 环境检查'],
+    ['zh-TW', 'HRBuddy Make · 環境檢查'],
+    ['ja', 'HRBuddy Make · 環境チェック'],
+    ['ko', 'HRBuddy Make · 환경 검사'],
+  ])('uses the selected language for a new Doctor title, keeping HRBuddy Make fixed: %s', async (locale, title) => {
     await i18n.changeLanguage(locale);
     await tryStartCindyMakeCommand(input({ text: '/cindy-make-doctor', sessionId: undefined }));
     expect(h.ensureTask).toHaveBeenCalledWith(expect.objectContaining({ title, sessionId: undefined }));

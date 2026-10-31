@@ -1573,7 +1573,7 @@ async function provisionDefaultBotForList(
         const history = await client.drizzle.select({ id: sessions.id }).from(sessions).where(eq(sessions.source, 'bot')).limit(1);
         return history.length > 0;
       },
-      create: () => createBotProfile({ id: 'cindy-default', name: 'Cindy', templateId: 'cindy',
+      create: () => createBotProfile({ id: 'cindy-default', name: 'HRBuddy', templateId: 'cindy',
         avatar: BOT_TEMPLATE_PRESET_AVATARS.cindy, identitySource: CINDY_DEFAULT_IDENTITY,
         prepareInvitation: true, welcomeContext, locale }),
     });
@@ -2651,7 +2651,7 @@ export function registerBotIpc(): void {
                 fromBotId: botId,
                 fromBotName: profile.displayName,
                 toBotId: null,
-                toBotName: 'Cindy',
+                toBotName: 'HRBuddy',
                 parentSessionId: canonicalSessionId,
                 childSessionId: row.childSessionId,
                 objective: row.objective.slice(0, 400),

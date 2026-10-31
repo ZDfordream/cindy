@@ -53,7 +53,7 @@ function Sync-CindyInstallationVersion {
             } catch {
                 # HKLM may be read-only to the app. The already-elevated updater
                 # can repair it; this metadata must never trigger another UAC.
-                Write-Warning 'Cindy installation version metadata could not be synchronized.'
+                Write-Warning 'HRBuddy installation version metadata could not be synchronized.'
             } finally {
                 if ($null -ne $uninstall) { $uninstall.Dispose() }
                 if ($null -ne $install) { $install.Dispose() }
@@ -73,7 +73,7 @@ if ($env:CINDY_VERSION_SYNC_KEY -and $env:CINDY_VERSION_SYNC_EXE) {
             if ($syncWarnings.Count -gt 0) { exit 1 }
         }
     } catch {
-        Write-Warning 'Cindy executable version could not be read.'
+        Write-Warning 'HRBuddy executable version could not be read.'
         exit 1
     }
 }

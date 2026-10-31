@@ -61,7 +61,7 @@ const hostCapabilityDirective: HostCapabilityDirectiveDisplay = {
   route: 'cindy_ios_simulator',
   name: 'iOS 模拟器',
   ghostId: 'ios-simulator',
-  raw: '[Cindy Host 能力] iOS 模拟器',
+  raw: '[HRBuddy Host 能力] iOS 模拟器',
 };
 
 /** 模拟 prefers-reduced-motion 匹配结果(jsdom 默认无 matchMedia)。 */
@@ -678,7 +678,7 @@ describe('GhostSummonCard(chip 形态)', () => {
     expect(container.querySelector('svg.lucide-check')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { expanded: false }));
-    expect(screen.getByText('发送给 Agent 的 Cindy 能力路由')).toBeTruthy();
+    expect(screen.getByText('发送给 Agent 的 HRBuddy 能力路由')).toBeTruthy();
     expect(screen.getByText('cindy_ios_simulator')).toBeTruthy();
     expect(screen.getByText(/不要通过 ghost_call 调用/)).toBeTruthy();
   });

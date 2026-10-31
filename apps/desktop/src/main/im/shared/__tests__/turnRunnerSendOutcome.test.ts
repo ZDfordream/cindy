@@ -1079,7 +1079,7 @@ describe('turnRunner send outcome policy (feishu adapter characterization)', () 
         botContextId: 'cli_test_bot',
         userId: 'ou_user',
         userMessageId: `msg-owner-${String(requesterIsOwner)}`,
-        text: '更新 Cindy',
+        text: '更新 HRBuddy',
         attachments: [],
         ...(requesterIsOwner ? { requesterIsOwner } : {}),
       });
@@ -1344,7 +1344,7 @@ describe('turnRunner send outcome policy (feishu adapter characterization)', () 
       closeFailure.resolve();
       await waitForAssertion(() => expect(session.getStatus()).toBe('error'));
       expect(mocks.feishuIm.sendText).toHaveBeenCalledExactlyOnceWith('ou_user',
-        'Pi 扩展未能完成刷新。请重启 Cindy 后再使用 Pi。', { threadTs: undefined });
+        'Pi 扩展未能完成刷新。请重启 HRBuddy 后再使用 Pi。', { threadTs: undefined });
       expect(complete).toHaveBeenCalledOnce();
       expect(handle.send).toHaveBeenCalledOnce();
     } finally {
@@ -3021,7 +3021,7 @@ describe('turnRunner send outcome policy (feishu adapter characterization)', () 
           : mocks.feishuIm.sendText.mock.calls[0]?.[1];
         expect(text).toContain('账号余额或配额不足');
         if (kind === 'chunked-text') {
-          expect(text).toContain('在 Cindy 里打开这个任务');
+          expect(text).toContain('在 HRBuddy 里打开这个任务');
           expect(text).not.toContain('/model');
           expect(text).not.toContain('新对话配置');
         } else {

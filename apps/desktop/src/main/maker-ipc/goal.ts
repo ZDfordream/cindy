@@ -4,7 +4,7 @@
  * maker:goal:* IPC handler 注册 + GoalController → renderer 状态广播。
  *
  * 设计(对齐 schedule.ts):
- *   - eager 注册:registerGoalHandlers() 在 registerMakerIpcsAfterSplash 内一次性挂,
+ *   - eager 注册:registerGoalHandlers() 在 registerMakerIpcs 内一次性挂,
  *     不依赖 GoalController 实例;handler 内 getGoalController() 取单例(invoke 时
  *     controller 已由 startGoalController 启动)。
  *   - 错误走 throwIpcError(规则 13),不裸 throw。
