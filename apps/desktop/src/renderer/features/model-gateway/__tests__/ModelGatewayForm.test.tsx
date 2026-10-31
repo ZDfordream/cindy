@@ -264,4 +264,51 @@ describe('ModelGatewayForm', () => {
     expect(maker.testProviderConnection).toHaveBeenCalled();
     expect(editPhase.onClose).not.toHaveBeenCalled();
   });
+
+  it('Esc with non-editable focus closes only the form, never cascades to settings', async () => {
+    // useSettingsEscape 同款：Settings 更早挂在 window 冒泡、关闭路径不看
+    // defaultPrevented——弹窗必须用 capture 抢占，一次按键只退一层。
+    const settingsEscape = vi.fn();
+    window.addEventListener('keydown', settingsEscape);
+    try {
+      const { onClose } = renderForm({ mode: 'create' });
+      await act(async () => {});
+      // 焦点放在非可编辑处（保存按钮）——级联双关最容易发生的路径。
+      const saveBtn = screen.getByRole('button', { name: SAVE_LABEL });
+      act(() => {
+        saveBtn.focus();
+      });
+      fireEvent.keyDown(saveBtn, { key: 'Escape' });
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(settingsEscape).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', settingsEscape);
+    }
+  });
+
+  it('clears the typed key from state when the dialog closes (Ruling 16)', async () => {
+    const props = { mode: 'create' as const, onClose: vi.fn(), onSaved: vi.fn() };
+    const view = render(
+      <ModelGatewayProvider>
+        <ModelGatewayForm open {...props} />
+      </ModelGatewayProvider>,
+    );
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText(KEY_LABEL), { target: { value: 'sk-typed-secret' } });
+    expect((screen.getByLabelText(KEY_LABEL) as HTMLInputElement).value).toBe('sk-typed-secret');
+
+    // 父级关窗（组件常驻挂载，只换 open）：密钥须在关闭路径被清掉。
+    view.rerender(
+      <ModelGatewayProvider>
+        <ModelGatewayForm open={false} {...props} />
+      </ModelGatewayProvider>,
+    );
+    // 重开：若关闭时没清、只靠 open 复位，此处会残留上一次键入的 key。
+    view.rerender(
+      <ModelGatewayProvider>
+        <ModelGatewayForm open {...props} />
+      </ModelGatewayProvider>,
+    );
+    expect((screen.getByLabelText(KEY_LABEL) as HTMLInputElement).value).toBe('');
+  });
 });

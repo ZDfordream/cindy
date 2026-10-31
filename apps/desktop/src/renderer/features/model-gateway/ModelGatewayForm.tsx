@@ -9,7 +9,11 @@
  *
  * 密钥栏 `Input secret`（内置显隐）。编辑态密钥**不回显**：显示「保持不变」占位，
  * 留空 = 沿用已存（`readCustomProviderKey` 现读，只作为本次探测/落库的 IPC 入参，
- * 不进 React state、不落任何 JSON）。
+ * 不进 React state、不落任何 JSON）。键入值是受控输入的短暂 state（Ruling 16 语义），
+ * **关闭即清**、卸载即销毁，不留到下次打开。
+ *
+ * Esc 用 capture + stopPropagation 抢占（Ruling 16 同批修复）：一次按键只关本弹窗，
+ * 不级联触发 `useSettingsEscape` 再退一层设置。
  *
  * Ruling 14：保存即测试——保存门的探测结果就是条目此刻的连通状态（设计稿 §5.2
  * 「通过 → 写入延迟」）。create / edit 成功都把本次探测结果 `setStatus` 落到条目上，
@@ -88,10 +92,10 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
   const busyRef = useRef(false);
 
   // 每次打开按模式复位：create 全空；edit 预填接口地址/模型，密钥永不回显。
+  // （密钥的清空不在这里——Ruling 16 把它唯一挂在关闭路径，见下方 effect。）
   useEffect(() => {
     if (!open) return;
     setBaseUrl(mode === 'edit' ? (initial?.baseUrl ?? '') : '');
-    setApiKey('');
     setModelId(mode === 'edit' ? (initial?.modelId ?? '') : '');
     setFieldErrors({});
     setSaveError(null);
@@ -99,17 +103,25 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
     busyRef.current = false;
   }, [open, mode, initial?.baseUrl, initial?.modelId]);
 
-  // Esc 关闭（保存中不响应；DESIGN.md §4 关闭路径之一）。
+  // Ruling 16：关闭即清密钥。组件常驻挂载（关窗只换 open），键入过的 key 不留到
+  // 下次打开；卸载随组件销毁。密钥生命周期以此为唯一来源。
+  useEffect(() => {
+    if (!open) setApiKey('');
+  }, [open]);
+
+  // Esc 关闭（保存中只吞按键不关窗）。capture + preventDefault + stopPropagation
+  // 抢占 useSettingsEscape（window 冒泡注册、关闭路径不看 defaultPrevented）：
+  // 一次 Esc 只关本弹窗，绝不级联再退一层设置——照 ProviderConnectionDialog 同款。
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !busyRef.current) {
-        event.preventDefault();
-        onClose();
-      }
+      if (event.key !== 'Escape' || event.repeat) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!busyRef.current) onClose();
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [open, onClose]);
 
   const handleSave = useCallback(async () => {
