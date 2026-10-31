@@ -123,7 +123,7 @@ export function ModelGatewayRow({
         title={t('settings.providers.modelGateway.retestTip')}
         disabled={retesting}
         onClick={() => void handleRetest()}
-        className="w-[74px] shrink-0 rounded-md text-left text-13 transition-colors disabled:cursor-default enabled:hover:text-[var(--text-primary)] enabled:hover:underline enabled:underline-offset-[3px]"
+        className="w-[74px] shrink-0 rounded-md text-left text-13 transition-colors disabled:cursor-default enabled:hover:text-[var(--text-primary)] enabled:hover:underline enabled:underline-offset-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-soft)]"
         style={{ color: 'var(--text-secondary)' }}
       >
         {statusText}
@@ -142,7 +142,9 @@ export function ModelGatewayRow({
           {t('settings.providers.modelGateway.delete')}
         </Button>
         {/* PRD 行内开关 40×24（偏离登记）：共享 Switch 为 36×20 的批准几何，
-            此处按 PRD 用本地 role="switch" 控件，颜色仍走 switch 语义 token。 */}
+            此处按 PRD 用本地 role="switch" 控件，颜色仍走 switch 语义 token。
+            焦点环同共享控件（focus-ring-soft），补回全局 `*:focus-visible{outline:none}`
+            抹掉的键盘焦点提示。 */}
         <button
           type="button"
           role="switch"
@@ -151,6 +153,7 @@ export function ModelGatewayRow({
           onClick={() => void toggle(entry.id, !entry.enabled)}
           className={cn(
             'relative h-6 w-10 shrink-0 rounded-full transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-soft)]',
             entry.enabled ? 'bg-[var(--switch-track-on)]' : 'bg-[var(--switch-track-off)]',
           )}
         >

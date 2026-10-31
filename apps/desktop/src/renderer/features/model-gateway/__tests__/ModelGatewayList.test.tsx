@@ -176,6 +176,10 @@ describe('ModelGatewayList', () => {
       // 撤销后窗口到期也不得落下真正的删除。
       expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
     } finally {
+      // 同 test_undo_twice：toast 退出动画收尾后才弃假时钟。
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
       vi.useRealTimers();
     }
   });
@@ -204,7 +208,77 @@ describe('ModelGatewayList', () => {
       });
       expect(screen.getAllByTestId('model-gateway-row')).toHaveLength(1);
     } finally {
+      // 跑完 toast 退出动画（300ms finalize）再弃假时钟，防 zombie toast 泄漏进下个用例。
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
       vi.useRealTimers();
+    }
+  });
+
+  it('test_undo_window_toast_force_closes_with_delete_window', async () => {
+    const { getApi } = renderList();
+    await act(async () => {});
+    await addModel(getApi(), 'a');
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.click(
+          within(screen.getByTestId('model-gateway-row')).getByRole('button', {
+            name: 'settings.providers.modelGateway.delete',
+          }),
+        );
+      });
+      // 键盘用户 Tab 到 toast 会 focus 住面板 → 全局 toast 暂停自动关闭。
+      // 撤销窗口绝不能跟着暂停：store 的 5s 真删不暂停，toast 必须同源强制收口，
+      // 否则「撤销」按钮还在而窗口已过，点了无反馈、条目连密钥永久消失。
+      const toastPanel = screen
+        .getByText('settings.providers.modelGateway.deletedToast:a')
+        .closest('[role="status"]')!;
+      await act(async () => {
+        fireEvent.focus(toastPanel);
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(5300);
+      });
+      // 窗口到点：toast 已收口（不被 focus 拖住），真删已落。
+      expect(screen.queryByText('settings.providers.modelGateway.deletedToast:a')).toBeNull();
+      expect(maker.deleteCustomProvider).toHaveBeenCalledWith('a');
+      // 退出残留里的撤销点了也无效：行不回来。
+      const undo = screen.queryByRole('button', {
+        name: 'settings.providers.modelGateway.undo',
+      });
+      if (undo) {
+        await act(async () => {
+          fireEvent.click(undo);
+        });
+      }
+      expect(screen.queryByTestId('model-gateway-row')).toBeNull();
+    } finally {
+      // 同 test_undo_twice：toast 退出动画收尾后才弃假时钟。
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
+      vi.useRealTimers();
+    }
+  });
+
+  it('test_status_and_switch_show_focus_visible_ring', async () => {
+    const { getApi } = renderList();
+    await act(async () => {});
+    await addModel(getApi(), 'a');
+
+    // 全局 `*:focus-visible { outline: none }` 抹了 UA 焦点提示；本地控件必须像
+    // 共享 Button/Switch 一样自带 focus-visible ring，键盘焦点才可见（断言形态
+    // 同 button.test.tsx：类名契约）。
+    const statusBtn = screen.getByRole('button', {
+      name: 'settings.providers.modelGateway.retest',
+    });
+    const toggleBtn = screen.getByRole('switch');
+    for (const control of [statusBtn, toggleBtn]) {
+      expect(control.className).toContain('focus-visible:ring-2');
+      expect(control.className).toContain('focus-visible:ring-[var(--focus-ring-soft)]');
     }
   });
 

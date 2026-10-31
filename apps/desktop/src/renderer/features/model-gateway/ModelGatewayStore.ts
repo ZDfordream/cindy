@@ -168,8 +168,11 @@ function mirrorRowFromEntry(entry: ModelEntry): {
 /**
  * 删除撤销窗口（PRD：「删除」后 5 秒内可撤销）。窗口内只软摘标记，真正的
  * `deleteCustomProvider`（含 keychain 密钥）到点才落。
+ * **导出供列表的 toast 收口同源引用**（F1）：toast 的自动关闭可被 hover/focus
+ * 暂停，本窗口不可——UI 侧必须用同一常量自持一个不被暂停的收口定时器，
+ * 保证「撤销」入口与真删窗口同时关闭。
  */
-const REMOVE_UNDO_WINDOW_MS = 5000;
+export const REMOVE_UNDO_WINDOW_MS = 5000;
 
 /**
  * 网关条目的 provider 配置。`marked: false` 时**不带**新表单标记——删除撤销窗口内

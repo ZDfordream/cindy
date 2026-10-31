@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/lib/toast';
 
 import { ModelGatewayRow } from './ModelGatewayRow';
-import { useModelGateway } from './ModelGatewayStore';
+import { REMOVE_UNDO_WINDOW_MS, useModelGateway } from './ModelGatewayStore';
 import type { ModelEntry } from './types';
 
 export interface ModelGatewayListProps {
@@ -47,15 +47,30 @@ export function ModelGatewayList({ onAdd, onEdit }: ModelGatewayListProps) {
 
   const handleDelete = useCallback(
     async (entry: ModelEntry) => {
+      // F1：撤销入口与真删窗口同源收口。全局 toast 的自动关闭会被 hover / 键盘
+      // focus 暂停，而 store 的 `REMOVE_UNDO_WINDOW_MS` 真删定时器不暂停——所以
+      // 这里自持一个**不被暂停**的收口定时器（同一常量），到点强制 dismiss toast
+      // 并关死撤销入口。起点在 `await remove()` **之前**：UI 窗口只会略早于 store
+      // 窗口关闭（安全方向），不会出现「撤销还在但真删已落」的陷阱。
+      let toastId: string | undefined;
+      let windowOpen = true;
+      const closeTimer = setTimeout(() => {
+        windowOpen = false;
+        if (toastId !== undefined) toast.dismiss(toastId);
+      }, REMOVE_UNDO_WINDOW_MS);
       const undoHandle = await remove(entry.id);
-      toast.success(
+      toastId = toast.success(
         t('settings.providers.modelGateway.deletedToast', { model: entry.modelId }),
         {
-          // 与删除撤销窗口同长：toast 消失即不可撤销（PRD 脚本 5000ms）。
-          duration: 5000,
+          // toast 自身的 5s 自动关闭只作无暂停场景的兜底；同源收口靠 closeTimer。
+          duration: REMOVE_UNDO_WINDOW_MS,
           action: {
             label: t('settings.providers.modelGateway.undo'),
             onClick: () => {
+              // 窗口已关时撤销必须是显式 no-op（不再静默半生效）。
+              if (!windowOpen) return;
+              windowOpen = false;
+              clearTimeout(closeTimer);
               undoHandle.undo();
               setFlashId(entry.id);
               if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
