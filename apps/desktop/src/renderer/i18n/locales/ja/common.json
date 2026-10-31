@@ -3387,15 +3387,14 @@
         "edit": "編集",
         "delete": "削除",
         "retest": "再テスト",
-        "retestTip": "接続を再テスト",
+        "retestTip": "クリックして接続をテスト",
         "untested": "未テスト",
         "failed": "接続できません",
-        "toggle": "チャットのモデルメニューに {{name}} を表示",
-        "deleteConfirm": {
-          "title": "モデルを削除しますか？",
-          "description": "削除すると、HRBuddy は「{{name}}」を使用できなくなります。メッセージ履歴は保持され、後から再追加できます。",
-          "confirm": "削除"
-        }
+        "testing": "テスト中…",
+        "empty": "まだモデルが追加されていません",
+        "deletedToast": "{{model}} を削除しました",
+        "undo": "元に戻す",
+        "toggle": "{{name}} を有効にする"
       },
       "modelDialog": {
         "title": "モデルを追加",

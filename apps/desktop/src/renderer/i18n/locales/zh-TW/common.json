@@ -3387,15 +3387,14 @@
         "edit": "編輯",
         "delete": "刪除",
         "retest": "重測",
-        "retestTip": "重測連通",
+        "retestTip": "點擊測試連通性",
         "untested": "未測試",
         "failed": "連不上",
-        "toggle": "在對話的模型選單中顯示 {{name}}",
-        "deleteConfirm": {
-          "title": "刪除模型？",
-          "description": "刪除後，HRBuddy 將無法再使用「{{name}}」。歷史訊息會保留，之後可以重新新增。",
-          "confirm": "刪除"
-        }
+        "testing": "測試中…",
+        "empty": "還沒有新增任何模型",
+        "deletedToast": "已刪除 {{model}}",
+        "undo": "復原",
+        "toggle": "啟用 {{name}}"
       },
       "modelDialog": {
         "title": "新增模型",

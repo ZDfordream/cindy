@@ -2265,6 +2265,17 @@ html[data-wallpaper-active='true'] :is(.layout-divider-v, .layout-divider-h) {
     transform: translateX(6px);
   }
 }
+/* 行 flash：模型列表删除撤销回原位的高亮（PRD 2026-11-01 `.row.flash`，1.4s
+   ease-out 从浅蓝底退到透明）。底色走 switch-track-on 主题色 color-mix 低透明度，
+   两模式同源不写死色值；减弱动效时只保留静态透明（下方 reduce 块统一归零）。 */
+@keyframes model-gateway-row-flash {
+  from {
+    background-color: color-mix(in srgb, var(--switch-track-on) 18%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
 @layer components {
   .modal-scrim {
     background-color: var(--overlay-modal);
@@ -2292,6 +2303,9 @@ html[data-wallpaper-active='true'] :is(.layout-divider-v, .layout-divider-h) {
   }
   .modal-panel.shake {
     animation: modal-panel-shake var(--motion-base) var(--motion-ease-out);
+  }
+  .model-gateway-row-flash {
+    animation: model-gateway-row-flash 1.4s ease-out;
   }
 }
 

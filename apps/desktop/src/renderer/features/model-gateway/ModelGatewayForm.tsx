@@ -62,8 +62,8 @@ export interface ModelGatewayFormProps {
   onSaved: (id: string) => void;
 }
 
-/** 参考图的 10px 圆角矩形（偏离登记 2）；其余 Input 样式走 DS 默认。 */
-const FIELD_INPUT_CLASS = '!rounded-[10px]';
+/** PRD 2026-11-01 的 14px 圆角矩形（偏离登记：PRD 版式覆盖旧 10px 参考图条目）；其余 Input 样式走 DS 默认。 */
+const FIELD_INPUT_CLASS = '!rounded-[14px]';
 
 interface FormFieldErrors {
   baseUrl?: string;
@@ -328,10 +328,11 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
 
       <div
         ref={panelRef}
-        className="modal-panel relative flex max-h-[min(680px,90vh)] w-full flex-col"
+        className="modal-panel !rounded-[22px] relative flex max-h-[min(680px,90vh)] w-full flex-col"
         style={{ maxWidth: 'min(460px, 100vw - 32px)' }}
       >
-        {/* 标题栏：× 与「取消」并存（偏离登记 1）。 */}
+        {/* 标题栏：× 与「取消」并存（偏离登记 1）。
+            面板 22px 圆角按 PRD 2026-11-01 版式（偏离登记：覆盖共享 modal-panel 的 12px）。 */}
         <div className="flex items-start justify-between gap-4 px-6 pt-5">
           <h2 className="text-lg font-semibold leading-tight text-[var(--confirm-title)]">
             {mode === 'edit'
@@ -437,7 +438,7 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
             <div
               role="alert"
               title={saveError.detail}
-              className="mt-1 rounded-[10px] border border-[var(--error-border)] px-3 py-2"
+              className="mt-1 rounded-xl border border-[var(--error-border)] px-3 py-2"
             >
               {/* Ruling 11：主文案人话标签；原始 detail（可能是机器码）只在次要行。 */}
               <p className="text-13 text-[var(--error-fg)]">{saveError.label}</p>
@@ -455,18 +456,21 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
             type="button"
             disabled={saving}
             onClick={dismiss}
-            className="!rounded-[10px] px-6"
+            className="!rounded-[14px] px-6"
           >
             {t('settings.providers.custom.cancel')}
           </Button>
+          {/* primary 深色填充（PRD `.btn.primary`）：palette=confirmation 走
+              confirm-btn-primary-bg（light 深 / dark 浅的反转实底），两模式同源。 */}
           <Button
             variant="primary"
+            palette="confirmation"
             size="lg"
             type="button"
             disabled={!canSave}
             loading={saving}
             onClick={() => void handleSave()}
-            className="!rounded-[10px] px-6"
+            className="!rounded-[14px] px-6"
           >
             {t('settings.providers.custom.save')}
           </Button>

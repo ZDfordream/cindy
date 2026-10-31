@@ -1,11 +1,16 @@
 /**
- * ModelGatewayRow — 模型列表的一行（设计稿 §5.1）：状态点 + 模型名 + 状态文本 +
- * 「编辑」「删除」+ 启停开关。
+ * ModelGatewayRow — 模型列表的一行（PRD model-provider-settings 2026-11-01）：
+ * 状态点 + 模型名 + 状态文字 + 「编辑」「删除（弱化）」+ 启停开关。
  *
- * 状态点三态：`●` 绿=已连通(行内显示延迟) / `○` 灰=未测试 / `●` 红=连不上。
- * 状态文本格本身就是重测按钮（Ruling 1：store 无 retest，行内自己跑探测再回写
- * `setStatus`）——`aria-label` 重测，`title` 提示「重测连通」；连不上时 title 顺带
- * 附上原始 detail。detail 只出现在 tooltip，正文永远是短的人话标签（连不上）。
+ * 状态点与状态文字同走四态且一一对应：`idle` 空心=未测试 / `ok` 绿=`{n}ms` /
+ * `fail` 红=连不上 / `testing` 旋环=测试中…（`data-status` 挂在点与状态文字上，
+ * 测试按它对照两处）。状态文字格本身就是重测按钮（Ruling 1：store 无 retest，
+ * 行内自己跑探测再回写 `setStatus`）——title 提示「点击测试连通性」，testing
+ * 期间禁点。失败原因（原始 detail）不进正文（PRD 短文案），可查 store 元数据。
+ *
+ * 删除无确认框（PRD）：点「删除」行立即出列表，撤销 toast 由 `ModelGatewayList`
+ * 统一弹；本组件只转发 `onDelete`。撤销回原位后的 flash 高亮由列表经 `flash`
+ * 下传（PRD `.row.flash`）。
  *
  * 凭证契约：重测时经 `readCustomProviderKey` 从 keychain 现读 API key，只作为
  * 一次探测的 IPC 入参，不进 React state、不落任何 JSON。协议写死
@@ -15,31 +20,49 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
 import { readCustomProviderKey } from '@/lib/customProviders';
+import { cn } from '@/lib/utils';
 
 import { useModelGateway } from './ModelGatewayStore';
 import { testModelConnectivity } from './useModelConnectivity';
 import type { ModelEntry, ModelStatus } from './types';
 
-/** 状态点颜色走语义 token：成功绿 / 三级灰 / 错误红，Light/Dark 同源。 */
-function statusDot(status: ModelStatus): { glyph: string; color: string } {
-  if (status === 'untested') return { glyph: '○', color: 'var(--text-tertiary)' };
-  if (status.ok) return { glyph: '●', color: 'var(--card-status-done)' };
-  return { glyph: '●', color: 'var(--error-fg)' };
+/** 状态点/状态文字的公共四态标签（idle / ok / fail / testing）。 */
+export type RowStatusKind = 'idle' | 'ok' | 'fail' | 'testing';
+
+function statusKindOf(status: ModelStatus, retesting: boolean): RowStatusKind {
+  if (retesting) return 'testing';
+  if (status === 'untested') return 'idle';
+  return status.ok ? 'ok' : 'fail';
 }
+
+/**
+ * 状态点四态样式（PRD `.dot`）：空心灰 / 绿 / 红 / 旋环。颜色全走语义 token
+ * （`card-status-done` 状态点绿、`error-fg` 红、text 层灰），Light/Dark 同源。
+ */
+const DOT_CLASS: Record<RowStatusKind, string> = {
+  idle: 'border-[1.5px] border-[var(--text-tertiary)] bg-transparent',
+  ok: 'border-0 bg-[var(--card-status-done)]',
+  fail: 'border-0 bg-[var(--error-fg)]',
+  testing:
+    'border-2 border-[var(--text-tertiary)] border-t-[var(--text-primary)] animate-spin motion-reduce:animate-none',
+};
 
 export function ModelGatewayRow({
   entry,
   onEdit,
+  onDelete,
+  flash,
 }: {
   entry: ModelEntry;
   onEdit: (entry: ModelEntry) => void;
+  /** 删除动作上抛给列表（弹撤销 toast + flash 编排在列表层）。 */
+  onDelete: (entry: ModelEntry) => void;
+  /** 撤销回原位后的 flash 高亮（PRD `.row.flash`）。 */
+  flash?: boolean;
 }) {
   const { t } = useTranslation();
-  const { confirm } = useConfirmDialog();
-  const { toggle, remove, setStatus } = useModelGateway();
+  const { toggle, setStatus } = useModelGateway();
   const [retesting, setRetesting] = useState(false);
 
   const handleRetest = useCallback(async () => {
@@ -59,55 +82,48 @@ export function ModelGatewayRow({
     }
   }, [entry.baseUrl, entry.id, entry.modelId, retesting, setStatus]);
 
-  const handleDelete = useCallback(async () => {
-    const confirmed = await confirm({
-      title: t('settings.providers.modelGateway.deleteConfirm.title'),
-      description: t('settings.providers.modelGateway.deleteConfirm.description', {
-        name: entry.modelId,
-      }),
-      confirmText: t('settings.providers.modelGateway.deleteConfirm.confirm'),
-      confirmVariant: 'destructive',
-    });
-    if (confirmed) await remove(entry.id);
-  }, [confirm, entry.id, entry.modelId, remove, t]);
-
-  const dot = statusDot(entry.status);
+  const kind = statusKindOf(entry.status, retesting);
   const statusText =
-    entry.status === 'untested'
-      ? t('settings.providers.modelGateway.untested')
-      : entry.status.ok
-        ? `${entry.status.latencyMs}ms`
-        : t('settings.providers.modelGateway.failed');
-  // 失败原因（原始 detail）只进 tooltip；「重测连通」提示负责可发现性。
-  const retestTip =
-    entry.status !== 'untested' && !entry.status.ok
-      ? `${t('settings.providers.modelGateway.retestTip')}\n${entry.status.detail}`
-      : t('settings.providers.modelGateway.retestTip');
+    kind === 'testing'
+      ? t('settings.providers.modelGateway.testing')
+      : kind === 'idle'
+        ? t('settings.providers.modelGateway.untested')
+        : kind === 'ok'
+          ? `${(entry.status as { ok: true; latencyMs: number }).latencyMs}ms`
+          : t('settings.providers.modelGateway.failed');
 
   return (
     <li
       data-testid="model-gateway-row"
-      className="flex items-center gap-2 border-b px-4 py-2.5 last:border-b-0"
+      data-flash={flash ? 'true' : undefined}
+      className={cn(
+        'flex h-[54px] items-center gap-3.5 border-b px-[18px] transition-colors last:border-b-0',
+        'hover:bg-[var(--surface-hover)]',
+        flash && 'model-gateway-row-flash',
+      )}
       style={{ borderColor: 'var(--settings-theme-card-border)' }}
     >
       <span
         data-testid="model-gateway-status-dot"
+        data-status={kind}
         aria-hidden
-        className="w-3 shrink-0 text-center text-13 leading-none"
-        style={{ color: dot.color }}
+        className={cn('h-3 w-3 shrink-0 rounded-full', DOT_CLASS[kind])}
+      />
+      <span
+        className="min-w-0 flex-1 truncate text-14 font-medium"
+        style={{ color: 'var(--text-primary)' }}
+        title={entry.modelId}
       >
-        {dot.glyph}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-13" style={{ color: 'var(--text-primary)' }}>
         {entry.modelId}
       </span>
       <button
         type="button"
+        data-status={kind}
         aria-label={t('settings.providers.modelGateway.retest')}
-        title={retestTip}
+        title={t('settings.providers.modelGateway.retestTip')}
         disabled={retesting}
         onClick={() => void handleRetest()}
-        className="shrink-0 px-1 text-12"
+        className="w-[74px] shrink-0 rounded-md text-left text-13 transition-colors disabled:cursor-default enabled:hover:text-[var(--text-primary)] enabled:hover:underline enabled:underline-offset-[3px]"
         style={{ color: 'var(--text-secondary)' }}
       >
         {statusText}
@@ -116,14 +132,38 @@ export function ModelGatewayRow({
         <Button size="xs" tone="quiet" compact onClick={() => onEdit(entry)}>
           {t('settings.providers.modelGateway.edit')}
         </Button>
-        <Button size="xs" tone="quiet" compact onClick={() => void handleDelete()}>
+        <Button
+          size="xs"
+          tone="quiet"
+          compact
+          onClick={() => onDelete(entry)}
+          className="font-normal text-[var(--text-tertiary)]"
+        >
           {t('settings.providers.modelGateway.delete')}
         </Button>
-        <Switch
-          checked={entry.enabled}
-          onCheckedChange={(next) => void toggle(entry.id, next)}
+        {/* PRD 行内开关 40×24（偏离登记）：共享 Switch 为 36×20 的批准几何，
+            此处按 PRD 用本地 role="switch" 控件，颜色仍走 switch 语义 token。 */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={entry.enabled}
           aria-label={t('settings.providers.modelGateway.toggle', { name: entry.modelId })}
-        />
+          onClick={() => void toggle(entry.id, !entry.enabled)}
+          className={cn(
+            'relative h-6 w-10 shrink-0 rounded-full transition-colors',
+            entry.enabled ? 'bg-[var(--switch-track-on)]' : 'bg-[var(--switch-track-off)]',
+          )}
+        >
+          <span
+            aria-hidden
+            className={cn(
+              'absolute left-0.5 top-0.5 h-5 w-5 rounded-full transition-transform',
+              entry.enabled
+                ? 'translate-x-4 bg-[var(--switch-thumb-on)]'
+                : 'translate-x-0 bg-[var(--switch-thumb-off)]',
+            )}
+          />
+        </button>
       </div>
     </li>
   );

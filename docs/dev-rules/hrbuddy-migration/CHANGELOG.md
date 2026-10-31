@@ -106,11 +106,15 @@
 - **改动**：`AddModelDialog` 与 `SettingsModalHost` 的遮罩可点关闭。
 - **⚠️ 有意偏离 DESIGN.md §4**（「点遮罩不得关闭弹窗」）：owner 要求对齐 WorkBuddy。
 - **细节**：保存中点遮罩不响应，防误触丢已填内容。
+- **↩ 已被 2026-11-01 PRD 版式推翻**：模型设置弹窗遮罩改为 clean 可关 / dirty 抖动不关
+  （`modal-panel.shake`），不再一律点遮罩即关；现行登记见 `CHANGES.md` §9.4。
 
 ### 7. 需求 6：添加模型弹窗（OpenAI 兼容）
 - **改动**：新增 `AddModelDialog.tsx` 取代需求 4 的 `AddGatewayDialog`（已删）；协议固定 `openai-chat`。
 - **⚠️ 与需求 4 冲突**（Anthropic vs OpenAI）：owner 裁决「只做 OpenAI 兼容（照需求 6 字面）」。
 - **⚠️ 有意偏离 DESIGN.md 两处**：① 有 Cancel 仍带右上角 ×；② 输入框 10px 圆角而非 9999px 胶囊。
+  - **↩ ② 已被 2026-11-01 PRD 版式推翻**：模型设置弹窗输入/按钮改 14px、面板 22px，
+    「10px 圆角」登记作废；现行登记见 `CHANGES.md` §9.4。
 - **模型能力默认全开**（owner 后续裁决，去掉「高级配置」四个勾选）：`supportsToolCalls` / `supportsImageInput` / `reasoningRequired` 全 true。
   - **语义提醒**：`reasoningRequired` 是「思考不可关闭」（移除 off 档），不是「支持思考」；owner 明确「不要去掉」。
 - **移除**「查看文档 ↗」（owner 要求）。

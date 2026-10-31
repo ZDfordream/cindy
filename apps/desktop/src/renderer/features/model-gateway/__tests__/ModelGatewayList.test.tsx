@@ -1,25 +1,44 @@
 /** @vitest-environment jsdom */
 
 /**
- * ModelGatewayList — 右栏模型列表：按 modelId 升序渲染、状态点、启停开关、
- * 删除确认与行内重测。
+ * ModelGatewayList — 右栏模型列表（PRD model-provider-settings 2026-11-01）：
+ * 插入序行、状态点/状态文字四态、行内重测、删除 5s 撤销 toast、空态与标题计数。
  *
  * 走真实生产入口：`ModelGatewayList`/`ModelGatewayRow` 挂在真实
- * `ModelGatewayProvider`（Task 1 store）与共享 `ConfirmDialogProvider` 下，
- * 只在 IPC 边界打桩（`window.electronAPI.maker.*` / `safeStorageRead`，
- * 与 modelGatewayStore.test.ts 同法）。重测走真实 `testModelConnectivity`
- * → `maker.testProviderConnection`。
+ * `ModelGatewayProvider`（store）与真实 `ToastContainer` 下，只在 IPC 边界打桩
+ * （`window.electronAPI.maker.*` / `safeStorageRead`，与 modelGatewayStore.test.ts
+ * 同法）。重测走真实 `testModelConnectivity` → `maker.testProviderConnection`；
+ * 删除撤销走真实 `remove → UndoHandle` 与真实 toast store。
+ *
+ * 测试价值
+ * - 生产入口与可观察结果：ModelGatewayList/Row 组件入口；用户可观察 = 行文案与
+ *   状态点四态对应、testing 禁点、删除即消失 + 撤销 toast 回原位闪高亮、toast
+ *   5s 自动消失、空态与标题计数、开关只翻 enabled。
+ * - Bug／规则依据：PRD 交互稿脚本语义（statusText 四态 / removeModel+toast 撤销 /
+ *   empty 态）；T1 挂账「undo() 双击只生效一次」。
+ * - 现有覆盖缺口：旧用例只有删除确认框 + 一次成功重测，没有撤销 toast、testing
+ *   中间态、四态映射、空态计数与 double-undo。
+ * - 最小失败输入：一条 untested 条目点状态文字；一条条目点删除再点撤销。
+ * - tier：unit（jsdom 渲染生产组件，假时钟推 5s 窗口，无真实等待）。
  */
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderView } from '@cindy/model-providers';
 
-import { ConfirmDialogProvider } from '@/components/ui/confirm-dialog-provider';
+import { ToastContainer } from '@/components/ui/toast';
+import { toast } from '@/lib/toast';
 import { ModelGatewayProvider, useModelGateway } from '../ModelGatewayStore';
 import type { ModelGatewayApi } from '../types';
 import { ModelGatewayList } from '../ModelGatewayList';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: { model?: string; name?: string }) => {
+      const param = opts?.model ?? opts?.name;
+      return typeof param === 'string' ? `${key}:${param}` : key;
+    },
+  }),
+}));
 
 interface MakerMock {
   listProviders: ReturnType<typeof vi.fn>;
@@ -33,22 +52,22 @@ interface MakerMock {
 let maker: MakerMock;
 let safeStorageRead: ReturnType<typeof vi.fn>;
 
-/** 拿 store API 的探针 + 被测列表，共享同一个 ModelGatewayProvider 实例。 */
+/** 拿 store API 的探针 + 被测列表 + 真实 toast 容器，共享同一个 ModelGatewayProvider 实例。 */
 function renderList() {
   let api: ModelGatewayApi | null = null;
+  const onAdd = vi.fn();
   function Probe() {
     api = useModelGateway();
     return null;
   }
   render(
-    <ConfirmDialogProvider>
-      <ModelGatewayProvider>
-        <Probe />
-        <ModelGatewayList onAdd={() => {}} onEdit={() => {}} />
-      </ModelGatewayProvider>
-    </ConfirmDialogProvider>,
+    <ModelGatewayProvider>
+      <Probe />
+      <ModelGatewayList onAdd={onAdd} onEdit={() => {}} />
+      <ToastContainer />
+    </ModelGatewayProvider>,
   );
-  return { getApi: () => api! };
+  return { getApi: () => api!, onAdd };
 }
 
 async function addModel(api: ModelGatewayApi, modelId: string) {
@@ -64,6 +83,7 @@ async function addModel(api: ModelGatewayApi, modelId: string) {
 describe('ModelGatewayList', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    toast.dismissAll();
     maker = {
       listProviders: vi.fn(async () => ({ providers: [] as ProviderView[] })),
       createCustomProvider: vi.fn(async () => ({ ok: true })),
@@ -96,7 +116,7 @@ describe('ModelGatewayList', () => {
     expect(screen.getAllByTestId('model-gateway-status-dot')).toHaveLength(2);
   });
 
-  it('toggle hides the entry from the chat list without dropping the config', async () => {
+  it('test_toggle_hides_from_chat_without_dropping_config', async () => {
     const { getApi } = renderList();
     await act(async () => {});
     await addModel(getApi(), 'a');
@@ -112,55 +132,146 @@ describe('ModelGatewayList', () => {
     expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
   });
 
-  it('delete asks for confirmation and then removes the entry', async () => {
+  it('删除后 5 秒内可撤销', async () => {
     const { getApi } = renderList();
     await act(async () => {});
     await addModel(getApi(), 'a');
+    await addModel(getApi(), 'b');
 
-    fireEvent.click(
-      within(screen.getByTestId('model-gateway-row')).getByRole('button', {
-        name: 'settings.providers.modelGateway.delete',
-      }),
-    );
-    // 确认框先出现，条目此时尚未被删。
-    await screen.findByText('settings.providers.modelGateway.deleteConfirm.title');
-    expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
-
-    // 假时钟要在点击前启用——remove() 的 5s 定时器必须挂在假时钟上才推得动。
+    // 假时钟要在点击前启用——remove() 的 5s 删除窗口与 toast 的 5s 展示都要挂在假时钟上。
     vi.useFakeTimers();
     try {
       await act(async () => {
         fireEvent.click(
-          screen.getByRole('button', {
-            name: 'settings.providers.modelGateway.deleteConfirm.confirm',
+          within(screen.getAllByTestId('model-gateway-row')[0]!).getByRole('button', {
+            name: 'settings.providers.modelGateway.delete',
           }),
         );
       });
-      // 行立即消失；真正的 deleteCustomProvider 延迟 5s（撤销窗口，契约见 store 用例）。
-      expect(screen.queryByTestId('model-gateway-row')).toBeNull();
+      // PRD：点删除无确认框，行立即消失；真正的 deleteCustomProvider 延迟 5s（撤销窗口）。
+      expect(screen.getAllByTestId('model-gateway-row')).toHaveLength(1);
+      expect(screen.queryByText('a')).toBeNull();
       expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
-      await act(async () => {
-        vi.advanceTimersByTime(5000);
+      // toast「已删除 {model}」带「撤销」。
+      expect(screen.getByText('settings.providers.modelGateway.deletedToast:a')).toBeTruthy();
+      const undoButton = screen.getByRole('button', {
+        name: 'settings.providers.modelGateway.undo',
       });
-      expect(maker.deleteCustomProvider).toHaveBeenCalledWith('a');
-      expect(maker.deleteCustomProvider).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.click(undoButton);
+      });
+      // 撤销 → 行回原索引（a 回到 b 前）并 flash 高亮；延迟删除被取消。
+      const rows = screen.getAllByTestId('model-gateway-row');
+      expect(rows).toHaveLength(2);
+      expect(within(rows[0]!).getByText('a')).toBeTruthy();
+      expect(within(rows[1]!).getByText('b')).toBeTruthy();
+      expect(rows[0]!.getAttribute('data-flash')).toBe('true');
+
+      // toast 5 秒自动消失（与删除窗口同步；+300ms 退出动画后彻底移除）。
+      await act(async () => {
+        vi.advanceTimersByTime(5300);
+      });
+      expect(screen.queryByText('settings.providers.modelGateway.deletedToast:a')).toBeNull();
+      // 撤销后窗口到期也不得落下真正的删除。
+      expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('retest updates the row status to the probe result', async () => {
+  it('test_undo_twice_restores_row_only_once', async () => {
     const { getApi } = renderList();
     await act(async () => {});
     await addModel(getApi(), 'a');
-    // 未测试态：还没有延迟文本。
-    expect(screen.queryByText('128ms')).toBeNull();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'settings.providers.modelGateway.retest' }),
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.click(
+          within(screen.getByTestId('model-gateway-row')).getByRole('button', {
+            name: 'settings.providers.modelGateway.delete',
+          }),
+        );
+      });
+      const undoButton = screen.getByRole('button', {
+        name: 'settings.providers.modelGateway.undo',
+      });
+      // T1 挂账钉子：undo() 双击只生效一次，行不得被插回两份。
+      await act(async () => {
+        fireEvent.click(undoButton);
+        fireEvent.click(undoButton);
+      });
+      expect(screen.getAllByTestId('model-gateway-row')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('test_retest_flow_and_status_four_states', async () => {
+    const { getApi } = renderList();
+    await act(async () => {});
+    await addModel(getApi(), 'a');
+
+    // 四态之一（idle）：未测试 + 空心点。
+    const dot = () => screen.getByTestId('model-gateway-status-dot');
+    const statusBtn = () =>
+      screen.getByRole('button', { name: 'settings.providers.modelGateway.retest' });
+    expect(statusBtn().textContent).toBe('settings.providers.modelGateway.untested');
+    expect(dot().getAttribute('data-status')).toBe('idle');
+
+    // 探测挂起（可控 Promise）→ testing 态：「测试中…」+ disabled + 旋环点。
+    let resolveProbe: (v: { ok: true; latencyMs: number } | { ok: false; detail: string }) => void =
+      () => {};
+    maker.testProviderConnection.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveProbe = resolve;
+        }),
     );
+    await act(async () => {
+      fireEvent.click(statusBtn());
+    });
+    expect(statusBtn().textContent).toBe('settings.providers.modelGateway.testing');
+    expect(statusBtn().hasAttribute('disabled')).toBe(true);
+    expect(dot().getAttribute('data-status')).toBe('testing');
 
-    await waitFor(() => expect(screen.getByText('128ms')).toBeTruthy());
-    expect(maker.testProviderConnection).toHaveBeenCalledTimes(1);
+    // 探测成功回写：{n}ms + 绿点。
+    await act(async () => {
+      resolveProbe({ ok: true, latencyMs: 128 });
+    });
+    expect(statusBtn().textContent).toBe('128ms');
+    expect(dot().getAttribute('data-status')).toBe('ok');
+    expect(getApi().entries[0]!.status).toEqual({ ok: true, latencyMs: 128 });
+
+    // 再测一次失败：连不上 + 红点。
+    maker.testProviderConnection.mockImplementation(async () => ({ ok: false, detail: 'boom' }));
+    await act(async () => {
+      fireEvent.click(statusBtn());
+    });
+    expect(statusBtn().textContent).toBe('settings.providers.modelGateway.failed');
+    expect(dot().getAttribute('data-status')).toBe('fail');
+    expect(getApi().entries[0]!.status).toEqual({ ok: false, detail: 'boom' });
+  });
+
+  it('test_empty_state_and_title_count', async () => {
+    const { getApi, onAdd } = renderList();
+    await act(async () => {});
+
+    // 空态：文案 + 「添加模型」按钮；标题计数 (0)。头部与空态各有一个添加按钮（PRD）。
+    expect(screen.getByText('settings.providers.modelGateway.empty')).toBeTruthy();
+    expect(screen.getByText('settings.providers.modelGateway.title')).toBeTruthy();
+    expect(screen.getByText('(0)')).toBeTruthy();
+    const addButtons = screen.getAllByRole('button', {
+      name: 'settings.providers.modelGateway.add',
+    });
+    expect(addButtons).toHaveLength(2);
+    fireEvent.click(addButtons[0]!);
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('model-gateway-row')).toBeNull();
+
+    await addModel(getApi(), 'a');
+    expect(screen.queryByText('settings.providers.modelGateway.empty')).toBeNull();
+    expect(screen.getByText('(1)')).toBeTruthy();
   });
 });

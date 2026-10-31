@@ -231,6 +231,9 @@ i18n 五语 locale、以及配套测试期望。
 - i18n 五语新增 `settings.providers.gateway.*`（6 key × 5 语）
 - 3 个测试按新行为改写（`providersSectionDeepLink` / `providersSectionUnavailableModels` / `providersSectionAssetModule`）
 - `design-inventory` 已重新生成（desktop.settings 文件数 209→210，radii 552→535）
+- **视觉偏离登记（2026-11-01 PRD 版式，模型设置面）统一见 §9.4**：列表卡 16 /
+  弹窗 22·14 / primary 深色填充等，覆盖旧「10px 圆角 / 遮罩可关」条目；本分节与
+  需求 6 的弹窗 + 列表几何一律以 §9.4 表为准。
 
 ⚠️ **已知限制（2026-10-31 模型网关 v1 取代本条入口后带入，Ruling 21）**：多窗口同时编辑模型条目时，启停/连通状态元数据与 `~/.hrbuddy/models.json` 镜像按整份快照 last-writer-wins 互相覆盖、全局当前模型各窗口各持一份（重开开关/重测/重选即可恢复，凭证与配置本体不丢）；多实例同步挂跟进，本轮不做。
 
@@ -273,7 +276,8 @@ Esc 可关、点遮罩不关。**保留 `?tab=` 深链与 `SettingsView` 本体*
 Anthropic 兼容端点，需换成它的 OpenAI 兼容端点才能继续用。
 
 ⚠️ **有意偏离 DESIGN.md §4**：规范写「有 Cancel 的对话框不带右上角 ×」，但需求要求
-「包括 UI」对齐 WorkBuddy，参考图两者都有。此处以需求为准。
+「包括 UI」对齐 WorkBuddy，参考图两者都有。此处以需求为准。弹窗与模型列表的
+全部视觉偏离登记见 **§9.4**（PRD 2026-11-01 版式，覆盖旧「10px 圆角 / 遮罩可关」条目）。
 
 ### 9.3 配套
 
@@ -282,6 +286,35 @@ Anthropic 兼容端点，需换成它的 OpenAI 兼容端点才能继续用。
 
 **同步提示**：`AddGatewayDialog` 已删，上游若扩展它的能力不要恢复；`AddModelDialog` 的
 OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新增协议分支而不是回退需求 4。
+
+### 9.4 设计偏离登记 — PRD model-provider-settings（2026-11-01 版式）
+
+> 适用面：模型设置弹窗（`ModelGatewayForm`）、模型列表（`ModelGatewayList`/`Row`）与其
+> toast / 动效。PRD 交互稿 `hrbuddy_prd/design/model-provider-settings.html` 是这些面的
+> 视觉权威；下表**登记为有意偏离 DESIGN.md §4/§5**，评审不要当 bug 修。
+> **PRD 2026-11-01 版式覆盖旧登记的「输入框 10px 圆角」（CHANGELOG 条目 7）与
+> 「点遮罩可关」（CHANGELOG 条目 8）两条**；遮罩行为已按 PRD 改为 dirty 抖动不关
+> （clean 可关，Esc/取消/✕ 任何态可关），旧条目仅存历史。
+
+| # | 项 | PRD 值 | DESIGN 分级 | 落地 | 备注 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 弹窗面板圆角 | 22px（`.dialog`） | 容器 12px | `ModelGatewayForm` 面板 `!rounded-[22px]`（覆盖共享 `modal-panel` 0.75rem） | 覆盖旧「10px」条目同族几何 |
+| 2 | 弹窗输入 / 按钮圆角 | 14px（`.input`/`.btn`） | 单行输入胶囊 9999 / 内层 8 | `!rounded-[14px]`（`FIELD_INPUT_CLASS`、取消 / 保存） | 覆盖 CHANGELOG 条目 7 的「10px 圆角」登记 |
+| 3 | primary 按钮深色填充 | #1f1f21 实底白字（`.btn.primary`） | primary 为 `--surface-chip` 浅灰 chip | 保存钮 `palette="confirmation"` → `confirm-btn-primary-bg`（light 深 #171717 / dark 浅 #fafafa 反转实底） | 语义 token 两模式同源，未写死色值 |
+| 4 | 模型列表卡 / 空态框圆角 | 16px（`.list`/`.empty`） | 容器 12px（`rounded-xl`） | `rounded-2xl` | 列表为单卡 + 行间分隔线，空态虚线框 |
+| 5 | 行几何 | 行高 54、gap 14、左右 padding 18 | — | `h-[54px]` / `gap-3.5` / `px-[18px]` | PRD `.row` |
+| 6 | 状态点 | 12px 四态（空心灰 / 绿 / 红 / 旋环） | — | `h-3 w-3`；idle `--text-tertiary` 空心、ok `--card-status-done`、fail `--error-fg`、testing 旋环 | 颜色全语义 token，两模式同源；禁裸色 |
+| 7 | 状态文字 | 宽 74 左对齐、hover 下划线、title「点击测试连通性」 | — | `w-[74px]` + `enabled:hover:underline` | 四态文案：未测试 / {n}ms / 连不上 / 测试中… |
+| 8 | 行内开关 | 40×24（thumb 20、位移 16） | 共享 `Switch` 为 36×20 批准几何 | `ModelGatewayRow` 本地 `role="switch"` 控件（`h-6 w-10`），颜色走 `switch-track-on/off`、`switch-thumb-on/off` token | 不改共享 primitive；拖拽手势不带（PRD 开关为点击切换） |
+| 9 | 删除 toast | 深色浮层底部居中 +「撤销」，5s 消失 | 共享 Toast 顶部胶囊 | 复用全局 `toast` + `action`（duration 5000，与删除窗口同步） | **视觉有意沿用应用统一 Toast**，不用 PRD 底部深色浮层 |
+| 10 | 撤销回原位 flash | 1.4s 浅蓝退底（`.row.flash` #e8f0fe） | — | globals.css `.model-gateway-row-flash`，底色 `color-mix(var(--switch-track-on) 18%, transparent)` | 主题色派生，两模式同源；减弱动效由 motion 归零策略统一处理 |
+| 11 | 遮罩行为 | dirty 不关 + 面板 shake；clean 可关 | DESIGN §4「点遮罩不得关闭」 | Task 2 已落地（`modal-panel.shake`） | 覆盖 CHANGELOG 条目 8 的「遮罩可关」登记 |
+| 12 | 弹窗 × 与「取消」并存 | 参考图两者都有 | §4「有 Cancel 不带 ×」 | 既有偏离登记 1，保留 | — |
+| 13 | 名称字号 | 14.5px/500（`.name`） | 字号白名单 UI 段 {…14,15…} | `text-14 font-medium` | 14.5 不在白名单（禁 `text-[14.5px]`），取最近档 |
+
+颜色硬约束：上表任何色值都必须经语义 token（`--switch-*` / `--card-status-done` /
+`--error-fg` / `--text-*` / `--confirm-btn-primary-*`）落地，Light/Dark 双模式同源；
+`check:design-colors` 拦新增裸色。
 
 ---
 
