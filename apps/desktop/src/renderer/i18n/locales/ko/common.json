@@ -3418,7 +3418,13 @@
         "optImageInput": "이미지 입력",
         "optThinking": "사고 모드",
         "optCustomProtocol": "사용자 지정 프로토콜",
-        "protocol": "프로토콜"
+        "protocol": "프로토콜",
+        "editTitle": "모델 편집",
+        "key": "API 키",
+        "model": "모델",
+        "baseUrlPlaceholder": "http://model.mify.ai.srv/anthropic",
+        "modelIdPlaceholder": "모델 ID 입력",
+        "saveProbeFailed": "연결 테스트에 실패했습니다. 모델이 저장되지 않았습니다"
       },
       "gateway": {
         "createTitle": "Anthropic 게이트웨이 추가",

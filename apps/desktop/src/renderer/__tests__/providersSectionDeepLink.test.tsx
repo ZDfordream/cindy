@@ -123,9 +123,9 @@ vi.mock('@/components/settings/ProviderConnectionDialog', () => ({
   },
 }));
 
-// 2026-10-29 需求 6:多供应商向导已移除,新增入口为「添加模型」弹窗。
-vi.mock('@/components/settings/AddModelDialog', () => ({
-  AddModelDialog: (props: { open?: boolean }) => {
+// 2026-10-29 需求 6:多供应商向导已移除;2026-10-31 模型网关:入口为三栏表单弹窗。
+vi.mock('@/features/model-gateway/ModelGatewayForm', () => ({
+  ModelGatewayForm: (props: { open?: boolean }) => {
     // 组件常驻挂载、靠 open 显隐;桩只在打开时渲染,断言才与「该不该出现」对齐。
     if (!props.open) return null;
     wizardSpy(props.open);

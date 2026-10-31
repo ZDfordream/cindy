@@ -3418,7 +3418,13 @@
         "optImageInput": "图片输入",
         "optThinking": "思考模式",
         "optCustomProtocol": "自定义协议",
-        "protocol": "协议"
+        "protocol": "协议",
+        "editTitle": "编辑模型",
+        "key": "密钥",
+        "model": "模型",
+        "baseUrlPlaceholder": "http://model.mify.ai.srv/anthropic",
+        "modelIdPlaceholder": "输入模型 ID",
+        "saveProbeFailed": "连通测试未通过，模型未保存"
       },
       "gateway": {
         "createTitle": "添加 Anthropic 网关",

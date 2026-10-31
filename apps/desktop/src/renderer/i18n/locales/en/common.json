@@ -3447,7 +3447,13 @@
         "optImageInput": "Image input",
         "optThinking": "Thinking",
         "optCustomProtocol": "Custom protocol",
-        "protocol": "Protocol"
+        "protocol": "Protocol",
+        "editTitle": "Edit Model",
+        "key": "API Key",
+        "model": "Model",
+        "baseUrlPlaceholder": "http://model.mify.ai.srv/anthropic",
+        "modelIdPlaceholder": "Enter model ID",
+        "saveProbeFailed": "Connection test failed — nothing was saved"
       },
       "gateway": {
         "createTitle": "Add Anthropic Gateway",

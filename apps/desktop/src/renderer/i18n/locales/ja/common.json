@@ -3418,7 +3418,13 @@
         "optImageInput": "画像入力",
         "optThinking": "思考モード",
         "optCustomProtocol": "カスタムプロトコル",
-        "protocol": "プロトコル"
+        "protocol": "プロトコル",
+        "editTitle": "モデルを編集",
+        "key": "APIキー",
+        "model": "モデル",
+        "baseUrlPlaceholder": "http://model.mify.ai.srv/anthropic",
+        "modelIdPlaceholder": "モデル ID を入力",
+        "saveProbeFailed": "接続テストに失敗しました。モデルは保存されていません"
       },
       "gateway": {
         "createTitle": "Anthropic ゲートウェイを追加",

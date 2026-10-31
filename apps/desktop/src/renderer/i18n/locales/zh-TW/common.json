@@ -3418,7 +3418,13 @@
         "optImageInput": "圖片輸入",
         "optThinking": "思考模式",
         "optCustomProtocol": "自訂協定",
-        "protocol": "協定"
+        "protocol": "協定",
+        "editTitle": "編輯模型",
+        "key": "密鑰",
+        "model": "模型",
+        "baseUrlPlaceholder": "http://model.mify.ai.srv/anthropic",
+        "modelIdPlaceholder": "輸入模型 ID",
+        "saveProbeFailed": "連通測試未通過，模型未保存"
       },
       "gateway": {
         "createTitle": "新增 Anthropic 閘道",

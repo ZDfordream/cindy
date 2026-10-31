@@ -94,7 +94,6 @@ import { useProviderSubscriptionCard } from './useProviderSubscriptionCard';
 import { ProviderAccountUsageModule } from './ProviderAccountUsageModule';
 import { QuotaHoverCard } from '../status/QuotaHoverCard';
 import { ProviderConnectionDialog } from './ProviderConnectionDialog';
-import { AddModelDialog } from './AddModelDialog';
 import type { DetectedProviderDraft } from '../../../shared/providerDetection';
 import { OllamaProviderDetail } from './OllamaProviderDetail';
 import {
@@ -124,7 +123,9 @@ import { useLocalProviderGroupsState } from '@/features/provider-group/useLocalP
 import { ProviderShareManagePage } from '@/features/provider-share/ProviderShareManagePage';
 import { ProviderSharePasteButton } from '@/features/provider-share/ProviderSharePasteDialog';
 import { ModelGatewayList } from '@/features/model-gateway/ModelGatewayList';
+import { ModelGatewayForm } from '@/features/model-gateway/ModelGatewayForm';
 import { ModelGatewayProvider } from '@/features/model-gateway/ModelGatewayStore';
+import type { ModelEntry } from '@/features/model-gateway/types';
 import {
   ProviderShareReceivedDetail,
   ProviderShareReceivedRailGroup,
@@ -2509,6 +2510,8 @@ export function ProvidersSection() {
   // 向导:null = 关;{ entry } = 打开(entry 指定直达的供应商,来自检测建议)。
   const [speechProvider, setSpeechProvider] = useState<{ provider: ProviderView; owner: string | null; generation: number | null } | null>(null);
   const [gatewayOpen, setGatewayOpen] = useState(false);
+  // 模型网关编辑弹窗的目标题目（null = 未打开；与 gatewayOpen 二选一打开同一表单）。
+  const [gatewayEdit, setGatewayEdit] = useState<ModelEntry | null>(null);
   // 自定义供应商完整表单(编辑,或从向导「自定义端点」进入新建)。
   const [dialog, setDialog] = useState<
     | null
@@ -3289,8 +3292,8 @@ export function ProvidersSection() {
             {/* 新表单模型列表：右栏顶部常驻（含登录引导面），旧详情块原样保留在下方。 */}
             <div className="shrink-0 px-5 pt-4">
               <ModelGatewayList
-                onAdd={() => {}} // Task 4 wires these to the form
-                onEdit={() => {}} // Task 4 wires these to the form
+                onAdd={() => setGatewayOpen(true)}
+                onEdit={(entry) => setGatewayEdit(entry)}
               />
             </div>
 
@@ -3552,12 +3555,21 @@ export function ProvidersSection() {
           provider={speechProvider.provider} onClose={() => setSpeechProvider(null)}
           onSaved={() => { setSpeechProvider(null); void refetch(); }} />
       )}
-      <AddModelDialog
-        open={gatewayOpen}
-        existingIds={providers.map((p) => p.id)}
-        onClose={() => setGatewayOpen(false)}
+      <ModelGatewayForm
+        open={gatewayOpen || gatewayEdit !== null}
+        mode={gatewayEdit ? 'edit' : 'create'}
+        initial={
+          gatewayEdit
+            ? { id: gatewayEdit.id, baseUrl: gatewayEdit.baseUrl, modelId: gatewayEdit.modelId }
+            : undefined
+        }
+        onClose={() => {
+          setGatewayOpen(false);
+          setGatewayEdit(null);
+        }}
         onSaved={(providerId) => {
           setGatewayOpen(false);
+          setGatewayEdit(null);
           void refetch();
           selectProvider(providerId);
         }}
