@@ -3427,6 +3427,7 @@
         "modelHint": "上游模型 ID，原樣發給閘道。",
         "baseUrlRequired": "請輸入介面位址",
         "baseUrlInvalid": "位址需以 http:// 或 https:// 開頭",
+        "urlNoCredentials": "位址不能包含使用者名稱或密碼",
         "apiKeyRequired": "請輸入 API Key",
         "modelIdRequired": "請輸入模型 ID",
         "modelIdDuplicate": "該模型已新增",

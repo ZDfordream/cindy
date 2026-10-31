@@ -3427,6 +3427,7 @@
         "modelHint": "上游模型 ID，原样发给网关。",
         "baseUrlRequired": "请输入接口地址",
         "baseUrlInvalid": "地址需以 http:// 或 https:// 开头",
+        "urlNoCredentials": "地址不能包含用户名或密码",
         "apiKeyRequired": "请输入 API Key",
         "modelIdRequired": "请输入模型 ID",
         "modelIdDuplicate": "该模型已添加",

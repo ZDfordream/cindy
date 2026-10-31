@@ -3456,6 +3456,7 @@
         "modelHint": "Upstream model ID, sent to the gateway as-is.",
         "baseUrlRequired": "Enter the endpoint URL",
         "baseUrlInvalid": "URL must start with http:// or https://",
+        "urlNoCredentials": "URL must not embed a username or password",
         "apiKeyRequired": "Enter the API key",
         "modelIdRequired": "Enter the model ID",
         "modelIdDuplicate": "This model is already added",

@@ -3427,6 +3427,7 @@
         "modelHint": "업스트림 모델 ID로, 그대로 게이트웨이에 전송됩니다.",
         "baseUrlRequired": "엔드포인트 URL을 입력하세요",
         "baseUrlInvalid": "URL은 http:// 또는 https://로 시작해야 합니다",
+        "urlNoCredentials": "URL에 사용자 이름 또는 비밀번호를 포함할 수 없습니다",
         "apiKeyRequired": "API Key를 입력하세요",
         "modelIdRequired": "모델 ID를 입력하세요",
         "modelIdDuplicate": "이미 추가된 모델입니다",

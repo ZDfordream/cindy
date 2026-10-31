@@ -3427,6 +3427,7 @@
         "modelHint": "上流のモデル ID。そのままゲートウェイへ送信します。",
         "baseUrlRequired": "エンドポイント URL を入力してください",
         "baseUrlInvalid": "http:// または https:// で始まる URL を入力してください",
+        "urlNoCredentials": "URL にユーザー名またはパスワードを含めないでください",
         "apiKeyRequired": "API Key を入力してください",
         "modelIdRequired": "モデル ID を入力してください",
         "modelIdDuplicate": "このモデルは追加済みです",

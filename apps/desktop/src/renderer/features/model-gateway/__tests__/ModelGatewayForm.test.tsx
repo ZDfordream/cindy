@@ -51,6 +51,7 @@ const KEY_KEEP_PLACEHOLDER = 'settings.providers.custom.fields.apiKeyEditPlaceho
 // 行内错 / 帮助文案的 key（PRD 文案的 5 语正本在 locale JSON）。
 const ERR_ENDPOINT_REQUIRED = 'settings.providers.modelDialog.baseUrlRequired';
 const ERR_ENDPOINT_INVALID = 'settings.providers.modelDialog.baseUrlInvalid';
+const ERR_URL_NO_CREDENTIALS = 'settings.providers.modelDialog.urlNoCredentials';
 const ERR_KEY_REQUIRED = 'settings.providers.modelDialog.apiKeyRequired';
 const ERR_MODEL_REQUIRED = 'settings.providers.modelDialog.modelIdRequired';
 const ERR_MODEL_DUPLICATE = 'settings.providers.modelDialog.modelIdDuplicate';
@@ -445,5 +446,36 @@ describe('ModelGatewayForm', () => {
     expect(screen.getByText(ERR_MODEL_REQUIRED)).toBeTruthy();
     // 出错时帮助文案让位给错误（PRD：msg 只有一行）。
     expect(screen.queryByText(MODEL_HINT)).toBeNull();
+  });
+
+  it('test_url_rejects_userinfo_but_allows_at_in_path_or_query', async () => {
+    // Ruling 27：baseUrl 原样写进 ~/.hrbuddy/models.json（凭证绝不落盘的红线文件），
+    // basic-auth userinfo（用户名/密码）不得通过校验；判 userinfo 只认 URL 解析结果，
+    // path / query 里的 `@` 不算、不误伤。
+    const { onClose, onSaved } = renderForm({ mode: 'create' });
+    await act(async () => {});
+
+    fillFields({
+      baseUrl: 'https://user:pass@example.com/anthropic',
+      apiKey: 'sk-ok',
+      modelId: 'm1',
+    });
+    expectSaveDisabled(true);
+    blurField(ENDPOINT_LABEL);
+    expect(screen.getByText(ERR_URL_NO_CREDENTIALS)).toBeTruthy();
+    clickSave();
+    expect(maker.createCustomProvider).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // 只有用户名也算 userinfo，照拒。
+    fillFields({ baseUrl: 'https://user@example.com/anthropic' });
+    expectSaveDisabled(true);
+    expect(screen.getByText(ERR_URL_NO_CREDENTIALS)).toBeTruthy();
+
+    // path / query 里的 @ 不是 userinfo：PRD 格式检查照常放行。
+    fillFields({ baseUrl: 'https://example.com/anthropic@v1?u=a@b' });
+    expectSaveDisabled(false);
+    expect(screen.queryByText(ERR_URL_NO_CREDENTIALS)).toBeNull();
   });
 });

@@ -73,8 +73,12 @@ interface FormFieldErrors {
 
 /**
  * PRD `validate()`：三项合法性 + 模型 ID 重复拦截。零错 = 保存可点。
- * URL 按 PRD 脚本的 `^https?:\/\/\S+$` 判（不做完整 URL 解析）；重复判定排除
- * `editId` 自身——编辑回填自身 modelId 不算重复。
+ * URL 按 PRD 脚本的 `^https?:\/\/\S+$` 判格式；格式过后按 **Ruling 27** 追加拒
+ * userinfo——`new URL()` 解析出的 `username`/`password` 非空即拒（`https://user:
+ * pass@host` 这类不放行）：baseUrl 会原样写进 `~/.hrbuddy/models.json`，那是
+ * 「凭证绝不落盘」红线文件，basic-auth 密码不能进去。判 userinfo 只认 URL 解析
+ * 结果，path / query 里的 `@` 不算。重复判定排除 `editId` 自身——编辑回填自身
+ * modelId 不算重复。
  */
 function validateFields(
   baseUrl: string,
@@ -92,6 +96,17 @@ function validateFields(
   if (!trimmedBase) errors.baseUrl = t('settings.providers.modelDialog.baseUrlRequired');
   else if (!/^https?:\/\/\S+$/i.test(trimmedBase)) {
     errors.baseUrl = t('settings.providers.modelDialog.baseUrlInvalid');
+  } else {
+    // Ruling 27：格式过后的 userinfo 闸门（判据 = URL 解析结果，非字符串包含）。
+    try {
+      const parsed = new URL(trimmedBase);
+      if (parsed.username || parsed.password) {
+        errors.baseUrl = t('settings.providers.modelDialog.urlNoCredentials');
+      }
+    } catch {
+      // 格式正则已过但 URL 解析不了（如非法端口）：没有解析结果可判 userinfo，
+      // 按 Ruling 27「只认 URL 解析结果」口径不额外拦，PRD 格式门为准。
+    }
   }
   // 创建必填；编辑留空 = 沿用已存密钥（不回显红线下的「key 非空」等价语义）。
   if (mode === 'create' && !trimmedKey) {
