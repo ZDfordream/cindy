@@ -77,8 +77,9 @@ interface FormFieldErrors {
  * userinfo——`new URL()` 解析出的 `username`/`password` 非空即拒（`https://user:
  * pass@host` 这类不放行）：baseUrl 会原样写进 `~/.hrbuddy/models.json`，那是
  * 「凭证绝不落盘」红线文件，basic-auth 密码不能进去。判 userinfo 只认 URL 解析
- * 结果，path / query 里的 `@` 不算。重复判定排除 `editId` 自身——编辑回填自身
- * modelId 不算重复。
+ * 结果，path / query 里的 `@` 不算；解析抛错时按**既有格式错**拒收（Ruling 28：
+ * 不空转放行，堵 `user:pass@host:99999` 这类解析失败的 userinfo 旁路）。重复判定
+ * 排除 `editId` 自身——编辑回填自身 modelId 不算重复。
  */
 function validateFields(
   baseUrl: string,
@@ -104,8 +105,10 @@ function validateFields(
         errors.baseUrl = t('settings.providers.modelDialog.urlNoCredentials');
       }
     } catch {
-      // 格式正则已过但 URL 解析不了（如非法端口）：没有解析结果可判 userinfo，
-      // 按 Ruling 27「只认 URL 解析结果」口径不额外拦，PRD 格式门为准。
+      // Ruling 28：解析失败不空转放行——拿不到解析结果就无法证明没有 userinfo，
+      // 按既有格式错拒收（`https://user:pass@host:99999` 这类复合畸形不再绕过
+      // 凭证红线，不新增文案 key）；合法 URL 解析必成，行为零变化。
+      errors.baseUrl = t('settings.providers.modelDialog.baseUrlInvalid');
     }
   }
   // 创建必填；编辑留空 = 沿用已存密钥（不回显红线下的「key 非空」等价语义）。

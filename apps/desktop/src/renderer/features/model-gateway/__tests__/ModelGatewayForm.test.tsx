@@ -478,4 +478,24 @@ describe('ModelGatewayForm', () => {
     expectSaveDisabled(false);
     expect(screen.queryByText(ERR_URL_NO_CREDENTIALS)).toBeNull();
   });
+
+  it('test_url_parse_failure_rejected_as_format_invalid', async () => {
+    // Ruling 28：格式正则过但 `new URL()` 解析抛（如非法端口）不得空转放行——
+    // `https://user:pass@host:99999` 这类复合输入会把 userinfo 带进 models.json
+    // （凭证红线）。按既有格式错拒收，不新增文案 key。
+    const { onSaved } = renderForm({ mode: 'create' });
+    await act(async () => {});
+
+    fillFields({
+      baseUrl: 'https://user:pass@host:99999',
+      apiKey: 'sk-ok',
+      modelId: 'm1',
+    });
+    expectSaveDisabled(true);
+    blurField(ENDPOINT_LABEL);
+    expect(screen.getByText(ERR_ENDPOINT_INVALID)).toBeTruthy();
+    clickSave();
+    expect(maker.createCustomProvider).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
 });
