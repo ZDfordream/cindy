@@ -282,3 +282,34 @@ Anthropic 兼容端点，需换成它的 OpenAI 兼容端点才能继续用。
 
 **同步提示**：`AddGatewayDialog` 已删，上游若扩展它的能力不要恢复；`AddModelDialog` 的
 OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新增协议分支而不是回退需求 4。
+
+---
+
+## 10. model-gateway 计划：裁决与挂账（2026-10-31，计划收尾）
+
+计划 `docs/superpowers/plans/2026-10-31-model-gateway-settings-and-chat.md` 全部 7 任务 +
+最终全分支 review 一轮 fix 后收官。逐任务过程与全部裁定原文见计划 SDD 台账
+（`.superpowers/sdd/…/progress.md`，gitignore 本地件）；此处只留**会约束后续改动**的裁决与挂账。
+
+### 10.1 长期有效的裁决（改到对面前先看这条）
+
+| # | 裁决 | 约束 |
+|---|---|---|
+| R4 | `ModelEntry.id` 是稳定句柄（= custom provider id），`modelId` 另存；排序按 modelId | 任何按 id 索引的消费方（currentModel、models.json）依赖稳定句柄，禁止改回「id=上游 model id」 |
+| R5 | `enabled`/`status`/`lastTestedAt` 走 localStorage `hrbuddy.modelGatewayMeta` | provider 配置 normalize 会剥未知字段，别往 config 里塞 |
+| R14 | 保存即测试：保存成功即写本次探测结果，不做「改后置 untested」 | 与设计稿 §5.2「正常路径无未测试行」一致 |
+| R17 | `~/.hrbuddy/models.json` 是 store 的 1:1 投影：`exportModels(list)` 整组替换、调用方送全量、`ExportedModel.id` 用稳定句柄 | 不是增量日志；不经 gateway store 建的自定义供应商不进镜像（有意） |
+| R18 | 主聊天发送路径消费全局当前模型（范围仅主聊天；bots/scheduler/aux/plugins 留计划 2） | 切模型必须反映到实际发送，不许做成装饰 |
+| R19 | 旧供应商 UI（含左栏本机 CLI 建议行入口）统一藏在 `SHOW_LEGACY_PROVIDER_UI` 单一恢复点后 | 藏不删；恢复 flag 时入口与表单一并回来 |
+| R20 | **全局当前模型只作用于 claude-code 发送路径**，codex/pi 等引擎路由不受影响 | 网关条目仅配 claude-code runtime + anthropic-messages；要扩大覆盖面须先立新裁决 |
+| R21 | 多窗口并发编辑模型设置为 **v1 已知限制**（整份快照互相覆盖，见 `ModelGatewayStore.ts` 头注） | 做多实例同步前，别在多窗口同时改模型设置 |
+
+### 10.2 挂账跟进（合并前已分流：以下为 defer 项，按需立项）
+
+- **错误路径加固**：`ModelGatewayStore` load 失败会 brick（loadRef 永久 rejected）；列表行 retest/delete/toggle 无 catch，keychain IPC 失败成 unhandled rejection → 统一补 `.catch` + 失败可重试。
+- **搜索索引一行收口**：`ProvidersSection.settings-search.ts` 的 `addProvider` title 仍为「添加供应商」，与按钮新文案「添加模型」漂移（最终 fix wave 的 F2 只授权改按钮）。
+- **chatInputModelLoading.test.tsx 8 条 Task 6 遗留失败**：仍断言已下线的 ModelSelector/空槽，需按 ChatModelMenu 重写后清零（改前改后同名单，与本轮 fix 无关）。
+- **a11y**：ChatModelMenu 无 disabled/in-flight 态、面板打开不移焦点、roving focus 缺失。
+- **可观测性**：`toMirrorRow` 静默丢行不留 warn；`mirrorRowFromEntry` 类型与 main 侧重复可挪 shared/；`status.detail` 落盘已过脱敏+512 截断，将来透传响应体时再加清洗。
+- **多窗口同步**（R21 的正式解）：meta 读-合并-写 / storage 事件同步 / 镜像写前重建。
+- **styleRoots**：`features/model-gateway/` 样式源未纳入 design-inventory 的 styleRoots，Token/裸色计数不覆盖该目录。
