@@ -81,16 +81,17 @@ describe('ModelGatewayList', () => {
 
   afterEach(cleanup);
 
-  it('renders rows sorted by model id ascending with a status dot per row', async () => {
+  it('renders rows in insertion order with a status dot per row', async () => {
     const { getApi } = renderList();
     await act(async () => {});
     await addModel(getApi(), 'b');
     await addModel(getApi(), 'a');
 
+    // 插入序：先加的 b 在前，新条目追加末尾（不再按 modelId 排序）。
     const rows = screen.getAllByTestId('model-gateway-row');
     expect(rows).toHaveLength(2);
-    expect(within(rows[0]!).getByText('a')).toBeTruthy();
-    expect(within(rows[1]!).getByText('b')).toBeTruthy();
+    expect(within(rows[0]!).getByText('b')).toBeTruthy();
+    expect(within(rows[1]!).getByText('a')).toBeTruthy();
     // 每行一个状态点。
     expect(screen.getAllByTestId('model-gateway-status-dot')).toHaveLength(2);
   });
@@ -125,13 +126,27 @@ describe('ModelGatewayList', () => {
     await screen.findByText('settings.providers.modelGateway.deleteConfirm.title');
     expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
 
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: 'settings.providers.modelGateway.deleteConfirm.confirm',
-      }),
-    );
-    await waitFor(() => expect(screen.queryByTestId('model-gateway-row')).toBeNull());
-    expect(maker.deleteCustomProvider).toHaveBeenCalledWith('a');
+    // 假时钟要在点击前启用——remove() 的 5s 定时器必须挂在假时钟上才推得动。
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', {
+            name: 'settings.providers.modelGateway.deleteConfirm.confirm',
+          }),
+        );
+      });
+      // 行立即消失；真正的 deleteCustomProvider 延迟 5s（撤销窗口，契约见 store 用例）。
+      expect(screen.queryByTestId('model-gateway-row')).toBeNull();
+      expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(maker.deleteCustomProvider).toHaveBeenCalledWith('a');
+      expect(maker.deleteCustomProvider).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('retest updates the row status to the probe result', async () => {

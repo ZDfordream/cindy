@@ -1120,6 +1120,11 @@ interface ElectronAPI {
   modelFavoritesHost: import('../shared/modelFavoritesSync').ModelFavoritesHostApi;
   routines: import('../shared/routines').RoutinesAPI;
   platform: string;
+  /**
+   * UI 模拟数据（`--mock`）开关投影：真源 `XDT_UI_MOCK=1`（preload 读 env），
+   * 见 docs/dev-rules/ui-mock-data.md。可缺省 = 非 mock（真实模式）。
+   */
+  uiMockData?: boolean;
   /** 当前 Desktop 构建是否具备 Beta 更新渠道。 */
   supportsBetaUpdateChannel?: boolean;
   windowBackdropMaterial: import('../shared/windowBackdrop').WindowsBackdropMaterial;

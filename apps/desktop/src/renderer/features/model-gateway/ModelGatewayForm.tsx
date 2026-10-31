@@ -2,22 +2,22 @@
  * ModelGatewayForm — 添加 / 编辑模型的三栏弹窗（设计稿 §5.2）。
  *
  * 三栏固定顺序：**接口地址 → 密钥 → 模型**；没有删除按钮（删除在列表行上）。
- * 保存以连通测试通过为前提（owner 裁决 2026-10-31）：点保存先跑真实探测
- * `testModelConnectivity`；**通过**才 `add`/`update` 落库并关窗；**不通**不落库、
- * 不关窗，弹窗内显示失败原因（Ruling 11：主文案是人话标签，原始 detail 只进
- * tooltip / 次要行——它可能是 `AUTH_INVALID` 这类机器码）。
+ * 保存门 = 合法性校验（PRD：合法即存、保存不探测）：三项合法即 `add`/`update`
+ * 落库并关窗，落库后条目恒「未测试」；写盘失败弹窗内显示失败原因（Ruling 11：
+ * 主文案是人话标签，原始 detail 只进 tooltip / 次要行——它可能是 `AUTH_INVALID`
+ * 这类机器码）。连通性由列表行「重测」负责，不拦保存。
  *
  * 密钥栏 `Input secret`（内置显隐）。编辑态密钥**不回显**：显示「保持不变」占位，
- * 留空 = 沿用已存（`readCustomProviderKey` 现读，只作为本次探测/落库的 IPC 入参，
+ * 留空 = 沿用已存（`readCustomProviderKey` 现读，只作为本次落库的 IPC 入参，
  * 不进 React state、不落任何 JSON）。键入值是受控输入的短暂 state（Ruling 16 语义），
  * **关闭即清**、卸载即销毁，不留到下次打开。
  *
  * Esc 用 capture + stopPropagation 抢占（Ruling 16 同批修复）：一次按键只关本弹窗，
  * 不级联触发 `useSettingsEscape` 再退一层设置。
  *
- * Ruling 14：保存即测试——保存门的探测结果就是条目此刻的连通状态（设计稿 §5.2
- * 「通过 → 写入延迟」）。create / edit 成功都把本次探测结果 `setStatus` 落到条目上，
- * 不做「改后置 untested」；正常路径下列表不出现「未测试」行。
+ * 保存后状态（PRD，推翻 Ruling 14「保存即测试」）：create 成功后条目恒「未测试」；
+ * edit 仅当 baseUrl / modelId / 密钥任一变化时重置「未测试」，否则保留原状态——
+ * 表单只提交三栏值，不再把探测结果写回条目。
  *
  * ⚠️ 有意偏离 DESIGN.md（沿用 `AddModelDialog.tsx` 既有偏离登记 / 设计稿 §7，
  * 不新增）：
@@ -25,10 +25,10 @@
  *   2. §4「单行输入框用 9999px 胶囊圆角」——参考图是 10px 圆角矩形（按钮同款处理）；
  *   3. §4「点遮罩不得关闭弹窗」——owner 要求点 × 与点空白都能关闭，对齐 WorkBuddy。
  * 弹窗壳复用 ConfirmDialog 的结构（DESIGN.md §4：标题 / 滚动内容区 / 底部按钮 +
- * 共享 `.modal-scrim` / `.modal-panel` 类），因偏离 3（遮罩可关）与保存门（探测
- * 失败不得关窗）不走 `ConfirmDialog` 组件本体。
+ * 共享 `.modal-scrim` / `.modal-panel` 类），因偏离 3（遮罩可关）与独立的校验/
+ * 错误呈现不走 `ConfirmDialog` 组件本体。
  *
- * 协议写死 `anthropic-messages`（表单不出协议选项，`testModelConnectivity` 内固定）。
+ * 协议写死 `anthropic-messages`（表单不出协议选项，store 内固定）。
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -39,15 +39,14 @@ import { Input } from '@/components/ui/input';
 import { readCustomProviderKey } from '@/lib/customProviders';
 
 import { useModelGateway } from './ModelGatewayStore';
-import { testModelConnectivity } from './useModelConnectivity';
 import type { ModelGatewayInput } from './types';
 
 export interface ModelGatewayFormProps {
   open: boolean;
   mode: 'create' | 'edit';
   /**
-   * 预填值（接口地址 / 模型）。`mode='edit'` 必带 `id`（稳定句柄，update/setStatus
-   * 都钉在它上）。`apiKey` 只作密钥留空时的兜底探测入参，**绝不回显**。
+   * 预填值（接口地址 / 模型）。`mode='edit'` 必带 `id`（稳定句柄，update 钉在它上）。
+   * `apiKey` 只作密钥留空时的兜底落库入参，**绝不回显**。
    */
   initial?: { id?: string; baseUrl: string; apiKey?: string; modelId: string };
   onClose: () => void;
@@ -74,7 +73,7 @@ function validateBaseUrl(value: string): 'required' | 'invalid' | null {
 export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: ModelGatewayFormProps) {
   const { t } = useTranslation();
   const uid = useId();
-  const { add, update, setStatus } = useModelGateway();
+  const { add, update } = useModelGateway();
 
   const editId = initial?.id;
 
@@ -159,31 +158,19 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
         return;
       }
 
-      const probeInput: ModelGatewayInput = {
+      const input: ModelGatewayInput = {
         baseUrl: trimmedBase,
         apiKey: effectiveKey,
         modelId: trimmedModel,
       };
-      const probe = await testModelConnectivity(probeInput);
-      if (!probe.ok) {
-        // 保存门：不通不落库、不关窗。Ruling 11——主文案人话标签，原始 detail
-        // 只进次要行 + tooltip。
-        setSaveError({
-          label: t('settings.providers.modelDialog.saveProbeFailed'),
-          detail: probe.detail,
-        });
-        return;
-      }
 
-      // Ruling 14：保存即测试。探测刚验过这组 baseUrl/密钥/模型，结果就是最新
-      // 状态——create/edit 都写入，覆盖 add() 的初始 untested，也不留陈旧「已连通」。
+      // PRD：合法即存（保存门 = 合法性校验），保存不探测——落库后恒「未测试」，
+      // 点状态文字才重测。
       if (mode === 'create') {
-        const id = await add(probeInput);
-        setStatus(id, probe);
+        const id = await add(input);
         onSaved(id);
       } else {
-        await update(editId!, probeInput);
-        setStatus(editId!, probe);
+        await update(editId!, input);
         onSaved(editId!);
       }
       onClose();
@@ -206,12 +193,11 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
     modelId,
     onClose,
     onSaved,
-    setStatus,
     t,
     update,
   ]);
 
-  // 编辑流钉在稳定句柄上（update / setStatus 都要它）；缺了是调用方编程错误，
+  // 编辑流钉在稳定句柄上（update 钉在它上）；缺了是调用方编程错误，
   // 放在 hooks 之后抛（抛出前不得改变 hook 调用次数）。
   if (open && mode === 'edit' && !editId) {
     throw new Error("ModelGatewayForm: mode='edit' requires initial.id");

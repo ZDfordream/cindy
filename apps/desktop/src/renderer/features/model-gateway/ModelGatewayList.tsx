@@ -1,10 +1,10 @@
 /**
  * ModelGatewayList — 设置右栏的模型列表（设计稿 §5.1）：头部「模型 + 数量」与
- * 右对齐「+ 添加模型」，下方按 modelId 升序一列可启停行（`ModelGatewayRow`）。
+ * 右对齐「+ 添加模型」，下方一列可启停行（`ModelGatewayRow`），插入序（新条目
+ * 追加末尾，不按 modelId 排序）。
  *
- * 自己不持状态：条目来自 `useModelGateway()`（Task 1 store，已按 modelId 排序），
- * 增删改与启停都直接走 store。`onAdd`/`onEdit`（打开 Task 4 弹窗）由调用方注入，
- * 列表只负责转发。
+ * 自己不持状态：条目来自 `useModelGateway()`，增删改与启停都直接走 store。
+ * `onAdd`/`onEdit`（打开添加 / 编辑弹窗）由调用方注入，列表只负责转发。
  */
 import { useTranslation } from 'react-i18next';
 import { Plus } from 'lucide-react';

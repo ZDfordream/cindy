@@ -127,7 +127,7 @@ describe('currentModelStore send route', () => {
     await addModel(probe.getApi(), 'a');
     const idB = await addModel(probe.getApi(), 'b');
 
-    // 首个可用模型自动成为当前模型（modelId 升序 = a），发送路径先读到 a。
+    // 首个可用模型自动成为当前模型（插入序首条 = 先加的 a），发送路径先读到 a。
     expect(screen.getByTestId('route-provider').textContent).toBe(probe.getApi().entries[0]!.id);
     expect(screen.getByTestId('route-model').textContent).toBe('a');
 

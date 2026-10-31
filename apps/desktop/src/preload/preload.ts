@@ -1172,6 +1172,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   platform: process.platform,
+  /**
+   * UI 模拟数据（`--mock`）真源投影：`XDT_UI_MOCK=1`（main 侧
+   * `localDb/uiMockSeed.ts` 的 `isUiMockDataEnabled`，仅源码运行的隔离沙箱保留该
+   * env；见 docs/dev-rules/ui-mock-data.md）。renderer 据此分流连通探测演示规则，
+   * 复用既有开关，不另设 env。
+   */
+  uiMockData: process.env.XDT_UI_MOCK === '1',
   accessibilitySupport: createAccessibilitySupportBridge(),
   supportsBetaUpdateChannel: supportsBetaUpdateChannel(process.platform, process.arch),
   windowBackdropMaterial: readWindowBackdropMaterialFromArgv(process.argv),

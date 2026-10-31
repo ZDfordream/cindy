@@ -12,7 +12,15 @@
  *
  * id 语义（Ruling 4）：`ModelEntry.id` 是**稳定句柄**（= 自定义供应商 id），编辑 modelId
  * 不换 id——Task 3 编辑流与 Task 6 当前模型指针钉在它上面；`modelId` 才是发给网关的
- * 上游模型 id，列表按 `modelId` 字母升序。
+ * 上游模型 id。`entries` 保持**插入序**（加载顺序 = listProviders 返回序，add 追加
+ * 末尾）——PRD 推翻旧的 modelId 字母序。
+ *
+ * 删除语义（PRD）：`remove(id)` 立即从 `entries` 摘除、软摘除新表单标记
+ * （`updateCustomProvider` 去掉 catalogPresetId，密钥不动）并返回 `UndoHandle`；
+ * **真正的 `deleteCustomProvider`（含 keychain 密钥）延迟 5000ms**，`undo()` 取消
+ * 定时器、按原索引插回并补回标记。组件卸载时对未决删除 flush（尽力而为）。
+ * **5 秒内强杀进程会残留配置**：摘了标记的供应商与密钥成孤儿留在 localDb /
+ * keychain——store 只收新表单标记的条目，残留不会复活到列表；孤儿配置不自动清理。
  *
  * 每条模型条目对应一个 custom provider：单 claude-code runtime、单模型、协议写死
  * `anthropic-messages`。创建时在 runtime 配置上写新表单标记 `catalogPresetId: 'hrbuddy-gateway'`，
@@ -51,11 +59,18 @@ import {
 import {
   createCustomProvider,
   deleteCustomProvider,
+  readCustomProviderKey,
   updateCustomProvider,
 } from '@/lib/customProviders';
 import { uniqueCustomProviderId } from '@/lib/customProviderId';
 
-import type { ModelEntry, ModelGatewayApi, ModelGatewayInput, ModelStatus } from './types';
+import type {
+  ModelEntry,
+  ModelGatewayApi,
+  ModelGatewayInput,
+  ModelStatus,
+  UndoHandle,
+} from './types';
 
 /** 新表单标记：写在 `runtimes['claude-code'].catalogPresetId`，加载时据此过滤。 */
 export const MODEL_GATEWAY_CATALOG_PRESET_ID = 'hrbuddy-gateway';
@@ -77,6 +92,14 @@ interface ModelEntryMeta {
 }
 
 type ModelGatewayMeta = Record<string, ModelEntryMeta>;
+
+/** 删除撤销窗口内的未决删除记录（表驱动 pendingDeletes 的行）。 */
+interface PendingDelete {
+  entry: ModelEntry;
+  index: number;
+  timer: ReturnType<typeof setTimeout>;
+  done: boolean;
+}
 
 function readMeta(): ModelGatewayMeta {
   try {
@@ -142,10 +165,21 @@ function mirrorRowFromEntry(entry: ModelEntry): {
   };
 }
 
+/**
+ * 删除撤销窗口（PRD：「删除」后 5 秒内可撤销）。窗口内只软摘标记，真正的
+ * `deleteCustomProvider`（含 keychain 密钥）到点才落。
+ */
+const REMOVE_UNDO_WINDOW_MS = 5000;
+
+/**
+ * 网关条目的 provider 配置。`marked: false` 时**不带**新表单标记——删除撤销窗口内
+ * 软摘除用（加载侧「只收带标记条目」→ 残留配置不会复活到列表）。
+ */
 function buildModelGatewayConfig(
   providerId: string,
   modelId: string,
   baseUrl: string,
+  marked: boolean = true,
 ): CustomProviderConfig {
   return {
     id: providerId,
@@ -154,7 +188,7 @@ function buildModelGatewayConfig(
       'claude-code': {
         baseUrl,
         wireProtocol: 'anthropic-messages',
-        catalogPresetId: MODEL_GATEWAY_CATALOG_PRESET_ID,
+        ...(marked ? { catalogPresetId: MODEL_GATEWAY_CATALOG_PRESET_ID } : {}),
         models: [{ id: modelId, name: modelId }],
       },
     },
@@ -202,6 +236,8 @@ function useModelGatewayStore(): ModelGatewayApi {
   const [hydrated, setHydrated] = useState(false);
   // 同步读最新行（update/remove/setStatus 要先拿稳定 id 再发 IPC；persistMeta 也从这重建）。
   const rowsRef = useRef<ModelEntry[]>([]);
+  // 删除撤销窗口内的未决删除表（id → 原条目 / 原索引 / 定时器）。
+  const pendingDeletesRef = useRef(new Map<string, PendingDelete>());
   // 生成新稳定句柄时避开全部自定义供应商（含旧表单隐藏项）的已用 id。
   const knownProviderIdsRef = useRef<Set<string>>(new Set());
   const loadRef = useRef<Promise<void> | null>(null);
@@ -262,6 +298,23 @@ function useModelGatewayStore(): ModelGatewayApi {
     void ensureLoaded();
   }, [ensureLoaded]);
 
+  // 卸载即 flush 未决删除（尽力而为）：不等 5s 窗口，直接落 deleteCustomProvider。
+  // 进程被强杀时这段不执行——残留语义见文件头注。
+  useEffect(
+    () => () => {
+      for (const [id, record] of pendingDeletesRef.current) {
+        if (record.done) continue;
+        record.done = true;
+        clearTimeout(record.timer);
+        void deleteCustomProvider(id).catch(() => {
+          // 卸载路径 best-effort：删不掉不阻断，孤儿配置同样「不复活到列表」。
+        });
+      }
+      pendingDeletesRef.current.clear();
+    },
+    [],
+  );
+
   const findEntry = useCallback(
     (id: string): ModelEntry => {
       const entry = rowsRef.current.find((candidate) => candidate.id === id);
@@ -297,32 +350,98 @@ function useModelGatewayStore(): ModelGatewayApi {
     async (id: string, input: ModelGatewayInput): Promise<void> => {
       await ensureLoaded();
       const entry = findEntry(id);
+      // PRD：baseUrl / modelId / 密钥任一变化 → 旧探测结果作废（status 回 untested），
+      // 全都没变则保留。密钥不进 state，与 keychain 现值核对（读不到按「有变化」处理，
+      // 宁可重测也不留陈旧「已连通」）。
+      const endpointChanged = input.baseUrl !== entry.baseUrl || input.modelId !== entry.modelId;
+      let fieldsChanged = endpointChanged;
+      if (!endpointChanged) {
+        let previousKey: string | null = null;
+        try {
+          previousKey = await readCustomProviderKey(entry.id, 'claude-code');
+        } catch {
+          previousKey = null;
+        }
+        fieldsChanged = input.apiKey !== (previousKey ?? '');
+      }
       await updateCustomProvider(
         buildModelGatewayConfig(entry.id, input.modelId, input.baseUrl),
         { 'claude-code': input.apiKey },
       );
-      // 稳定 id 不动，只写穿 baseUrl / modelId / 密钥；enabled / status / lastTestedAt
-      // 按 id 挂在 meta 上，编辑不重置。
+      // 稳定 id 不动，只写穿 baseUrl / modelId / 密钥；enabled 按 id 挂在 meta 上不重置。
       setRows((prev) =>
-        prev.map((candidate) =>
-          candidate.id === entry.id
-            ? { ...candidate, modelId: input.modelId, name: input.modelId, baseUrl: input.baseUrl }
-            : candidate,
-        ),
+        prev.map((candidate) => {
+          if (candidate.id !== entry.id) return candidate;
+          const next: ModelEntry = {
+            ...candidate,
+            modelId: input.modelId,
+            name: input.modelId,
+            baseUrl: input.baseUrl,
+          };
+          if (fieldsChanged) {
+            next.status = 'untested';
+            delete next.lastTestedAt;
+          }
+          return next;
+        }),
       );
+      persistMeta();
       pushMirror();
     },
-    [ensureLoaded, findEntry, pushMirror, setRows],
+    [ensureLoaded, findEntry, persistMeta, pushMirror, setRows],
   );
 
   const remove = useCallback(
-    async (id: string): Promise<void> => {
+    async (id: string): Promise<UndoHandle> => {
       await ensureLoaded();
       const entry = findEntry(id);
-      await deleteCustomProvider(entry.id);
-      setRows((prev) => prev.filter((candidate) => candidate.id !== entry.id));
+      const index = rowsRef.current.findIndex((candidate) => candidate.id === id);
+      // 1) 立即出 entries（含 meta / 镜像快照）。
+      setRows((prev) => prev.filter((candidate) => candidate.id !== id));
       persistMeta();
       pushMirror();
+      // 2) 表驱动挂起：5s 后才落真正的 deleteCustomProvider（含 keychain 密钥）。
+      const record: PendingDelete = {
+        entry,
+        index,
+        timer: setTimeout(() => {
+          if (record.done) return;
+          record.done = true;
+          pendingDeletesRef.current.delete(id);
+          void deleteCustomProvider(entry.id).catch(() => {
+            // 延迟删除 best-effort：失败残留孤儿配置（同样不复活到列表）。
+          });
+        }, REMOVE_UNDO_WINDOW_MS),
+        done: false,
+      };
+      pendingDeletesRef.current.set(id, record);
+      // 3) 软摘除新表单标记：窗口内强杀进程时残留配置不进列表（store 只收带标记条目）。
+      //    空 keys + 端点不变 → main 侧不动 keychain，密钥随残留保留（Review Focus #1）。
+      try {
+        await updateCustomProvider(buildModelGatewayConfig(entry.id, entry.modelId, entry.baseUrl, false), {});
+      } catch {
+        // 摘标记失败：仅影响「窗口内强杀不复活」这一残留语义，不阻断删除。
+      }
+      return {
+        undo: () => {
+          if (record.done) return;
+          record.done = true;
+          clearTimeout(record.timer);
+          pendingDeletesRef.current.delete(id);
+          // 补回标记（fire-and-forget）+ 按原索引插回；meta / 镜像跟着恢复一致。
+          void updateCustomProvider(buildModelGatewayConfig(entry.id, entry.modelId, entry.baseUrl), {}).catch(
+            () => {
+              // 补标记失败：条目回列表但下次加载会被过滤——尽力而为。
+            },
+          );
+          setRows((prev) => {
+            const at = Math.min(record.index, prev.length);
+            return [...prev.slice(0, at), record.entry, ...prev.slice(at)];
+          });
+          persistMeta();
+          pushMirror();
+        },
+      };
     },
     [ensureLoaded, findEntry, persistMeta, pushMirror, setRows],
   );
@@ -343,7 +462,7 @@ function useModelGatewayStore(): ModelGatewayApi {
   );
 
   const setStatus = useCallback(
-    (id: string, status: ModelStatus): void => {
+    async (id: string, status: ModelStatus): Promise<void> => {
       const entry = rowsRef.current.find((candidate) => candidate.id === id);
       // 重测与删除可能并发；丢弃对已删条目的回写即可，不向调用方抛。
       if (!entry) return;
@@ -362,10 +481,8 @@ function useModelGatewayStore(): ModelGatewayApi {
     [persistMeta, pushMirror, setRows],
   );
 
-  const entries = useMemo(
-    () => rows.slice().sort((a, b) => a.modelId.localeCompare(b.modelId)),
-    [rows],
-  );
+  // 插入序（PRD 推翻 modelId 字母序）：加载顺序 = listProviders 返回序，add 追加末尾。
+  const entries = useMemo(() => rows.slice(), [rows]);
 
   return useMemo(
     () => ({ entries, hydrated, add, update, remove, toggle, setStatus }),

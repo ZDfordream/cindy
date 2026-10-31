@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 /**
- * modelGatewayStore —— 模型条目数据层的增删改查、按 modelId 排序、稳定句柄、
+ * modelGatewayStore —— 模型条目数据层的增删改查、插入序、稳定句柄、删除 5s 撤销、
  * localStorage 元数据持久化与「清空重来」标记过滤。
  *
  * 走真实生产入口：`useModelGateway` → `@/lib/customProviders` 的 create/update/delete
@@ -40,6 +40,7 @@ function memoryStorage(): { getItem: (k: string) => string | null; setItem: (k: 
 
 let maker: MakerMock;
 let storage: ReturnType<typeof memoryStorage>;
+let safeStorageRead: ReturnType<typeof vi.fn>;
 
 /** 一条自定义供应商视图；`catalogPresetId` 缺省即旧表单（无新表单标记）配置。 */
 function userProviderView(input: {
@@ -93,14 +94,19 @@ describe('model gateway store', () => {
       exportHrbuddyModels: vi.fn(async () => undefined),
     };
     storage = memoryStorage();
-    vi.stubGlobal('window', { electronAPI: { maker }, localStorage: storage });
+    // update 的「密钥有没有变」与 keychain 现值核对（readCustomProviderKey）；默认无密钥。
+    safeStorageRead = vi.fn(async () => null);
+    vi.stubGlobal('window', {
+      electronAPI: { maker, safeStorageRead },
+      localStorage: storage,
+    });
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('adds a model and keeps the list sorted by model id ascending', async () => {
+  it('adds a model and appends it at the end (insertion order)', async () => {
     const { result } = renderGateway();
     await act(async () => {});
 
@@ -120,23 +126,23 @@ describe('model gateway store', () => {
       });
     });
 
-    // add 返回稳定句柄；排序键是 modelId（升序）。
+    // add 返回稳定句柄；entries 保持插入序（新条目追加末尾），不再按 modelId 排序。
     expect(addedId).toBe('b');
-    expect(result.current.entries.map((entry) => entry.id)).toEqual(['a', 'b']);
-    expect(result.current.entries.map((entry) => entry.modelId)).toEqual(['a', 'b']);
+    expect(result.current.entries.map((entry) => entry.id)).toEqual(['b', 'a']);
+    expect(result.current.entries.map((entry) => entry.modelId)).toEqual(['b', 'a']);
     expect(result.current.entries).toEqual([
       {
-        id: 'a',
-        modelId: 'a',
-        name: 'a',
+        id: 'b',
+        modelId: 'b',
+        name: 'b',
         baseUrl: 'https://gw.example/anthropic',
         enabled: true,
         status: 'untested',
       },
       {
-        id: 'b',
-        modelId: 'b',
-        name: 'b',
+        id: 'a',
+        modelId: 'a',
+        name: 'a',
         baseUrl: 'https://gw.example/anthropic',
         enabled: true,
         status: 'untested',
@@ -153,28 +159,105 @@ describe('model gateway store', () => {
     expect(JSON.stringify(result.current.entries)).not.toContain('sk-b');
   });
 
-  it('removes a model and drops it from entries', async () => {
+  it('add persists as untested', async () => {
+    // PRD：保存不探测——新建条目恒「未测试」，不继承任何历史状态。
     const { result } = renderGateway();
     await act(async () => {});
+
     await act(async () => {
       await result.current.add({
         baseUrl: 'https://gw.example/anthropic',
         apiKey: 'sk-a',
         modelId: 'a',
       });
-      await result.current.add({
-        baseUrl: 'https://gw.example/anthropic',
-        apiKey: 'sk-b',
-        modelId: 'b',
+    });
+
+    expect(result.current.entries[0]!.status).toBe('untested');
+    expect(result.current.entries[0]!.lastTestedAt).toBeUndefined();
+    expect(JSON.parse(storage.getItem('hrbuddy.modelGatewayMeta') ?? 'null')).toEqual({
+      a: { enabled: true, status: 'untested' },
+    });
+  });
+
+  it('test_delete_undo_restores_entry_until_window_expires', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderGateway();
+      await act(async () => {});
+      await act(async () => {
+        await result.current.add({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-a', modelId: 'a' });
+        await result.current.add({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-b', modelId: 'b' });
+        await result.current.add({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-c', modelId: 'c' });
       });
-    });
 
-    await act(async () => {
-      await result.current.remove('a');
-    });
+      let handle: { undo: () => void } | null = null;
+      await act(async () => {
+        handle = await result.current.remove('b');
+      });
+      // remove 立即出 entries，真正的 deleteCustomProvider（含密钥）延迟 5s。
+      expect(result.current.entries.map((entry) => entry.id)).toEqual(['a', 'c']);
+      expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
+      // 软摘除新表单标记：强杀窗口内进程时残留配置不进列表（store 只收带标记条目）。
+      const stripConfig = maker.updateCustomProvider.mock.calls.at(-1)![0] as CustomProviderConfig;
+      expect(stripConfig.runtimes['claude-code']?.catalogPresetId).toBeUndefined();
 
-    expect(result.current.entries.map((entry) => entry.id)).toEqual(['b']);
-    expect(maker.deleteCustomProvider).toHaveBeenCalledWith('a');
+      await act(async () => {
+        handle!.undo();
+      });
+      // undo 回原索引，id / enabled 不变；标记补回；meta 与镜像跟着恢复一致。
+      expect(result.current.entries.map((entry) => entry.id)).toEqual(['a', 'b', 'c']);
+      expect(result.current.entries[1]).toMatchObject({ id: 'b', enabled: true });
+      const restoreConfig = maker.updateCustomProvider.mock.calls.at(-1)![0] as CustomProviderConfig;
+      expect(restoreConfig.runtimes['claude-code']?.catalogPresetId).toBe(MODEL_GATEWAY_CATALOG_PRESET_ID);
+      expect(JSON.parse(storage.getItem('hrbuddy.modelGatewayMeta') ?? 'null')).toHaveProperty('b');
+      expect(
+        (maker.exportHrbuddyModels.mock.calls.at(-1)![0] as Array<{ id: string }>).map((row) => row.id),
+      ).toEqual(['a', 'b', 'c']);
+
+      // undo 后不落删除。
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
+
+      // 不 undo：窗口结束（恰好 5000ms）才删，且只删一次。
+      await act(async () => {
+        await result.current.remove('b');
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(4999);
+      });
+      expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(maker.deleteCustomProvider).toHaveBeenCalledTimes(1);
+      expect(maker.deleteCustomProvider).toHaveBeenCalledWith('b');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushes pending deletes on unmount (best-effort)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result, unmount } = renderGateway();
+      await act(async () => {});
+      await act(async () => {
+        await result.current.add({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-a', modelId: 'a' });
+      });
+      await act(async () => {
+        await result.current.remove('a');
+      });
+      expect(maker.deleteCustomProvider).not.toHaveBeenCalled();
+
+      // 卸载即 flush 未决删除（尽力而为，不等 5s 窗口）。
+      unmount();
+      expect(maker.deleteCustomProvider).toHaveBeenCalledTimes(1);
+      expect(maker.deleteCustomProvider).toHaveBeenCalledWith('a');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('update replaces baseUrl/modelId and keeps the same entry id', async () => {
@@ -209,9 +292,9 @@ describe('model gateway store', () => {
     expect(updated?.id).toBe('model-a');
     expect(updated?.baseUrl).toBe('https://gw-b.example/anthropic');
     expect(updated?.name).toBe('model-z');
-    // 换 modelId 后按新 modelId 重排（model-b < model-z），句柄顺序不再是排序键。
-    expect(result.current.entries.map((entry) => entry.modelId)).toEqual(['model-b', 'model-z']);
-    expect(result.current.entries.map((entry) => entry.id)).toEqual(['model-b', 'model-a']);
+    // 插入序不动（编辑不换位）：先加的 model-a 改名后仍在原位。
+    expect(result.current.entries.map((entry) => entry.modelId)).toEqual(['model-z', 'model-b']);
+    expect(result.current.entries.map((entry) => entry.id)).toEqual(['model-a', 'model-b']);
     // 编辑不重置启停（meta 按稳定 id 挂着）。
     expect(updated?.enabled).toBe(false);
 
@@ -222,6 +305,75 @@ describe('model gateway store', () => {
     expect(updateConfig.runtimes['claude-code']?.baseUrl).toBe('https://gw-b.example/anthropic');
     expect(updateConfig.runtimes['claude-code']?.models[0]?.id).toBe('model-z');
     expect(maker.updateCustomProvider.mock.calls[0][1]).toEqual({ 'claude-code': 'sk-z' });
+  });
+
+  it('update resets status to untested when fields change', async () => {
+    // baseUrl/modelId/apiKey 任一变化 → 旧探测结果作废（PRD：存后未测试）。
+    const { result } = renderGateway();
+    await act(async () => {});
+    await act(async () => {
+      await result.current.add({
+        baseUrl: 'https://gw.example/anthropic',
+        apiKey: 'sk-a',
+        modelId: 'a',
+      });
+    });
+    await act(async () => {
+      await result.current.setStatus('a', { ok: true, latencyMs: 80 });
+    });
+    expect(result.current.entries[0]!.status).toEqual({ ok: true, latencyMs: 80 });
+
+    // 只换密钥（keychain 现值仍是 sk-a）：也算变化。
+    safeStorageRead.mockResolvedValue('sk-a');
+    await act(async () => {
+      await result.current.update('a', {
+        baseUrl: 'https://gw.example/anthropic',
+        apiKey: 'sk-new',
+        modelId: 'a',
+      });
+    });
+    expect(result.current.entries[0]!.status).toBe('untested');
+    expect(result.current.entries[0]!.lastTestedAt).toBeUndefined();
+
+    // 换 modelId 同样重置。
+    await act(async () => {
+      await result.current.setStatus('a', { ok: true, latencyMs: 90 });
+    });
+    await act(async () => {
+      await result.current.update('a', {
+        baseUrl: 'https://gw.example/anthropic',
+        apiKey: 'sk-new',
+        modelId: 'a-renamed',
+      });
+    });
+    expect(result.current.entries[0]!.status).toBe('untested');
+  });
+
+  it('update keeps status when nothing changed', async () => {
+    const { result } = renderGateway();
+    await act(async () => {});
+    await act(async () => {
+      await result.current.add({
+        baseUrl: 'https://gw.example/anthropic',
+        apiKey: 'sk-a',
+        modelId: 'a',
+      });
+    });
+    await act(async () => {
+      await result.current.setStatus('a', { ok: true, latencyMs: 80 });
+    });
+
+    // 三项与现值完全一致（密钥与 keychain 现值核对相等）：状态与时间戳都保留。
+    safeStorageRead.mockResolvedValue('sk-a');
+    await act(async () => {
+      await result.current.update('a', {
+        baseUrl: 'https://gw.example/anthropic',
+        apiKey: 'sk-a',
+        modelId: 'a',
+      });
+    });
+    expect(result.current.entries[0]!.status).toEqual({ ok: true, latencyMs: 80 });
+    expect(result.current.entries[0]!.lastTestedAt).toEqual(expect.any(String));
   });
 
   it('toggle only flips enabled; entry stays in entries', async () => {

@@ -9,8 +9,9 @@
  *   anthropic-messages」——IPC 入参是对外协议，形状/协议错了探测会打到错误 wire
  *   protocol，密钥会进错通道。
  * - 现有覆盖缺口：modelGatewayStore.test.ts 只盖 store 的增删改查与持久化，没有连通
- *   探测分支；3 个用例即 Produces 的全部结果分支（成功 / 服务端失败 / IPC 抛错），
- *   与 store 测试不同生产入口、不同 stub 面，不并入。
+ *   探测分支；真实模式 3 个用例覆盖全部结果分支（成功 / 服务端失败 / IPC 抛错），
+ *   `test_mock_probe_demo_rule_and_real_mode_unchanged` 另钉 `--mock` 演示规则与
+ *   「演示不污染真实」；与 store 测试不同生产入口、不同 stub 面，不并入。
  * - 最小失败输入：stub testProviderConnection → `{ ok: true, latencyMs: 128 }` /
  *   `{ ok: false, detail: '401 unauthorized' }` / throw。
  * - tier：unit；纯 renderer 归一逻辑，只在 IPC 边界打桩（同
@@ -87,5 +88,41 @@ describe('testModelConnectivity', () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('unreachable');
     expect(result.detail.length).toBeGreaterThan(0);
+  });
+
+  it('test_mock_probe_demo_rule_and_real_mode_unchanged', async () => {
+    // mock 开（--mock 演示规则，真源 XDT_UI_MOCK → preload uiMockData）：URL 含 fail
+    // → 连不上；其余返回延迟区间 60–380ms 的延迟值；全程不打真实探测 IPC。
+    vi.stubGlobal('window', { electronAPI: { maker, uiMockData: true } });
+
+    const failed = await testModelConnectivity({
+      baseUrl: 'https://gw.example/fail',
+      apiKey: 'sk-test',
+      modelId: 'm1',
+    });
+    expect(failed).toEqual({ ok: false, detail: '连不上' });
+
+    const ok = await testModelConnectivity({
+      baseUrl: 'https://gw.example/anthropic',
+      apiKey: 'sk-test',
+      modelId: 'm1',
+    });
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) throw new Error('unreachable');
+    expect(ok.latencyMs).toBeGreaterThanOrEqual(60);
+    expect(ok.latencyMs).toBeLessThanOrEqual(380);
+    expect(maker.testProviderConnection).not.toHaveBeenCalled();
+
+    // mock 关：真实模式零改动——仍走 maker:provider:test-connection IPC，演示规则
+    // 不污染真实探测（fail URL 也按真实结果返回）。
+    vi.stubGlobal('window', { electronAPI: { maker, uiMockData: false } });
+    maker.testProviderConnection.mockResolvedValue({ ok: true, latencyMs: 128 });
+    const real = await testModelConnectivity({
+      baseUrl: 'https://gw.example/fail',
+      apiKey: 'sk-test',
+      modelId: 'm1',
+    });
+    expect(real).toEqual({ ok: true, latencyMs: 128 });
+    expect(maker.testProviderConnection).toHaveBeenCalledTimes(1);
   });
 });
