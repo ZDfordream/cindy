@@ -2166,8 +2166,16 @@ function ChatInputInner({
   // （anthropic-messages），发送的 engine 一并钉到 claude-code，避免草稿 Harness 记忆
   // 与路由错配。无可用网关模型时回落原默认链路（localVendorDefaults / session runtime）。
   const currentModelRoute = useCurrentModelRoute();
+  // Ruling 20: 全局当前模型只作用于 claude-code 发送路径——网关条目只有 claude-code
+  // runtime（协议写死 anthropic-messages），把 codex/pi 等其它引擎的发送换成网关
+  // modelId + 自定义 provider 必然跑错引擎或直接失败；非 cc 引擎路由保持原状。
   const sendRoute =
-    currentModelRoute && !deviceLinkDeviceId && !remoteHostId ? currentModelRoute : null;
+    currentModelRoute &&
+    currentModelAgentKind === 'claude-code' &&
+    !deviceLinkDeviceId &&
+    !remoteHostId
+      ? currentModelRoute
+      : null;
   const sendModel = sendRoute?.modelId ?? activeModel;
   const sendAgentKind: AgentKind | null = sendRoute ? 'claude-code' : currentModelAgentKind;
   // chatEligibleSourcesForModel(不是裸 sourcesForModel):非聊天模型即便"存在于某个

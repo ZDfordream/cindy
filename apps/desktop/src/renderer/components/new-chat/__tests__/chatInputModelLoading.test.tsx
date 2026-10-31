@@ -23,6 +23,8 @@ import {
 const h = vi.hoisted(() => ({ t: (key: string) => key, confirm: vi.fn(), editor: null as Editor | null, listening: false, stop: vi.fn().mockResolvedValue(undefined),
   setModel: vi.fn(), selectModel: undefined as undefined | ((id: string) => Promise<void | boolean>), selectEffort: undefined as string | null | undefined, remoteProviders: [] as ProviderView[],
   localProviders: [] as ProviderView[],
+  // ModelGatewayProvider（ChatInput 外层）经 maker:listProviders 读网关条目目录。
+  gatewayProviders: [] as ProviderView[],
   remoteStatus: 'ready' as 'ready' | 'loading' | 'error',
   platform: 'darwin',
   processing: null as 'submitting' | 'refining' | null,
@@ -88,6 +90,7 @@ const noOp = () => {};
 const api: typeof window.electronAPI = new Proxy({} as typeof window.electronAPI, { get: (_obj, key) => {
   if (key === 'setModel') return h.setModel;
   if (key === 'listSync') return () => ({ ghosts: [] });
+  if (key === 'listProviders') return () => Promise.resolve({ providers: h.gatewayProviders });
   if (key === 'getDataSnapshot') return () => { throw new Error('test bridge unavailable'); };
   if (key === 'setGlobalShortcut') return () => Promise.resolve({ ok: true });
   if (key === 'platform') return h.platform;
@@ -103,7 +106,7 @@ const attachments: ComponentProps<typeof ChatInput>['attachmentState'] = {
   removeFile: noOp, updateFile: noOp, discardFiles: noOp, clearFiles: noOp, restoreFiles: (files) => [...files],
 };
 beforeEach(() => { h.platform = 'darwin'; h.listening = false; h.processing = null; h.stop.mockClear(); h.selectEffort = undefined; window.electronAPI = api; vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
-afterEach(() => { cleanup(); clearDraft('queue-shortcut'); clearPromptRecommendationSession('queue-shortcut'); h.remoteProviders = []; h.localProviders = []; h.remoteStatus = 'ready'; h.setModel.mockReset(); h.confirm.mockReset(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); clearDraft('queue-shortcut'); clearPromptRecommendationSession('queue-shortcut'); h.remoteProviders = []; h.localProviders = []; h.gatewayProviders = []; h.remoteStatus = 'ready'; h.setModel.mockReset(); h.confirm.mockReset(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const props = {
   sessionId: 'loading-test', initialWorkingDir: '/workspace', runtimeAgentKind: 'codex' as const,
@@ -379,6 +382,86 @@ it('sends a remote-only Codex model when the controller has no connected provide
   await act(async () => { fireEvent.click(send); });
   await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
   expect(onSend.mock.calls[0][1]).toBe('remote-only');
+  expect(onSend.mock.calls[0][6]).toEqual(expect.objectContaining({ providerId: 'openai' }));
+});
+
+// 测试价值
+// - 生产入口与可观察结果：真实 ChatInput 发送（editor + Send → onSend 的 model /
+//   opts.providerId）。全局当前模型（网关条目，经 ModelGatewayStore 真实 hydrate +
+//   currentModelStore 自动选中首条 enabled）在 claude-code 发送时套用（Ruling 18 保持），
+//   在 codex 发送时不得替换（Ruling 20）。
+// - Bug／规则依据：最终全分支 review F3 + Ruling 20——sendRoute 曾不看 agent kind，
+//   任一启用网关条目会把本机 codex/pi 会话的后续消息钉到网关 modelId + 自定义
+//   provider（该 provider 只有 claude-code runtime）。
+// - 现有覆盖缺口：chatInputModelSelectorRouting 是 guard 级源码合同锁（Ruling 18 的
+//   钉子），没有可观察的发送行为用例；本文件族已有 onSend model/provider 断言先例。
+// - 最小失败输入：gatewayProviders 一条启用网关条目 + 本地一条 codex 来源，codex
+//   会话发送即被劫持（旧码 RED）；同夹具 claude-code 会话必须仍走网关路由。
+// - tier：unit（jsdom，真实 store + 组件，无网络 / 真实计时）。
+function gatewayEntryProvider(modelId = 'gw-model-alpha', id = 'gw-entry'): ProviderView {
+  return {
+    id,
+    name: modelId,
+    source: 'user',
+    connected: true,
+    agents: ['claude-code'],
+    auth: { method: 'apiKey' },
+    routing: { 'claude-code': { upstream: 'https://gw.example.test', authStrategy: 'api-key-header' } },
+    models: {
+      'claude-code': [
+        {
+          id: modelId,
+          name: modelId,
+          catalogPresetId: 'hrbuddy-gateway',
+          contextWindow: 200_000,
+          efforts: [],
+          defaultEffort: null,
+        },
+      ],
+    },
+  };
+}
+
+// 等全局当前模型生效（store hydrate + currentModelStore 回落选中）：模型菜单胶囊
+// 与 sendRoute 读同一份 (currentId, entries)，标签变成网关 modelId 即路由已就绪。
+async function waitForGatewayCurrentModel() {
+  await waitFor(() =>
+    expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe('gw-model-alpha'),
+  );
+}
+
+it('routes a claude-code send through the gateway global current model (Ruling 18)', async () => {
+  h.gatewayProviders = [gatewayEntryProvider()];
+  h.localProviders = [gatewayEntryProvider()];
+  const onSend = vi.fn().mockResolvedValue(true);
+  render(<ChatInput {...props} sessionId="cc-gw-send" vendorKey="cc" runtimeAgentKind="claude-code"
+    deviceLinkDeviceId={null} hideRuntimeControls={false}
+    initialModel="cc-native-model" initialProviderId="xd" onSend={onSend} />);
+  await waitForGatewayCurrentModel();
+  await act(async () => { h.editor!.commands.setContent('<p>Hello from claude-code</p>'); });
+  const send = screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement;
+  expect(send.disabled).toBe(false);
+  await act(async () => { fireEvent.click(send); });
+  await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+  expect(onSend.mock.calls[0][1]).toBe('gw-model-alpha');
+  expect(onSend.mock.calls[0][6]).toEqual(expect.objectContaining({ providerId: 'gw-entry' }));
+});
+
+it('keeps a codex send on its own route despite a gateway current model (Ruling 20)', async () => {
+  h.gatewayProviders = [gatewayEntryProvider()];
+  h.localProviders = [gatewayEntryProvider(), sshNativeCodexProvider([sshModel('gpt-6-astra')])];
+  const onSend = vi.fn().mockResolvedValue(true);
+  render(<ChatInput {...props} sessionId="codex-gw-send" deviceLinkDeviceId={null} hideRuntimeControls={false}
+    initialModel="gpt-6-astra" initialProviderId="openai" initialEffort="low" onSend={onSend} />);
+  // 先确认全局当前模型已生效（旧码正是在这之后被劫持），再发送。
+  await waitForGatewayCurrentModel();
+  await act(async () => { h.editor!.commands.setContent('<p>Hello from codex</p>'); });
+  const send = screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement;
+  expect(send.disabled).toBe(false);
+  await act(async () => { fireEvent.click(send); });
+  await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+  // Ruling 20：非 claude-code 引擎路由保持原状，不被网关 modelId / provider 顶掉。
+  expect(onSend.mock.calls[0][1]).toBe('gpt-6-astra');
   expect(onSend.mock.calls[0][6]).toEqual(expect.objectContaining({ providerId: 'openai' }));
 });
 
