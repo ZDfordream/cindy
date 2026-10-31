@@ -131,7 +131,7 @@ describe('启动失败系统提示框', () => {
         reason: 'fetch-failed:ERR_CONNECTION_RESET',
         kind: 'network',
         diagnosis: 'proxy=DIRECT dns=ok(43.146.61.38) tcp=ok(12ms)',
-        logPath: '/Users/example/Library/Logs/Cindy/endpoint-netlog/capture.json',
+        logPath: '/Users/example/Library/Logs/HRBuddy/endpoint-netlog/capture.json',
         offlineSavedAt: null,
       },
       'https://hotfix.cindy.app/cindy/endpoint.json',
@@ -148,7 +148,7 @@ describe('启动失败系统提示框', () => {
     };
     const visibleText = `${options.message}\n${options.detail}\n${options.buttons.join('\n')}`;
     expect(options.type).toBe('warning');
-    expect(options.message).toBe('Cindy 暂时无法连接');
+    expect(options.message).toBe('HRBuddy 暂时无法连接');
     expect(visibleText).toContain('请确认设备已联网');
     expect(visibleText).toContain('错误信息：ERR_CONNECTION_RESET');
     expect(visibleText).toContain('复制诊断信息');
@@ -167,7 +167,7 @@ describe('启动失败系统提示框', () => {
         reason: 'fetch-failed:ERR_CONNECTION_RESET',
         kind: 'network',
         diagnosis: 'proxy=DIRECT dns=ok(43.146.61.38) tcp=ok(12ms)',
-        logPath: '/Users/example/Library/Logs/Cindy/endpoint-netlog/capture.json',
+        logPath: '/Users/example/Library/Logs/HRBuddy/endpoint-netlog/capture.json',
         offlineSavedAt: null,
       },
       'https://hotfix.cindy.app/cindy/endpoint.json',
@@ -195,7 +195,7 @@ describe('启动失败系统提示框', () => {
         reason: 'fetch-failed:ERR_CONNECTION_RESET',
         kind: 'network',
         diagnosis: 'proxy=DIRECT dns=ok(43.146.61.38) tcp=ok(12ms)',
-        logPath: '/Users/example/Library/Logs/Cindy/endpoint-netlog/capture.json',
+        logPath: '/Users/example/Library/Logs/HRBuddy/endpoint-netlog/capture.json',
         offlineSavedAt: null,
       },
       'https://hotfix.cindy.app/cindy/endpoint.json',

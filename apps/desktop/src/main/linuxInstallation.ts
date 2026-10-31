@@ -30,7 +30,7 @@ export function recognizeLinuxUserInstallation(
     const prefix = path.dirname(path.dirname(release));
     const relative = path.relative(fs.realpathSync(home), prefix);
     if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) return null;
-    if (path.basename(exe) !== 'Cindy' || path.basename(path.dirname(release)) !== 'releases') return null;
+    if (path.basename(exe) !== 'HRBuddy' || path.basename(path.dirname(release)) !== 'releases') return null;
     const markerPath = path.join(prefix, '.cindy-user-install');
     const marker = fs.lstatSync(markerPath);
     if (!marker.isFile() || marker.uid !== uid || fs.statSync(prefix).uid !== uid) return null;

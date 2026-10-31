@@ -1,18 +1,18 @@
 #!/bin/sh
-# Cindy 命令行启动器 —— 随 Cindy.app 分发,由「帮助 → 安装到命令行」symlink 到 PATH。
-# 用法:  <命令名> [路径]   正式版命令名为 cindy(dev 构建为 cindydev),例如  cindy .
+# HRBuddy 命令行启动器 —— 随 HRBuddy.app 分发,由「帮助 → 安装到命令行」symlink 到 PATH。
+# 用法:  <命令名> [路径]   正式版命令名为 hrbuddy(dev 构建为 cindydev),例如  hrbuddy .
 #
 # 手动卸载:  rm 掉安装时创建的 symlink(默认 /usr/local/bin/<命令名>;命令名随
-#            edition 品牌,正式版为 cindy,内部 dev 构建为 cindydev)。
+#            edition 品牌,正式版为 hrbuddy,内部 dev 构建为 cindydev)。
 #
 # 自定位:先跟随 symlink 找到本脚本的真实路径,再按包内布局
-#   <Cindy.app>/Contents/Resources/cli/cindy
+#   <HRBuddy.app>/Contents/Resources/cli/hrbuddy
 # 反推 .app 根目录。因此即使 app 被移动位置,已装好的 symlink 仍然可用,无需重装
 # (与 VS Code 的 bin/code 同一思路)。
 PROG=$(basename "$0")
 SELF="$0"
 
-# 当命令通过 PATH 调用时，$0 可能不带路径（例如 "cindy"），需要先解析为可访问的路径。
+# 当命令通过 PATH 调用时，$0 可能不带路径（例如 "hrbuddy"），需要先解析为可访问的路径。
 case "$SELF" in
   */*) ;;
   *) SELF=$(command -v "$SELF" 2>/dev/null || printf '%s' "$SELF") ;;

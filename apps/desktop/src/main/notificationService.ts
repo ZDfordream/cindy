@@ -113,7 +113,7 @@ const devNotificationIcon = !app.isPackaged
  *   - 'error'       — agent 本轮以报错结束
  *   - 'needs-reply' — agent 抛出 ask-user / permission / plan-review，等用户处理
  */
-const CLIENT_NOTIFICATION_NAME = 'Cindy';
+const CLIENT_NOTIFICATION_NAME = 'HRBuddy';
 
 interface ShowSessionEventPayload {
   sessionId: string;
@@ -485,7 +485,9 @@ function showDesktopToast(safeTitle: string, kind: SessionEventKind, onClick: ()
 
   const avatar = avatarJpeg ? nativeImage.createFromBuffer(Buffer.from(avatarJpeg, 'base64')) : undefined;
   const notif = new Notification({
-    title: teammate && safeTitle.trim().toLowerCase() === 'cindy'
+    // 默认伙伴与产品同名时收成纯产品名,避免出现「HRBuddy · HRBuddy」。
+    // 比较基准从常量派生,不写死字面量——品牌翻转时不会再次失效。
+    title: teammate && safeTitle.trim().toLowerCase() === CLIENT_NOTIFICATION_NAME.toLowerCase()
       ? CLIENT_NOTIFICATION_NAME : `${CLIENT_NOTIFICATION_NAME} · ${safeTitle}`,
     body,
     // silent 默认 false——发声音，与 Electron 默认一致。

@@ -2,7 +2,7 @@
 name = "cindy-updater"
 version = "0.1.0"
 edition = "2021"
-description = "Windows updater for Cindy"
+description = "Windows updater for HRBuddy"
 license = "Apache-2.0"
 
 [[bin]]

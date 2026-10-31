@@ -3,8 +3,8 @@
  * ---------------------------------------------------------------------------
  * 类比 VS Code 的 "Install 'code' command in PATH",且**完全对齐其实现方式**:
  * 不往 PATH 里写一份生成的脚本,而是在 `/usr/local/bin/cindy` 建一个 **symlink**,
- * 指向随 app 分发的启动器脚本 `<Cindy.app>/Contents/Resources/cli/cindy`
- * (forge.config.ts 的 extraResource 注入,见 resources/cli/cindy)。之后终端里
+ * 指向随 app 分发的启动器脚本 `<HRBuddy.app>/Contents/Resources/cli/hrbuddy`
+ * (forge.config.ts 的 extraResource 注入,见 resources/cli/hrbuddy)。之后终端里
  * `cindy .` 就能把当前工作目录作为工作目录在 Cindy 里打开。
  *
  * symlink 而非写脚本的好处(与 VS Code 一致):升级 app 后无需重装,symlink 始终
@@ -26,7 +26,7 @@
  * 平台 / 构建门:
  *   - 仅 macOS(原生应用菜单本身就只在 darwin 装,见 installApplicationMenu)。
  *   - 仅 packaged:dev 模式下 process.resourcesPath 指向 Electron 自带 resources,
- *     包内 cli/cindy 不存在且 `open -a` 找不到 Cindy.app;dev 下给出说明弹窗而不动手。
+ *     包内 cli/hrbuddy 不存在且 `open -a` 找不到 HRBuddy.app;dev 下给出说明弹窗而不动手。
  *
  * 卸载:导出 uninstallCindyCliCommand 作为命令行/测试入口,不挂菜单
  * (与 folderContextMenu.ts 的 unregisterFolderContextMenu 同一取舍)。
@@ -53,7 +53,7 @@ const log = createLogger('installCliCommand');
 
 /**
  * 装进 PATH 的命令名,**跟随本构建 edition 品牌**:由区域可执行名小写化而来
- * (global/cn 展示名统一为 Cindy → `cindy`;内部 dev 构建 → `cindydev`)。
+ * (global/cn 展示名统一为 HRBuddy → `hrbuddy`;内部 dev 构建 → `cindydev`)。
  * *nix 命令惯例用小写,与 forge 给 linux 包名用 `CINDY_EXE.toLowerCase()` 同一处理;
  * 未注入区域默认 global(见 brandRegion / region-and-editions.md §2.2)。
  */
@@ -66,11 +66,11 @@ export const CLI_LINK_PATH = `/usr/local/bin/${CLI_COMMAND_NAME}`;
 const INSTALL_TIMEOUT_MS = 60_000;
 
 /**
- * symlink 指向的目标:包内启动器脚本 `<Resources>/cli/cindy`。
+ * symlink 指向的目标:包内启动器脚本 `<Resources>/cli/hrbuddy`。
  * 与 forge.config.ts extraResource 的 `resources/cli` 落点一致。
  */
 export function resolveBundledCliPath(resourcesPath: string): string {
-  return path.join(resourcesPath, 'cli', 'cindy');
+  return path.join(resourcesPath, 'cli', 'hrbuddy');
 }
 
 /** POSIX shell 单引号转义:把值安全地包进 '...'。 */

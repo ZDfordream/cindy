@@ -21,58 +21,58 @@ import {
 } from '../installCliCommand';
 
 describe('CLI_COMMAND_NAME 跟随 edition 品牌', () => {
-  it('测试环境(未注入区域 → 默认 global)命令名为 cindy', () => {
-    expect(CLI_COMMAND_NAME).toBe('cindy');
-    expect(CLI_LINK_PATH).toBe('/usr/local/bin/cindy');
+  it('测试环境(未注入区域 → 默认 global)命令名为 hrbuddy', () => {
+    expect(CLI_COMMAND_NAME).toBe('hrbuddy');
+    expect(CLI_LINK_PATH).toBe('/usr/local/bin/hrbuddy');
   });
 
-  it('由区域可执行名小写化:global / cn → cindy,内部 dev → cindydev', () => {
-    // global 与 cn 展示名统一为 Cindy(2026-07-26 决策),故命令名同为 cindy。
-    expect(brandExecutableName('global').toLowerCase()).toBe('cindy');
-    expect(brandExecutableName('cn').toLowerCase()).toBe('cindy');
+  it('由区域可执行名小写化:global / cn → hrbuddy,内部 dev → cindydev', () => {
+    // global 与 cn 展示名统一为 HRBuddy(2026-07-26 决策),故命令名同为 cindy。
+    expect(brandExecutableName('global').toLowerCase()).toBe('hrbuddy');
+    expect(brandExecutableName('cn').toLowerCase()).toBe('hrbuddy');
     expect(brandExecutableName('dev').toLowerCase()).toBe('cindydev');
   });
 });
 
 describe('resolveBundledCliPath', () => {
-  it('由 resourcesPath 推出包内 cli/cindy', () => {
-    const resourcesPath = '/Applications/Cindy.app/Contents/Resources';
-    expect(resolveBundledCliPath(resourcesPath)).toBe(path.join(resourcesPath, 'cli', 'cindy'));
+  it('由 resourcesPath 推出包内 cli/hrbuddy', () => {
+    const resourcesPath = '/Applications/HRBuddy.app/Contents/Resources';
+    expect(resolveBundledCliPath(resourcesPath)).toBe(path.join(resourcesPath, 'cli', 'hrbuddy'));
   });
 
   it('路径含空格也正确', () => {
-    const resourcesPath = '/Users/a/My Apps/Cindy.app/Contents/Resources';
-    expect(resolveBundledCliPath(resourcesPath)).toBe(path.join(resourcesPath, 'cli', 'cindy'));
+    const resourcesPath = '/Users/a/My Apps/HRBuddy.app/Contents/Resources';
+    expect(resolveBundledCliPath(resourcesPath)).toBe(path.join(resourcesPath, 'cli', 'hrbuddy'));
   });
 });
 
 describe('buildInstallShellCommand', () => {
   it('mkdir -p 链接目录、拒绝真实目录后 ln -sfn 目标到 source', () => {
     const cmd = buildInstallShellCommand(
-      '/Applications/Cindy.app/Contents/Resources/cli/cindy',
+      '/Applications/HRBuddy.app/Contents/Resources/cli/hrbuddy',
       CLI_LINK_PATH,
     );
     expect(cmd).toBe(
-      `mkdir -p '/usr/local/bin' && if [ -d '/usr/local/bin/cindy' ] && [ ! -L '/usr/local/bin/cindy' ]; then echo '/usr/local/bin/cindy is a directory' >&2; exit 1; fi && ln -sfn '/Applications/Cindy.app/Contents/Resources/cli/cindy' '/usr/local/bin/cindy'`,
+      `mkdir -p '/usr/local/bin' && if [ -d '/usr/local/bin/hrbuddy' ] && [ ! -L '/usr/local/bin/hrbuddy' ]; then echo '/usr/local/bin/hrbuddy is a directory' >&2; exit 1; fi && ln -sfn '/Applications/HRBuddy.app/Contents/Resources/cli/hrbuddy' '/usr/local/bin/hrbuddy'`,
     );
   });
 
   it('用 -sfn 而非 -sf(macOS 上替换指向目录的旧 symlink,不解引用进目录)', () => {
-    const cmd = buildInstallShellCommand('/App/Cindy.app/Contents/Resources/cli/cindy', CLI_LINK_PATH);
+    const cmd = buildInstallShellCommand('/App/HRBuddy.app/Contents/Resources/cli/hrbuddy', CLI_LINK_PATH);
     expect(cmd).toContain(`ln -sfn `);
     expect(cmd).not.toContain(`ln -sf `);
   });
 
   it('含单引号的路径被安全转义', () => {
-    const cmd = buildInstallShellCommand(`/Users/o'brien/Cindy.app/Contents/Resources/cli/cindy`, CLI_LINK_PATH);
-    expect(cmd).toContain(`'/Users/o'\\''brien/Cindy.app/Contents/Resources/cli/cindy'`);
+    const cmd = buildInstallShellCommand(`/Users/o'brien/HRBuddy.app/Contents/Resources/cli/hrbuddy`, CLI_LINK_PATH);
+    expect(cmd).toContain(`'/Users/o'\\''brien/HRBuddy.app/Contents/Resources/cli/hrbuddy'`);
   });
 });
 
 describe('buildUninstallShellCommand', () => {
   it('仅当目标是 symlink 时才 rm -f(不误删同路径普通文件,并发移除也幂等)', () => {
     expect(buildUninstallShellCommand(CLI_LINK_PATH)).toBe(
-      `if [ -L '/usr/local/bin/cindy' ]; then rm -f '/usr/local/bin/cindy'; fi`,
+      `if [ -L '/usr/local/bin/hrbuddy' ]; then rm -f '/usr/local/bin/hrbuddy'; fi`,
     );
   });
 
@@ -88,7 +88,7 @@ describe('shellSingleQuote', () => {
   const { shellSingleQuote } = __testing;
 
   it('普通路径直接包单引号', () => {
-    expect(shellSingleQuote('/usr/local/bin/cindy')).toBe(`'/usr/local/bin/cindy'`);
+    expect(shellSingleQuote('/usr/local/bin/hrbuddy')).toBe(`'/usr/local/bin/hrbuddy'`);
   });
 
   it("内部单引号转义为 '\\''", () => {
@@ -140,10 +140,10 @@ describe('isUserCancelledAdmin', () => {
   });
 });
 
-describe('随包分发的启动器脚本 resources/cli/cindy', () => {
+describe('随包分发的启动器脚本 resources/cli/hrbuddy', () => {
   const scriptPath = path.resolve(
     fileURLToPath(import.meta.url),
-    '../../../../resources/cli/cindy',
+    '../../../../resources/cli/hrbuddy',
   );
   // Git checkout 可能按平台写成 CRLF；这里验证的是 shell 内容，不是工作区换行策略。
   const script = readFileSync(scriptPath, 'utf8').replaceAll('\r\n', '\n');

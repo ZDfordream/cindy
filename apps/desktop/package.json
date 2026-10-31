@@ -1,6 +1,6 @@
 {
   "name": "desktop",
-  "productName": "Cindy",
+  "productName": "HRBuddy",
   "version": "0.0.0",
   "description": "Cindy desktop client",
   "main": ".vite/build/index.js",

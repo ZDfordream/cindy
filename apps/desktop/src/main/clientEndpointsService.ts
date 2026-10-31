@@ -572,7 +572,7 @@ export function promptRetryDialog(
     // createWindow 之前无父窗口,showMessageBoxSync 直接系统模态。
     const clicked = dialog.showMessageBoxSync({
       type: 'warning',
-      title: 'Cindy',
+      title: 'HRBuddy',
       message: content.message,
       detail: content.detail,
       buttons: content.buttons,
@@ -995,7 +995,7 @@ export async function initClientEndpoints(): Promise<boolean> {
   // Ordinary packaged apps still use CDN; ambient file/env overrides cannot enable this path.
   const versionSnapshot = getCindyVersionEndpointOverride();
   const source: EndpointSource = versionSnapshot
-    ? { kind: 'file', filePath: 'Cindy Make' }
+    ? { kind: 'file', filePath: 'HRBuddy Make' }
     : resolveEndpointSource({
         isPackaged: app.isPackaged,
         env: {

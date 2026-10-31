@@ -12,11 +12,11 @@ export type OAuthResultPageLang = 'zh' | 'zh-TW' | 'en' | 'ja' | 'ko';
 /** Receipt is not token-exchange success. The authoritative result stays in the cloud card. */
 export function getRemoteOAuthCallbackCopy(lang: OAuthResultPageLang): { title: string; body: string } {
   return {
-    zh: { title: '已收到授权回调', body: '请返回 Cindy，查看远程设备的授权结果。' },
-    'zh-TW': { title: '已收到授權回呼', body: '請返回 Cindy，查看遠端裝置的授權結果。' },
-    en: { title: 'Authorization callback received', body: 'Return to Cindy to check the authorization result on the remote device.' },
-    ja: { title: '認証コールバックを受信しました', body: 'Cindy に戻り、リモートデバイスの認証結果を確認してください。' },
-    ko: { title: '인증 콜백을 받았습니다', body: 'Cindy로 돌아가 원격 기기의 인증 결과를 확인하세요.' },
+    zh: { title: '已收到授权回调', body: '请返回 HRBuddy，查看远程设备的授权结果。' },
+    'zh-TW': { title: '已收到授權回呼', body: '請返回 HRBuddy，查看遠端裝置的授權結果。' },
+    en: { title: 'Authorization callback received', body: 'Return to HRBuddy to check the authorization result on the remote device.' },
+    ja: { title: '認証コールバックを受信しました', body: 'HRBuddy に戻り、リモートデバイスの認証結果を確認してください。' },
+    ko: { title: '인증 콜백을 받았습니다', body: 'HRBuddy로 돌아가 원격 기기의 인증 결과를 확인하세요.' },
   }[lang];
 }
 export type OAuthResultPageVariant = 'success' | 'warning' | 'error';
@@ -420,7 +420,7 @@ function renderBrandLoginCallbackPage(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>${title} · Cindy</title>
+<title>${title} · HRBuddy</title>
 <style>
 :root{color-scheme:light;--page:#eeeeee;--card:#fbfbfb;--card-border:#d4d4d4;--title:rgba(0,0,0,.88);--body:rgba(0,0,0,.56);--detail:rgba(0,0,0,.44);--cta:#2a2828;--cta-border:#434343;--cta-text:#d4d4d4;--cta-hover:rgba(255,255,255,.08);--cta-active:rgba(0,0,0,.5)}
 :root[data-theme="dark"]{color-scheme:dark;--page:#2a2828;--card:#312f2f;--card-border:#434343;--title:rgba(255,255,255,.82);--body:rgba(255,255,255,.55);--detail:rgba(255,255,255,.4);--cta:#eeeeee;--cta-border:#ffffff;--cta-text:#2a2828;--cta-hover:rgba(0,0,0,.05);--cta-active:rgba(0,0,0,.1)}
@@ -487,7 +487,7 @@ export function renderOAuthResultPage(input: OAuthResultPageInput): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>${title} · Cindy</title>
+<title>${title} · HRBuddy</title>
 <style>
 :root{color-scheme:light;--page:#f8f8f6;--card:#fff;--border:#d7d7d4;--text:#262626;--muted:#737373;--detail:#a3a3a3;--chip:#e5e5e5;--cta:#000;--cta-text:#fff;--cta-hover:#262626}
 :root[data-theme="dark"]{color-scheme:dark;--page:#1f1f1e;--card:#2c2c2a;--border:#3c3c3a;--text:#d4d4d4;--muted:#a3a3a3;--detail:#737373;--chip:#3c3c3a;--cta:#fff;--cta-text:#000;--cta-hover:#e5e5e5}

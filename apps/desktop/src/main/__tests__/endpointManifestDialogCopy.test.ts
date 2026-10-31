@@ -21,7 +21,7 @@ const LOCALES: EndpointManifestDialogLocale[] = ['zh-CN', 'zh-TW', 'en', 'ja', '
 
 /** CJK 与拉丁字母混排检测用:排除产品名、已裁决术语与占位符后仍有英文单词即视为混排。 */
 function stripAllowedLatin(text: string): string {
-  return text.replace(/\{\{\w+\}\}/g, ' ').replace(/Cindy|Proxy/g, ' ');
+  return text.replace(/\{\{\w+\}\}/g, ' ').replace(/HRBuddy|Proxy/g, ' ');
 }
 
 describe('端点清单弹框文案', () => {
@@ -111,7 +111,7 @@ describe('端点清单弹框文案', () => {
       reason: 'fetch-failed:ERR_CONNECTION_RESET',
       source: 'https://cdn.example.com/endpoint.json',
       diagnosis: 'proxy=DIRECT dns=ok(1.2.3.4)',
-      logPath: '/Users/example/Library/Logs/Cindy/capture.json',
+      logPath: '/Users/example/Library/Logs/HRBuddy/capture.json',
       offlineSavedAt: null,
     });
     expect(content.detail).not.toContain('{{');

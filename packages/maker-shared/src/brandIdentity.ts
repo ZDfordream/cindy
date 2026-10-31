@@ -14,8 +14,9 @@
  *  - 这是**构建期单点,不是运行时开关**。区域(cn/global)是唯一的构建期维度,
  *    经打包命令的 CINDY_AUTH_REGION 选择,默认 global。appId / userData 目录名
  *    按区域派生(cn 与 global 是两个可并存的系统身份,appId 与 mobile 的
- *    com.xd.cindycn / com.xd.cindy 同一套);exe 名 cn/global 同值 'Cindy'
- *    (2026-07-26 显示名统一决策,文件层双装隔离随之放弃,dev 仍独立)。
+ *    com.xd.cindycn / com.xd.cindy 同一套);exe 名 cn/global 同值 'HRBuddy'
+ *    (2026-07-26 显示名统一决策,文件层双装隔离随之放弃,dev 仍独立;
+ *    2026-10-28 HRBuddy 品牌翻转同步迁移为 HRBuddy)。
  *  - 历史兼容锚点(旧 scheme 解析、旧 userData / DB 文件识别)由
  *    `legacySchemes` / `legacyUserDataDirNames(ByRegion)` / `legacyDbFilePrefixes`
  *    承载,只增不减:老用户机器上的存量注册与文件可能永远带着旧值。
@@ -67,7 +68,7 @@ export interface BrandIdentity {
   readonly displayName: string;
   /**
    * 可执行文件基名(Windows 加 .exe;mac Mach-O 名同源派生)。
-   * 首字母大写是产品决策(Cindy.exe,同 Discord/Slack 惯例);Windows 进程
+   * 首字母大写是产品决策(HRBuddy.exe,同 Discord/Slack 惯例);Windows 进程
    * 匹配大小写不敏感,产物 / OSS key 命名走小写的 `cdnPrefix`,互不影响。
    * ⚠️ 这是 **cn / dev 基线值**;2026-07-18 支持同机双装后,打包与运行时
    * 一律走 `brandExecutableName(region)` 取区域值,本字段仅供 dev 链路
@@ -76,9 +77,9 @@ export interface BrandIdentity {
   readonly executableName: string;
   /**
    * 按区域派生的可执行文件基名(exe / mac .app 包名 / 安装目录 / NSIS
-   * 快捷方式全部跟随)。2026-07-26 owner 决策:cn 与 global 同值 'Cindy',
-   * 让 global 包在 Dock / Finder / 菜单栏 / Windows 快捷方式等全部位置显示
-   * Cindy——代价是 cn/global 同机双装时安装目录 / .app / .lnk 同名互抢
+   * 快捷方式全部跟随)。2026-07-26 owner 决策:cn 与 global 同值,
+   * 让 global 包在 Dock / Finder / 菜单栏 / Windows 快捷方式等全部位置显示同一
+   * 应用名(2026-10-28 HRBuddy 品牌翻转后为 'HRBuddy')——代价是 cn/global 同机双装时安装目录 / .app / .lnk 同名互抢
    * (第二个安装覆盖第一个的文件与快捷方式,更新器按 exe 名杀进程会波及另一
    * 区域),该场景明确放弃支持;appId 与 userData 目录仍按区域分离,系统身份
    * 与数据互不影响。dev 保持独立名(CindyDev,可与正式包并存)。区域名不含
@@ -135,25 +136,32 @@ export interface BrandIdentity {
 }
 
 /**
- * 当前生效的身份档案(Cindy,2026-07-17 翻转)。
+ * 当前生效的身份档案(HRBuddy,2026-10-28 品牌翻转;前次为 2026-07-17 Cindy 翻转)。
  * 旧 xdt-maker 值全部下沉 legacy 数组。
  *
  * 区域差异字段:appId、userDataDirName 按区域派生(cn/global 是两个可并存
  * 的系统身份,数据分库);executableName 自 2026-07-26 起 cn/global 同值
- * (显示统一为 Cindy,放弃文件层双装隔离,见 executableNameByRegion doc),
- * 仅 dev 保持独立名;深链 scheme、展示名 BRAND_NAME、cdnPrefix、dbFilePrefix、
- * updaterName 两区共用(scheme 共用是 owner 决策:双装时后注册者赢,单装用户
- * 无感;cdnPrefix 共用因发布渠道靠不同 OSS bucket 区分;db 前缀因 userData
- * 已分目录无需再区分)。
+ * (显示统一为一个应用名,放弃文件层双装隔离,见 executableNameByRegion doc),
+ * 仅 dev 保持独立名;深链 scheme、cdnPrefix、dbFilePrefix、updaterName 两区
+ * 共用(scheme 共用是 owner 决策:双装时后注册者赢,单装用户无感;cdnPrefix
+ * 共用因发布渠道靠不同 OSS bucket 区分;db 前缀因 userData 已分目录无需再区分)。
+ *
+ * 2026-10-28 HRBuddy 品牌翻转的边界(owner 决策):**只迁展示层与应用/安装包
+ * 可执行名**——BRAND_NAME、executableName(ByRegion) 的 cn/global 值。磁盘与
+ * 协议标识符一律不动:appId / bundle id(com.xd.*)、userData 目录名(Cindy /
+ * CindyGlobal / CindyDev)、primaryScheme(cindy)、cdnPrefix、updaterName、
+ * dbFilePrefix、deviceId 前缀全部保持原值,避免搬迁存量用户数据、断掉已注册的
+ * 深链与 AUMID,以及让更新器/数据库路径漂移。
  */
 export const BRAND_IDENTITY: BrandIdentity = Object.freeze({
   displayName: BRAND_NAME,
-  executableName: 'Cindy',
+  executableName: 'HRBuddy',
   executableNameByRegion: Object.freeze({
-    cn: 'Cindy',
-    // 2026-07-26 与 cn 同值(见字段 doc):global 包全部可见位置显示 Cindy,
+    cn: 'HRBuddy',
+    // 2026-07-26 与 cn 同值(见字段 doc):global 包全部可见位置显示 HRBuddy,
     // 放弃 cn/global 同机双装的文件层隔离;appId / userData 仍分区。
-    global: 'Cindy',
+    global: 'HRBuddy',
+    // dev 是内部开发构建身份,不面向用户发行(见 CindyRegion doc),保持独立名。
     dev: 'CindyDev',
   }),
   appIdByRegion: Object.freeze({

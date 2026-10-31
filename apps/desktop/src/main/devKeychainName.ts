@@ -45,7 +45,7 @@ import { BRAND_IDENTITY } from '@cindy/maker-shared/brand-identity';
 
 /**
  * 沙箱 profile 内的钥匙串身份标记文件名(userData 根下,纯文本存条目身份名;
- * 词表 = 'CindyDev' | 默认身份名 'Cindy',其它内容一律视为身份不确定)。
+ * 词表 = 'CindyDev' | 历史身份名 'Cindy' | 默认身份名 'HRBuddy',其它内容一律视为身份不确定)。
  */
 export const KEYCHAIN_IDENTITY_MARKER_FILE = 'keychain-identity';
 export const ISOLATED_AUTH_LAUNCH_PROOF_FILE = '.isolated-auth-launch-proof.json';

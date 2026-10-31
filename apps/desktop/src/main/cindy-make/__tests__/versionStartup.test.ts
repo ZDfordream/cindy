@@ -16,7 +16,7 @@ function waitForIo(assertion: () => unknown) {
 const h = vi.hoisted(() => ({
   profile: '',
   appPath: '',
-  name: 'Cindy',
+  name: 'HRBuddy',
   packaged: false,
   makeEnabled: true,
   spawn: vi.fn(),
@@ -87,7 +87,7 @@ beforeEach(async ({ task }) => {
   h.profile = path.join(root, 'profile');
   h.appPath = path.join(root, 'checkout', 'apps', 'desktop');
   Object.defineProperty(process, 'resourcesPath', { value: h.appPath, configurable: true });
-  h.name = 'Cindy';
+  h.name = 'HRBuddy';
   h.packaged = false;
   h.makeEnabled = true;
   h.ready = false;
@@ -136,7 +136,7 @@ beforeEach(async ({ task }) => {
   startup = await import('../versionStartup');
   original = {
     protocol: 1,
-    profile: { userData: h.profile, appName: 'Cindy', region: 'global', passive: false },
+    profile: { userData: h.profile, appName: 'HRBuddy', region: 'global', passive: false },
     executable,
     appPath: h.appPath,
     resources: h.appPath,
@@ -180,7 +180,7 @@ async function savePersonalVersion(options: { corrupt?: boolean } = {}) {
   const directory = store.versionDirectory(h.profile, id);
   const resources = path.join(directory, 'resources');
   await mkdir(path.join(resources, 'drizzle'), { recursive: true });
-  await writeFile(path.join(directory, 'Cindy.exe'), 'personal executable');
+  await writeFile(path.join(directory, 'HRBuddy.exe'), 'personal executable');
   await writeFile(path.join(resources, 'app.asar'), 'personal application');
   await writeFile(
     path.join(resources, 'cindy-version-protocol.json'),
@@ -200,13 +200,13 @@ async function savePersonalVersion(options: { corrupt?: boolean } = {}) {
     builtAt: '2026-09-17T20:00:00.000+08:00',
     platform: process.platform,
     arch: process.arch,
-    executable: 'Cindy.exe',
+    executable: 'HRBuddy.exe',
     resources: 'resources',
     executableHash: digest(options.corrupt ? 'something else' : 'personal executable'),
     applicationHash: digest('personal application'),
     migrationHash: store.migrationIdentity(path.join(h.appPath, 'drizzle')),
   });
-  return { id, executable: path.join(directory, 'Cindy.exe') };
+  return { id, executable: path.join(directory, 'HRBuddy.exe') };
 }
 /**
  * Electron emits 'ready' from the first event-loop turn after the main script; anything the
@@ -236,7 +236,7 @@ function launchRequest(patch: Partial<import('../versionStartup').VersionLaunchR
   store.writeVersionJson(startup.versionRequestPath(h.profile, value.id), value);
   return value;
 }
-describe('one original version type for Dev and installed Cindy', () => {
+describe('one original version type for Dev and installed HRBuddy', () => {
   it('does nothing beyond normal startup when no personal version exists', async () => {
     startup.prepareCindyVersionStartup();
     expect(await startup.dispatchCindyVersionStartup()).toBe(false);
