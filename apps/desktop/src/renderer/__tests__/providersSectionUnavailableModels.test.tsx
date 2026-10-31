@@ -3,13 +3,14 @@
 /**
  * ProvidersSection(双栏重构)关键不变量:
  *   1. 首个可见供应商默认选中;未连接的内置渠道不再常驻占行。
- *   2. 本机 CLI 检测命中且渠道未连接时,左栏出现建议行,点击直达自定义连接表单。
- *   3. 左栏可见项顺序持久化（首记录、方向键排序、权威快照去乐观、换 owner 重记）。
+ *   2. 左栏可见项顺序持久化（首记录、方向键排序、权威快照去乐观、换 owner 重记）。
  *
  * 【Task 7 处置】旧多供应商详情块（含 UnifiedModelList 的模型开关与「获取模型列表」
  * 刷新入口）已整体藏进 SHOW_LEGACY_PROVIDER_UI（owner「藏起来以后再说」）。原双栏
  * 管理用例里断言该块的（语音/模型清单/刷新/可见性开关等）按工程约定 §3.2 裁剪，
  * 逐条依据见各处就地注释；完整断言见 git history，恢复开关即可找回。
+ * 【Ruling 19】本机 CLI 建议行（打开旧完整表单 ProviderConnectionDialog 的活口）同收
+ * 该开关：默认不渲染；翻 flag 后入口与表单一并回来（见文末两例）。
  */
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -196,6 +197,14 @@ vi.mock('@/components/settings/ProviderConnectionDialog', () => ({
   ProviderConnectionDialog: () => React.createElement('div', { 'data-testid': 'custom-provider-dialog-stub' }),
 }));
 
+// 可控的单一恢复点替身（Ruling 19）：建议行/旧表单入口与右栏旧详情块同读
+// isLegacyProviderUiVisible()；翻转它验证「入口与表单一并回来」。
+const legacyFlag = vi.hoisted(() => ({ visible: false }));
+vi.mock('@/features/model-gateway/legacyVisibility', () => ({
+  SHOW_LEGACY_PROVIDER_UI: false,
+  isLegacyProviderUiVisible: () => legacyFlag.visible,
+}));
+
 // 2026-10-29 需求 6:多供应商向导已移除;建议行打开自定义连接表单。
 
 import { updateCustomProvider } from '@/lib/customProviders';
@@ -206,6 +215,7 @@ type ScanResult = { detections: unknown[] };
 let scanResult: ScanResult;
 
 beforeEach(() => {
+  legacyFlag.visible = false;
   authState.dataOwnerId = 'owner-1';
   providerSnapshotState.dataOwnerId = 'owner-1';
   providerSnapshotState.ownerGeneration = 1;
@@ -282,7 +292,27 @@ describe('ProvidersSection — 双栏管理', () => {
 
   // 「同一事件循环内连续点击刷新只启动一个请求 / 内置刷新失败按错误码区分文案」——
   // 裁剪：「获取模型列表」刷新入口在隐藏的 UnifiedModelList 里，默认面不可达（§3.2）。
-  it('检测到本机 CLI 且渠道未连接 → 建议行出现,点击打开自定义连接表单', async () => {
+  // Ruling 19：旧表单藏了不能留活口——建议行（及其打开的 ProviderConnectionDialog，
+  // 含供应商预设/多协议/「获取模型列表」）与右栏旧详情块同收 SHOW_LEGACY_PROVIDER_UI。
+  it('hides the local-CLI suggestion row (and the legacy form entry) by default', async () => {
+    legacyFlag.visible = false;
+    scanResult = {
+      detections: [
+        { cli: 'claude-cli', providerId: 'anthropic', installed: true, loggedIn: true },
+        { cli: 'codex-cli', providerId: 'openai', installed: false, loggedIn: false },
+      ],
+    };
+    render(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
+
+    // 建议组与建议行都不渲染，旧表单无从打开（入口不可达）。
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByText('settings.providers.detect.groupLabel')).toBeNull();
+    expect(screen.queryByText('settings.providers.detect.action')).toBeNull();
+    expect(screen.queryByTestId('custom-provider-dialog-stub')).toBeNull();
+  });
+
+  it('flipping the single flag restores the suggestion row and the legacy form together', async () => {
+    legacyFlag.visible = true;
     scanResult = {
       detections: [
         { cli: 'claude-cli', providerId: 'anthropic', installed: true, loggedIn: true },
@@ -296,7 +326,7 @@ describe('ProvidersSection — 双栏管理', () => {
     const action = screen.getByText('settings.providers.detect.action');
     fireEvent.click(action.closest('button')!);
 
-    // 向导已移除,点击建议行打开自定义连接表单(2026-10-29 需求 6)。
+    // 点击建议行打开旧完整表单(2026-10-29 需求 6 的 ProviderConnectionDialog)。
     expect(screen.getByTestId('custom-provider-dialog-stub')).not.toBeNull();
   });
 

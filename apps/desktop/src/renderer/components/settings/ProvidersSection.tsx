@@ -3241,7 +3241,10 @@ export function ProvidersSection() {
                   selectShare(shareId);
                 }}
               />
-              {suggestions.length > 0 && (
+              {/* Ruling 19：建议行点开的是旧完整表单（ProviderConnectionDialog，含供应商
+                  预设/多协议/「获取模型列表」），与右栏旧详情块同收 SHOW_LEGACY_PROVIDER_UI——
+                  旧表单藏了不能留活口；恢复 flag 时入口与表单一并回来（仍单一恢复点）。 */}
+              {isLegacyProviderUiVisible() && suggestions.length > 0 && (
                 <>
                   <span
                     className="px-2.5 pb-1 pt-3 text-11 font-medium uppercase"
