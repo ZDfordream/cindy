@@ -190,15 +190,10 @@ vi.mock('@/state/modelVisibilityPrefs', () => ({
 }));
 
 vi.mock('@/components/settings/ProviderConnectionDialog', () => ({
-  ProviderConnectionDialog: () => null,
+  ProviderConnectionDialog: () => React.createElement('div', { 'data-testid': 'custom-provider-dialog-stub' }),
 }));
 
-vi.mock('@/components/settings/AddProviderWizard', () => ({
-  AddProviderWizard: (props: { entry?: { kind: string; providerId: string } }) => {
-    wizardSpy(props.entry);
-    return React.createElement('div', { 'data-testid': 'wizard-stub' });
-  },
-}));
+// 2026-10-29 需求 6:多供应商向导已移除;建议行打开自定义连接表单。
 
 import { setModelVisibilities } from '@/state/modelVisibilityPrefs';
 import { readCustomProviderKey, updateCustomProvider } from '@/lib/customProviders';
@@ -758,7 +753,7 @@ describe('ProvidersSection — 双栏管理', () => {
     expect(toast.error).toHaveBeenLastCalledWith('settings.providers.models.refreshFailed');
   });
 
-  it('检测到本机 CLI 且渠道未连接 → 建议行出现,点击直达向导授权步', async () => {
+  it('检测到本机 CLI 且渠道未连接 → 建议行出现,点击打开自定义连接表单', async () => {
     scanResult = {
       detections: [
         { cli: 'claude-cli', providerId: 'anthropic', installed: true, loggedIn: true },
@@ -772,9 +767,8 @@ describe('ProvidersSection — 双栏管理', () => {
     const action = screen.getByText('settings.providers.detect.action');
     fireEvent.click(action.closest('button')!);
 
-    // 向导以 entry 直达 anthropic。
-    expect(screen.getByTestId('wizard-stub')).not.toBeNull();
-    expect(wizardSpy).toHaveBeenCalledWith({ kind: 'builtin', providerId: 'anthropic' });
+    // 向导已移除,点击建议行打开自定义连接表单(2026-10-29 需求 6)。
+    expect(screen.getByTestId('custom-provider-dialog-stub')).not.toBeNull();
   });
 
   it('首次记录可见项，并用方向键提交新的可见顺序', async () => {

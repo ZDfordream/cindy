@@ -22,6 +22,15 @@ export function isUiMockDataEnabled(env: NodeJS.ProcessEnv = process.env): boole
   return env[UI_MOCK_ENV] === '1';
 }
 
+/**
+ * 演示内容（示例任务 / 示例项目）默认**不**播种（2026-10-31 owner：「默认的测试 item
+ * 不要展示，当作正常用户」）。要出带演示数据的 UI 截图时另开
+ * `XDT_UI_MOCK_DEMO=1`。
+ */
+export function isUiMockDemoDataEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env['XDT_UI_MOCK_DEMO'] === '1';
+}
+
 /** Write the demo project files once; later edits made while testing are kept. */
 export function ensureUiMockProjects(projectRoot: string): void {
   for (const project of UI_MOCK_PROJECTS) {

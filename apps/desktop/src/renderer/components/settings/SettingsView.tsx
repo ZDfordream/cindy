@@ -311,7 +311,7 @@ export function SettingsView() {
         <div
           ref={contentScrollRef}
           className={cn(
-            'flex h-full min-h-0 min-w-0 flex-1 flex-col pl-4 pr-6 [scrollbar-gutter:stable]',
+            'flex h-full min-h-0 min-w-0 flex-1 flex-col pl-4 pr-6 pt-6 pb-6 [scrollbar-gutter:stable]',
             // providers 与 import / ghosts 同属「内部自己滚」:模型列表要贴着窗口底,
             // 外层再滚一层会让卡片高度只能靠猜(原先卡片写 calc(100vh-14rem),
             // 扣除量与真实 chrome 不符时下方就空出一条 —— 正是 pb-32 那 128px)。

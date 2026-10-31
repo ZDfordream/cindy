@@ -48,9 +48,9 @@ export function MainListScopeHeader({
   const [displaySettingsOpen, setDisplaySettingsOpen] = useState(false);
   return (
     <div className="group/sidebar-header flex h-6 items-center justify-between pr-0 pl-6">
-      <div className="flex min-w-0 items-center gap-1">
-        <MachineSwitcherMenu onOpenDisplaySettings={() => setDisplaySettingsOpen(true)} />
-      </div>
+      {/* 2026-10-31 owner:移除「全部任务」范围下拉(MachineSwitcherMenu),体验不佳;
+          段头本身保留,折叠/过滤动作不受影响。 */}
+      <div className="flex min-w-0 items-center gap-1" />
       <div className="flex items-center gap-0.5 -mt-px">
         <div className="flex items-center gap-0.5 -mt-px">
           {fold ? (

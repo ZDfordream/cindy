@@ -71,6 +71,7 @@ import {
 import { createLogger } from '../logger.js';
 import type { UnrecoverableProviderCredential } from '../secrets/providerSecretStore.js';
 import { throwIpcError } from '../utils/ipcValidate.js';
+import { exportModels } from '../hrbuddyModelsExport.js';
 import {
   createCustomProvider,
   customProviderExists,
@@ -2078,6 +2079,20 @@ export function registerProviderHandlers(
         );
         try {
           await createCustomProvider(separated.config);
+          // 需求 7(2026-10-29):模型添加后镜像写入 ~/.hrbuddy/models.json。
+          // 只写元数据,绝不含凭证;失败不阻断主流程。
+          exportModels(
+            (separated.config.runtimes['claude-code']?.models ?? []).map((m) => ({
+              id: m.id,
+              name: m.name,
+              provider: separated.config.name,
+              baseUrl: separated.config.runtimes['claude-code']?.baseUrl ?? '',
+              wireProtocol: separated.config.runtimes['claude-code']?.wireProtocol,
+              supportsToolCalls: m.supportsToolCalls,
+              supportsImageInput: m.supportsImageInput,
+              reasoningRequired: m.reasoningRequired,
+            })),
+          );
           assertProviderMutationOwner(ownerAtIngress);
         } catch (error) {
           // 换号后不在 B 的 secret store 执行 A 的回滚。

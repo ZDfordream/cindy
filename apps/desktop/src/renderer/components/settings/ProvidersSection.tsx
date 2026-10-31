@@ -94,7 +94,7 @@ import { useProviderSubscriptionCard } from './useProviderSubscriptionCard';
 import { ProviderAccountUsageModule } from './ProviderAccountUsageModule';
 import { QuotaHoverCard } from '../status/QuotaHoverCard';
 import { ProviderConnectionDialog } from './ProviderConnectionDialog';
-import { AddProviderWizard, type WizardEntry } from './AddProviderWizard';
+import { AddModelDialog } from './AddModelDialog';
 import type { DetectedProviderDraft } from '../../../shared/providerDetection';
 import { OllamaProviderDetail } from './OllamaProviderDetail';
 import {
@@ -153,6 +153,8 @@ import { isCustomRoutedProvider, isOrganizationManagedProvider, storedCustomProv
 // ---------------------------------------------------------------------------
 // 工具
 // ---------------------------------------------------------------------------
+
+
 
 function providerHasModels(provider: ProviderView): boolean {
   // 专属媒体清单(imageModels/videoModels/embeddingModels)也算「有模型」:XD 动态
@@ -2506,7 +2508,7 @@ export function ProvidersSection() {
   }>({ dataOwnerId, ids: new Set<string>() });
   // 向导:null = 关;{ entry } = 打开(entry 指定直达的供应商,来自检测建议)。
   const [speechProvider, setSpeechProvider] = useState<{ provider: ProviderView; owner: string | null; generation: number | null } | null>(null);
-  const [wizard, setWizard] = useState<null | { entry?: WizardEntry; detected?: DetectedProviderDraft }>(null);
+  const [gatewayOpen, setGatewayOpen] = useState(false);
   // 自定义供应商完整表单(编辑,或从向导「自定义端点」进入新建)。
   const [dialog, setDialog] = useState<
     | null
@@ -2847,14 +2849,13 @@ export function ProvidersSection() {
         // 无账号会话目录不含 xd → 落到登录引导行(不能当 preset 交给向导)。
         selectProvider(CINDY_SIGNIN_ID);
       } else if (connect === MANAGED_OLLAMA_PROVIDER_ID) {
-        setWizard({});
-      } else if (target && target.source === 'builtin') {
-        setWizard({ entry: { kind: 'builtin', providerId: connect } });
+        setGatewayOpen(true);
       } else {
-        setWizard({ entry: { kind: 'preset', presetId: connect } });
+        // 2026-10-29 需求 4:多供应商向导已移除,新增入口只有网关三输入框。
+        setGatewayOpen(true);
       }
     } else {
-      setWizard({});
+      setGatewayOpen(true);
     }
     const next = new URLSearchParams(searchParams);
     next.delete('connect');
@@ -3249,9 +3250,7 @@ export function ProvidersSection() {
                       key={s.detection.cli}
                       detection={s.detection}
                       provider={s.provider}
-                      onClick={() =>
-                        setWizard({ entry: { kind: 'builtin', providerId: s.provider.id } })
-                      }
+                      onClick={() => setDialog({ mode: 'create' })}
                     />
                   ))}
                 </>
@@ -3266,7 +3265,7 @@ export function ProvidersSection() {
                 size="lg"
                 ref={addProviderButtonRef}
                 type="button"
-                onClick={() => setWizard({})}
+                onClick={() => setGatewayOpen(true)}
                 className="w-full"
               >
                 <Plus size={15} />
@@ -3553,29 +3552,20 @@ export function ProvidersSection() {
           provider={speechProvider.provider} onClose={() => setSpeechProvider(null)}
           onSaved={() => { setSpeechProvider(null); void refetch(); }} />
       )}
-      {wizard && (
-        <AddProviderWizard
-          providers={providers}
-          entry={wizard.entry}
-          detected={wizard.detected}
-          onReturnCustom={(draft) => { setWizard(null); setDialog({ mode: 'create', draft }); }}
-          onOpenCustomForm={() => {
-            setWizard(null);
-            setDialog({ mode: 'create' });
-          }}
-          onClose={() => setWizard(null)}
-          onDone={async (providerId) => {
-            await refetch();
-            setWizard(null);
-            if (providerId) selectProvider(providerId);
-          }}
-        />
-      )}
+      <AddModelDialog
+        open={gatewayOpen}
+        existingIds={providers.map((p) => p.id)}
+        onClose={() => setGatewayOpen(false)}
+        onSaved={(providerId) => {
+          setGatewayOpen(false);
+          void refetch();
+          selectProvider(providerId);
+        }}
+      />
 
       {dialog && (
         <ProviderConnectionDialog
           draft={dialog.mode === 'create' ? dialog.draft : undefined}
-          onDetected={(detected) => { setDialog(null); setWizard({ detected }); }}
           initial={dialog.mode === 'edit' ? dialog.config : undefined}
           catalogModels={dialog.mode === 'edit' ? providers.find(p =>
             p.source === 'user' && storedCustomProviderId(p.id) === dialog.config.id)?.models : undefined}

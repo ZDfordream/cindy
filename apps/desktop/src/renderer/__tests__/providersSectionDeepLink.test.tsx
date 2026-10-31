@@ -123,10 +123,13 @@ vi.mock('@/components/settings/ProviderConnectionDialog', () => ({
   },
 }));
 
-vi.mock('@/components/settings/AddProviderWizard', () => ({
-  AddProviderWizard: (props: { entry?: unknown }) => {
-    wizardSpy(props.entry);
-    return React.createElement('div', { 'data-testid': 'wizard-stub' });
+// 2026-10-29 需求 6:多供应商向导已移除,新增入口为「添加模型」弹窗。
+vi.mock('@/components/settings/AddModelDialog', () => ({
+  AddModelDialog: (props: { open?: boolean }) => {
+    // 组件常驻挂载、靠 open 显隐;桩只在打开时渲染,断言才与「该不该出现」对齐。
+    if (!props.open) return null;
+    wizardSpy(props.open);
+    return React.createElement('div', { 'data-testid': 'gateway-stub' });
   },
 }));
 
@@ -250,7 +253,7 @@ describe('ProvidersSection — 深链定位', () => {
       ];
       renderAt('?tab=providers&connect=openai-account');
       expect(await screen.findByRole('button', { name: /OpenAI Work/ })).toBeTruthy();
-      expect(screen.queryByTestId('wizard-stub')).toBeNull();
+      expect(screen.queryByTestId('gateway-stub')).toBeNull();
       expect(
         await screen.findByRole('button', {
           name: connected
@@ -760,11 +763,11 @@ describe('ProvidersSection — 深链定位', () => {
     expect(screen.getByRole('button', { name: 'chatgptAuthRecovery.openApp' })).not.toBeNull();
   });
 
-  it('connect=anthropic(未占行内置渠道)→ 向导 builtin 直达;参数消费后清除', async () => {
+  it('connect=anthropic(未占行内置渠道)→ 打开添加模型弹窗;参数消费后清除', async () => {
     renderAt('?tab=providers&connect=anthropic');
 
-    await waitFor(() => expect(screen.queryByTestId('wizard-stub')).not.toBeNull());
-    expect(wizardSpy).toHaveBeenCalledWith({ kind: 'builtin', providerId: 'anthropic' });
+    await waitFor(() => expect(screen.queryByTestId('gateway-stub')).not.toBeNull());
+    expect(wizardSpy).toHaveBeenCalledWith(true);
     await waitFor(() => expect(screen.getByTestId('search').textContent).toBe('?tab=providers'));
   });
 
@@ -784,7 +787,7 @@ describe('ProvidersSection — 深链定位', () => {
     await waitFor(() =>
       expect(screen.getByTestId('provider-detail-identity').textContent).toContain('Anthropic'),
     );
-    expect(screen.queryByTestId('wizard-stub')).toBeNull();
+    expect(screen.queryByTestId('gateway-stub')).toBeNull();
     await waitFor(() => expect(screen.getByTestId('search').textContent).toBe('?tab=providers'));
   });
 
@@ -874,11 +877,11 @@ describe('ProvidersSection — 深链定位', () => {
     expect(updateCustomProvider).not.toHaveBeenCalled();
   });
 
-  it('connect=<目录外 id> → 视为 preset id,向导 preset entry 打开', async () => {
+  it('connect=<目录外 id> → 打开添加模型弹窗(向导 preset 直达已移除)', async () => {
     renderAt('?tab=providers&connect=deepseek');
 
-    await waitFor(() => expect(screen.queryByTestId('wizard-stub')).not.toBeNull());
-    expect(wizardSpy).toHaveBeenCalledWith({ kind: 'preset', presetId: 'deepseek' });
+    await waitFor(() => expect(screen.queryByTestId('gateway-stub')).not.toBeNull());
+    expect(wizardSpy).toHaveBeenCalledWith(true);
   });
 
   it('目录无 xd(无账号会话)→ 左栏置顶 Cindy 登录引导行,connect=xd 落到该行,CTA 跳 /login', async () => {
@@ -898,18 +901,18 @@ describe('ProvidersSection — 深链定位', () => {
     await waitFor(() =>
       expect(screen.getByText('settings.providers.xdSignin.desc')).not.toBeNull(),
     );
-    expect(screen.queryByTestId('wizard-stub')).toBeNull();
+    expect(screen.queryByTestId('gateway-stub')).toBeNull();
 
     fireEvent.click(screen.getByText('settings.providers.xdSignin.cta'));
     // local 模式:先 exitLocalMode 再进 /login(直跳会被 GuestRoute 弹回)。
     await waitFor(() => expect(screen.getByTestId('login-page')).not.toBeNull());
   });
 
-  it('wizard=1 → 向导目录第一步(无 entry);参数清除', async () => {
+  it('wizard=1 → 打开添加模型弹窗;参数清除', async () => {
     renderAt('?tab=providers&wizard=1');
 
-    await waitFor(() => expect(screen.queryByTestId('wizard-stub')).not.toBeNull());
-    expect(wizardSpy).toHaveBeenCalledWith(undefined);
+    await waitFor(() => expect(screen.queryByTestId('gateway-stub')).not.toBeNull());
+    expect(wizardSpy).toHaveBeenCalledWith(true);
     await waitFor(() => expect(screen.getByTestId('search').textContent).toBe('?tab=providers'));
   });
 

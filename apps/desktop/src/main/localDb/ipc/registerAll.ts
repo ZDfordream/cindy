@@ -49,7 +49,7 @@ import { reconcileMediaRefCompensationsForOwner } from '../../cindy-media/refCom
 import { setSessionRouteLockImplementation } from '../sessionRouteLock';
 import { LOCAL_DATA_OWNER_ID } from '../../appSessionState';
 import { ensureDialogueWorkspaceDir } from '../dialogueWorkspace';
-import { isUiMockDataEnabled, seedUiMockData } from '../uiMockSeed';
+import { isUiMockDataEnabled, isUiMockDemoDataEnabled, seedUiMockData } from '../uiMockSeed';
 
 const log = createLogger('registerAll');
 const MEDIA_REF_COMPENSATION_BUSY_RETRY_MS = 12_000;
@@ -119,7 +119,7 @@ export interface RegisterLocalDbIpcOpts {
    *
    * 设计原因：scheduler-host 的 startScheduler 需要 localDb + maker 都 ready，
    * 二者就绪时序不固定（splash check-environment 走在 user login 前/后都可能）；
-   * 在两个就绪事件源（registerMakerIpcsAfterSplash + 本回调）各调一次幂等的
+   * 在两个就绪事件源（registerMakerIpcs + 本回调）各调一次幂等的
    * startScheduler，谁后到谁负责真正启动。
    */
   onReady?: (userId: string) => void | Promise<void>;
@@ -147,7 +147,7 @@ export function registerLocalDbIpc(opts: RegisterLocalDbIpcOpts = {}): void {
         tryGetDbClient() === client &&
         getCurrentDbClientUserId() === userId &&
         (opts.isOwnerCurrent?.(userId) ?? true);
-      if (isUiMockDataEnabled() && userId === LOCAL_DATA_OWNER_ID) {
+      if (isUiMockDataEnabled() && isUiMockDemoDataEnabled() && userId === LOCAL_DATA_OWNER_ID) {
         // Dev `--mock` sandbox: seed before the renderer lists tasks. Never block startup.
         try {
           const added = await seedUiMockData({
