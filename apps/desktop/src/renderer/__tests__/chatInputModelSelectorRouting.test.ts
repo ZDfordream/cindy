@@ -532,7 +532,10 @@ describe('ChatInput model source switching wiring', () => {
     );
   });
 
-  it('keeps a new conversation model pick on the draft path', () => {
+  // [dormant] 合同对象 handleUnifiedDraftSelect 已是零调用点的孤儿（ModelSelector
+  // 入口被 ChatModelMenu 取代，见该回调头注）。恢复路径 = 重新挂载 ModelSelector
+  // 的 onUnifiedSelect 注入（同 handleUnifiedDraftSelect 头注）；恢复后去掉本标记。
+  it('[dormant] keeps a new conversation model pick on the draft path', () => {
     const draftStart = chatInputSource.indexOf('const handleUnifiedDraftSelect = useCallback(');
     const draftEnd = chatInputSource.indexOf(
       '[sessionId, settingsLocked, modelMemory, taskComputerModelMemory, onUnifiedDraftSelect, agentDeviceId]',
@@ -553,7 +556,13 @@ describe('ChatInput model source switching wiring', () => {
   // 是 ModelSelector 触发器的 prop 合同；该触发器已被 ChatModelMenu 取代
   // （设计稿 §5.3），调用点不再存在，按新形态裁剪。
 
-  it('sends null atomic effort for models with no ranks and keeps row Fast', () => {
+  // [dormant] 本合同锁 performModelChange / performProviderChange 的原子选择体。
+  // 本地入口（handleModelChange / handleProviderChange）已是孤儿；perform* 本体还剩
+  // sameEngineReselectRef（performAgentSwitch 同引擎 reselect，远端镜像意图可入）一个
+  // 窄消费方，但本合同当初要守的**本地入口链**已退场，按 reviewer 口径标 dormant、
+  // 不再当作现行可达性的背书。恢复路径 = 恢复 ModelSelector 的 onModelChange /
+  // onProviderChange 注入；恢复后去掉本标记。
+  it('[dormant] sends null atomic effort for models with no ranks and keeps row Fast', () => {
     const modelStart = chatInputSource.indexOf('const performModelChange = useCallback(');
     const providerStart = chatInputSource.indexOf('const performProviderChange = useCallback(');
     const modelChange = chatInputSource.slice(modelStart, providerStart);

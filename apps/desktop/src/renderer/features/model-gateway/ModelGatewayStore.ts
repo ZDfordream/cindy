@@ -178,6 +178,9 @@ function entryFromProviderView(provider: ProviderView, meta: ModelGatewayMeta): 
 
 function useModelGatewayStore(): ModelGatewayApi {
   const [rows, setRowsState] = useState<ModelEntry[]>([]);
+  // 首次 listProviders 落定前 entries 的 [] 只是「还没读到」（review Important 1）：
+  // 当前模型的回落 / 写回必须等 hydrate，否则重启 / remount 会把已持久化的当前模型抹掉。
+  const [hydrated, setHydrated] = useState(false);
   // 同步读最新行（update/remove/setStatus 要先拿稳定 id 再发 IPC；persistMeta 也从这重建）。
   const rowsRef = useRef<ModelEntry[]>([]);
   // 生成新稳定句柄时避开全部自定义供应商（含旧表单隐藏项）的已用 id。
@@ -231,6 +234,7 @@ function useModelGatewayStore(): ModelGatewayApi {
           .map((provider) => entryFromProviderView(provider, meta))
           .filter((entry): entry is ModelEntry => entry !== null),
       );
+      setHydrated(true);
     });
     return loadRef.current;
   }, [setRows]);
@@ -345,8 +349,8 @@ function useModelGatewayStore(): ModelGatewayApi {
   );
 
   return useMemo(
-    () => ({ entries, add, update, remove, toggle, setStatus }),
-    [entries, add, update, remove, toggle, setStatus],
+    () => ({ entries, hydrated, add, update, remove, toggle, setStatus }),
+    [entries, hydrated, add, update, remove, toggle, setStatus],
   );
 }
 

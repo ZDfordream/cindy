@@ -61,15 +61,24 @@ export interface CurrentModelApi {
 
 export function useCurrentModel(): CurrentModelApi {
   const stored = useSyncExternalStore(subscribe, getSnapshot);
-  const { entries } = useModelGateway();
+  const { entries, hydrated } = useModelGateway();
   const enabled = useMemo(() => entries.filter((entry) => entry.enabled), [entries]);
+  // 加载窗口内（条目表尚未 hydrate）保持已持久化值**不动**：entries 的 [] 只是
+  // 「还没读到」，不是「没有可用模型」——把窗口内的 null 写回去会在每次重启 /
+  // ChatInput remount 时抹掉用户的当前模型（review Important 1）。
   const stillAvailable = stored !== null && enabled.some((entry) => entry.id === stored);
-  const effective = stillAvailable ? stored : (enabled[0]?.id ?? null);
+  const effective = !hydrated
+    ? stored
+    : stillAvailable
+      ? stored
+      : (enabled[0]?.id ?? null);
 
   // 删除 / 关闭当前条目 → 回落到第一个 enabled；存储跟对外值保持一致。
+  // 只在条目表确定已加载后才写回。
   useEffect(() => {
+    if (!hydrated) return;
     if (effective !== stored) writeStoredId(effective);
-  }, [effective, stored]);
+  }, [hydrated, effective, stored]);
 
   const setCurrent = useCallback((id: string) => {
     writeStoredId(id);

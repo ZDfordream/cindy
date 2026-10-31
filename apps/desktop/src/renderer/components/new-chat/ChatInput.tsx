@@ -7855,6 +7855,10 @@ function ChatInputInner({
   //   · 交给草稿层 —— 它会落进 lastByVendor.model,并原样进 createSession。
   // `rowModelId` 只在需要指回"面板上那一行"时有用(收藏锚点等),**绝不能当发送 id**,
   // 所以这里只接收、不消费,也不往下游传。
+  // [dormant] 自 ModelSelector 被 ChatModelMenu 取代（设计稿 §5.3）后本回调**零调用点**
+  // ——原唯一消费方是统一面板的 onUnifiedSelect 注入。保留整条链为旧模型选择入口的
+  // 恢复路径（owner「藏起来以后再说」/ Task 7 同口径，不删）；恢复入口 = 重新挂载
+  // ModelSelector 的 onUnifiedSelect 注入，勿在恢复前给它接新调用方。
   const handleUnifiedDraftSelect = useCallback(
     (selection: {
       providerId: string;
@@ -8263,6 +8267,9 @@ function ChatInputInner({
     ],
   );
 
+  // [dormant] 同上：本回调自 ModelSelector（onModelChange 注入）退场后零调用点；
+  // 保留为旧模型选择入口的恢复路径。下游 performModelChange 本体仍经
+  // sameEngineReselectRef（performAgentSwitch 同引擎 reselect）被消费，不是纯死码。
   const handleModelChange = useCallback(
     (newModelId: string, expectedAgentSwitchRevision?: number): Promise<void | boolean> => {
       const remoteDeviceId = sessionId
@@ -8931,6 +8938,9 @@ function ChatInputInner({
     ],
   );
 
+  // [dormant] 同上：本回调自 ModelSelector（onProviderChange 注入）退场后零调用点；
+  // 保留为旧模型选择入口的恢复路径。下游 performProviderChange 本体仍经
+  // sameEngineReselectRef 被消费，不是纯死码。
   const handleProviderChange = useCallback(
     (
       newProviderId: string | null,

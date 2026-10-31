@@ -36,7 +36,7 @@ interface MakerMock {
 
 let maker: MakerMock;
 
-/** 探针：暴露发送路径读到的路由（useCurrentModelRoute）+ setCurrent。 */
+/** 探针：暴露发送路径读到的路由（useCurrentModelRoute）+ 当前模型 id + setCurrent。 */
 function renderRouteProbe() {
   let api: ModelGatewayApi | null = null;
   let setCurrent: ((id: string) => void) | null = null;
@@ -48,12 +48,13 @@ function renderRouteProbe() {
     route = useCurrentModelRoute();
     return (
       <div>
+        <div data-testid="current-id">{current.currentId ?? 'null'}</div>
         <div data-testid="route-provider">{route?.providerId ?? 'null'}</div>
         <div data-testid="route-model">{route?.modelId ?? 'null'}</div>
       </div>
     );
   }
-  render(
+  const view = render(
     <ModelGatewayProvider>
       <Probe />
     </ModelGatewayProvider>,
@@ -62,7 +63,31 @@ function renderRouteProbe() {
     getApi: () => api!,
     setCurrent: (id: string) => setCurrent!(id),
     getRoute: () => route,
+    unmount: () => view.unmount(),
   };
+}
+
+/** 最小新表单供应商视图（与 modelGatewayStore.test.ts 的 userProviderView 同形）。 */
+function gatewayProviderView(providerId: string, modelId: string): ProviderView {
+  return {
+    id: providerId,
+    name: modelId,
+    source: 'user',
+    agents: ['claude-code'],
+    auth: { method: 'apiKey' },
+    connected: true,
+    routing: {
+      'claude-code': {
+        upstream: 'https://gw.example/anthropic',
+        wireProtocol: 'anthropic-messages',
+      },
+    },
+    models: {
+      'claude-code': [
+        { id: modelId, name: modelId, catalogPresetId: 'hrbuddy-gateway' },
+      ],
+    },
+  } as unknown as ProviderView;
 }
 
 async function addModel(api: ModelGatewayApi, modelId: string): Promise<string> {
@@ -134,5 +159,50 @@ describe('currentModelStore send route', () => {
     expect(screen.getByTestId('route-provider').textContent).toBe(idA);
     expect(screen.getByTestId('route-model').textContent).toBe('a');
     expect(probe.getRoute()).toEqual({ providerId: idA, modelId: 'a' });
+  });
+
+  it('keeps the persisted current model across the loading window and remounts', async () => {
+    // 手动结算的 listProviders：拉宽「条目表尚未 hydrate」的加载窗口，不真实等待。
+    const deferred = <T,>(): { promise: Promise<T>; resolve: (value: T) => void } => {
+      let resolve!: (value: T) => void;
+      const promise = new Promise<T>((r) => {
+        resolve = r;
+      });
+      return { promise, resolve };
+    };
+    const fixtures = (): { providers: ProviderView[] } => ({
+      providers: [gatewayProviderView('seed-a', 'a'), gatewayProviderView('seed-b', 'b')],
+    });
+
+    const firstLoad = deferred<{ providers: ProviderView[] }>();
+    maker.listProviders = vi.fn(() => firstLoad.promise);
+    const first = renderRouteProbe();
+    await act(async () => {
+      firstLoad.resolve(fixtures());
+    });
+
+    // 用户选中**非首位**条目（modelId 升序时 a 在前，选的是 b）。
+    await act(async () => {
+      first.setCurrent('seed-b');
+    });
+    expect(screen.getByTestId('current-id').textContent).toBe('seed-b');
+    expect(window.localStorage.getItem(CURRENT_MODEL_STORAGE_KEY)).toBe('seed-b');
+    first.unmount();
+
+    // remount（ChatInput 自挂 Provider / 重启后首挂是同一形态）：又一轮加载窗口。
+    // 「还没读到」不得当成「没有可用模型」——旧实现会在这里把 currentId 刷成 null
+    // 并抹掉 localStorage（review Important 1）。
+    const secondLoad = deferred<{ providers: ProviderView[] }>();
+    maker.listProviders = vi.fn(() => secondLoad.promise);
+    renderRouteProbe();
+    expect(screen.getByTestId('current-id').textContent).toBe('seed-b');
+    expect(window.localStorage.getItem(CURRENT_MODEL_STORAGE_KEY)).toBe('seed-b');
+
+    await act(async () => {
+      secondLoad.resolve(fixtures());
+    });
+    // 落定后仍是用户选的那条（不是按 modelId 排序的第一个 enabled）。
+    expect(screen.getByTestId('current-id').textContent).toBe('seed-b');
+    expect(window.localStorage.getItem(CURRENT_MODEL_STORAGE_KEY)).toBe('seed-b');
   });
 });

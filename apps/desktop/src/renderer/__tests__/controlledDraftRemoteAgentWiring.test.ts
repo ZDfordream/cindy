@@ -132,8 +132,12 @@ describe('草稿页:建到被控电脑的任务也能选第三台电脑', () => 
   });
 });
 
-describe('输入框:草稿的模型面板', () => {
-  it('建到被控电脑的草稿也给远程 Agent 入口,先列被控电脑的目录与它的镜像记忆', () => {
+// [dormant] 「草稿的模型面板」= ModelSelector 的 remoteAgent 注入 —— 该入口已被
+// ChatModelMenu 取代（设计稿 §5.3），本 describe 里的合同锁的都是只为那个入口服务的
+// 接线（remoteAgentOptions / handleUnifiedDraftSelect）。恢复路径 = 重新挂载
+// ModelSelector 的 remoteAgent / onUnifiedSelect 注入；恢复后去掉本标记。
+describe('[dormant] 输入框:草稿的模型面板', () => {
+  it('[dormant] 建到被控电脑的草稿也给远程 Agent 入口,先列被控电脑的目录与它的镜像记忆', () => {
     const start = chatInputSource.indexOf(
       'const remoteAgentOptions = useMemo<RemoteAgentSelectorOptions | undefined>(',
     );
@@ -148,7 +152,7 @@ describe('输入框:草稿的模型面板', () => {
     );
   });
 
-  it('选回任务所在电脑时档位记进那份记忆(被控电脑的镜像),不写本机预设', () => {
+  it('[dormant] 选回任务所在电脑时档位记进那份记忆(被控电脑的镜像),不写本机预设', () => {
     const start = chatInputSource.indexOf('const handleUnifiedDraftSelect = useCallback(');
     const block = chatInputSource.slice(start, chatInputSource.indexOf('onUnifiedDraftSelect?.({', start));
     expect(block).toContain(': taskComputerModelMemory;');

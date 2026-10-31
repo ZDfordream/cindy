@@ -40,6 +40,12 @@ export interface ModelGatewayInput {
 export interface ModelGatewayApi {
   /** 按 `modelId` 字母升序排列的新表单条目（旧配置不出现）。 */
   entries: ModelEntry[];
+  /**
+   * 条目表是否已完成首次加载。加载窗口内 `entries` 的 `[]` 只是「还没读到」，
+   * 不是「没有可用模型」——当前模型的回落 / 写回必须等它为 true（review：
+   * 否则每次重启 / remount 都会把已持久化的当前模型抹掉）。
+   */
+  hydrated: boolean;
   /** 新建条目并返回其稳定 id（= 自定义供应商 id）。 */
   add(input: ModelGatewayInput): Promise<string>;
   /** 按稳定 id 编辑条目；可改 baseUrl / modelId / 密钥，id 不变。 */
