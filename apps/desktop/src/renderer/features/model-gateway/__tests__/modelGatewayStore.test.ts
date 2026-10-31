@@ -1,11 +1,13 @@
 /** @vitest-environment jsdom */
 
 /**
- * modelGatewayStore —— 模型条目数据层的增删改查、字母排序与「清空重来」标记过滤。
+ * modelGatewayStore —— 模型条目数据层的增删改查、按 modelId 排序、稳定句柄、
+ * localStorage 元数据持久化与「清空重来」标记过滤。
  *
  * 走真实生产入口：`useModelGateway` → `@/lib/customProviders` 的 create/update/delete
- * 与 `window.electronAPI.maker.listProviders`，只在 IPC 边界打桩（与 customProviders.test.ts
- * 同法）。凭证契约（keys 提交、config / state 不含密钥）在 add 用例里钉住。
+ * 与 `window.electronAPI.maker.listProviders`，只在 IPC / localStorage 边界打桩
+ * （与 customProviders.test.ts 同法）。凭证契约（keys 提交、config / state 不含密钥）
+ * 在 add 用例里钉住。
  */
 import { act, renderHook } from '@testing-library/react';
 import type { CustomProviderConfig, ProviderView } from '@cindy/model-providers';
@@ -24,7 +26,19 @@ interface MakerMock {
   deleteCustomProvider: ReturnType<typeof vi.fn>;
 }
 
+/** 最小 localStorage 替身；同用例内多次 render 共享同一份（模拟重启后仍在）。 */
+function memoryStorage(): { getItem: (k: string) => string | null; setItem: (k: string, v: string) => void } {
+  const map = new Map<string, string>();
+  return {
+    getItem: (key: string) => map.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      map.set(key, value);
+    },
+  };
+}
+
 let maker: MakerMock;
+let storage: ReturnType<typeof memoryStorage>;
 
 /** 一条自定义供应商视图；`catalogPresetId` 缺省即旧表单（无新表单标记）配置。 */
 function userProviderView(input: {
@@ -76,7 +90,8 @@ describe('model gateway store', () => {
       updateCustomProvider: vi.fn(async () => ({ ok: true })),
       deleteCustomProvider: vi.fn(async () => ({ ok: true })),
     };
-    vi.stubGlobal('window', { electronAPI: { maker } });
+    storage = memoryStorage();
+    vi.stubGlobal('window', { electronAPI: { maker }, localStorage: storage });
   });
 
   afterEach(() => {
@@ -103,10 +118,14 @@ describe('model gateway store', () => {
       });
     });
 
+    // add 返回稳定句柄；排序键是 modelId（升序）。
     expect(addedId).toBe('b');
+    expect(result.current.entries.map((entry) => entry.id)).toEqual(['a', 'b']);
+    expect(result.current.entries.map((entry) => entry.modelId)).toEqual(['a', 'b']);
     expect(result.current.entries).toEqual([
       {
         id: 'a',
+        modelId: 'a',
         name: 'a',
         baseUrl: 'https://gw.example/anthropic',
         enabled: true,
@@ -114,6 +133,7 @@ describe('model gateway store', () => {
       },
       {
         id: 'b',
+        modelId: 'b',
         name: 'b',
         baseUrl: 'https://gw.example/anthropic',
         enabled: true,
@@ -164,26 +184,42 @@ describe('model gateway store', () => {
         apiKey: 'sk-a',
         modelId: 'model-a',
       });
+      await result.current.add({
+        baseUrl: 'https://gw.example/anthropic',
+        apiKey: 'sk-b',
+        modelId: 'model-b',
+      });
+    });
+    await act(async () => {
+      await result.current.toggle('model-a', false);
     });
 
+    // modelId 真的换（model-a → model-z）：句柄保持 model-a 不动。
     await act(async () => {
       await result.current.update('model-a', {
         baseUrl: 'https://gw-b.example/anthropic',
-        apiKey: 'sk-b',
-        modelId: 'model-a',
+        apiKey: 'sk-z',
+        modelId: 'model-z',
       });
     });
 
-    expect(result.current.entries).toHaveLength(1);
-    expect(result.current.entries[0]?.id).toBe('model-a');
-    expect(result.current.entries[0]?.baseUrl).toBe('https://gw-b.example/anthropic');
+    const updated = result.current.entries.find((entry) => entry.modelId === 'model-z');
+    expect(updated?.id).toBe('model-a');
+    expect(updated?.baseUrl).toBe('https://gw-b.example/anthropic');
+    expect(updated?.name).toBe('model-z');
+    // 换 modelId 后按新 modelId 重排（model-b < model-z），句柄顺序不再是排序键。
+    expect(result.current.entries.map((entry) => entry.modelId)).toEqual(['model-b', 'model-z']);
+    expect(result.current.entries.map((entry) => entry.id)).toEqual(['model-b', 'model-a']);
+    // 编辑不重置启停（meta 按稳定 id 挂着）。
+    expect(updated?.enabled).toBe(false);
 
-    // 同一条存储记录被更新（不是删除重建），input 的 baseUrl / modelId 都写穿进配置。
+    // 同一条存储记录被更新（不是删除重建），input 的 baseUrl / modelId / 密钥都写穿进配置。
     const createConfig = maker.createCustomProvider.mock.calls[0][0] as CustomProviderConfig;
     const updateConfig = maker.updateCustomProvider.mock.calls[0][0] as CustomProviderConfig;
     expect(updateConfig.id).toBe(createConfig.id);
     expect(updateConfig.runtimes['claude-code']?.baseUrl).toBe('https://gw-b.example/anthropic');
-    expect(updateConfig.runtimes['claude-code']?.models[0]?.id).toBe('model-a');
+    expect(updateConfig.runtimes['claude-code']?.models[0]?.id).toBe('model-z');
+    expect(maker.updateCustomProvider.mock.calls[0][1]).toEqual({ 'claude-code': 'sk-z' });
   });
 
   it('toggle only flips enabled; entry stays in entries', async () => {
@@ -235,6 +271,74 @@ describe('model gateway store', () => {
     const { result } = renderGateway();
     await act(async () => {});
 
-    expect(result.current.entries.map((entry) => entry.id)).toEqual(['model-a']);
+    // 句柄 = 自定义供应商 id（gw-a），modelId 单独一列。
+    expect(result.current.entries.map((entry) => entry.id)).toEqual(['gw-a']);
+    expect(result.current.entries.map((entry) => entry.modelId)).toEqual(['model-a']);
+  });
+
+  it('persists enabled/status/lastTestedAt across remount (localStorage)', async () => {
+    maker.listProviders.mockResolvedValue({
+      dataOwnerId: null,
+      ownerGeneration: 1,
+      providers: [
+        userProviderView({
+          providerId: 'gw-a',
+          modelId: 'model-a',
+          catalogPresetId: MODEL_GATEWAY_CATALOG_PRESET_ID,
+        }),
+      ],
+      providerOrder: [],
+    });
+
+    const first = renderGateway();
+    await act(async () => {});
+    await act(async () => {
+      await first.result.current.toggle('gw-a', false);
+    });
+    await act(async () => {
+      first.result.current.setStatus('gw-a', { ok: true, latencyMs: 80 });
+    });
+
+    // Ruling 5 的存储契约：key `hrbuddy.modelGatewayMeta`，按条目 id 索引的 JSON blob。
+    expect(JSON.parse(storage.getItem('hrbuddy.modelGatewayMeta') ?? 'null')).toEqual({
+      'gw-a': {
+        enabled: false,
+        status: { ok: true, latencyMs: 80 },
+        lastTestedAt: expect.any(String),
+      },
+    });
+    first.unmount();
+
+    // 「重启」（重新挂载）：开关与最近一次测试结果都不回空白。
+    const second = renderGateway();
+    await act(async () => {});
+    expect(second.result.current.entries).toHaveLength(1);
+    expect(second.result.current.entries[0]).toMatchObject({
+      id: 'gw-a',
+      modelId: 'model-a',
+      enabled: false,
+      status: { ok: true, latencyMs: 80 },
+      lastTestedAt: expect.any(String),
+    });
+  });
+
+  it('never hands create a reserved provider id as the entry handle', async () => {
+    const { result } = renderGateway();
+    await act(async () => {});
+
+    // modelId 撞内置来源保留名（xai 等）时，稳定句柄加后缀避开，create 校验才不会拒。
+    let addedId = '';
+    await act(async () => {
+      addedId = await result.current.add({
+        baseUrl: 'https://gw.example/anthropic',
+        apiKey: 'sk-x',
+        modelId: 'xai',
+      });
+    });
+
+    expect(addedId).toBe('xai-2');
+    expect((maker.createCustomProvider.mock.calls[0][0] as CustomProviderConfig).id).toBe('xai-2');
+    expect(result.current.entries.map((entry) => entry.id)).toEqual(['xai-2']);
+    expect(result.current.entries.map((entry) => entry.modelId)).toEqual(['xai']);
   });
 });
