@@ -2,8 +2,8 @@
  * useModelConnectivity —— 模型网关连通探测的结果归一契约（Task 2）。
  *
  * 测试价值
- * - 生产入口与可观察结果：`testModelConnectivity`（Task 3 列表「重测」与 Task 4 保存门
- *   的共同原语）；调用方只看得到 `{ ok: true, latencyMs } | { ok: false, detail }`，
+ * - 生产入口与可观察结果：`testModelConnectivity`（列表「重测」的原语；保存门已改
+ *   合法性校验、不再探测）；调用方只看得到 `{ ok: true, latencyMs } | { ok: false, detail }`，
  *   且 Promise 永不 reject。
  * - Bug／规则依据：任务 brief Task 2 Produces 形状；Global Constraint「协议写死
  *   anthropic-messages」——IPC 入参是对外协议，形状/协议错了探测会打到错误 wire

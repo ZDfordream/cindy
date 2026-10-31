@@ -2252,6 +2252,19 @@ html[data-wallpaper-active='true'] :is(.layout-divider-v, .layout-divider-h) {
     transform: translate(-50%, -50%);
   }
 }
+/* 面板 shake：弹窗「dirty 点遮罩不关」的提示（PRD 2026-11-01 model-provider-settings
+   交互稿，AddModelDialog / ModelGatewayForm）。命令式 .add('shake') 触发，重启动画由
+   调用处摘类 → reflow → 加类；时长走 motion token，减弱动效时归零。 */
+@keyframes modal-panel-shake {
+  20%,
+  60% {
+    transform: translateX(-6px);
+  }
+  40%,
+  80% {
+    transform: translateX(6px);
+  }
+}
 @layer components {
   .modal-scrim {
     background-color: var(--overlay-modal);
@@ -2276,6 +2289,9 @@ html[data-wallpaper-active='true'] :is(.layout-divider-v, .layout-divider-h) {
     background-color: var(--confirm-bg);
     box-shadow: var(--shadow-menu);
     animation: modal-panel-in var(--motion-enter) var(--motion-ease-out);
+  }
+  .modal-panel.shake {
+    animation: modal-panel-shake var(--motion-base) var(--motion-ease-out);
   }
 }
 

@@ -3453,7 +3453,15 @@
         "model": "Model",
         "baseUrlPlaceholder": "http://model.mify.ai.srv/anthropic",
         "modelIdPlaceholder": "Enter model ID",
-        "saveProbeFailed": "Connection test failed — nothing was saved"
+        "modelHint": "Upstream model ID, sent to the gateway as-is.",
+        "baseUrlRequired": "Enter the endpoint URL",
+        "baseUrlInvalid": "URL must start with http:// or https://",
+        "apiKeyRequired": "Enter the API key",
+        "modelIdRequired": "Enter the model ID",
+        "modelIdDuplicate": "This model is already added",
+        "addedToast": "Added {{model}}",
+        "savedToast": "Saved {{model}}",
+        "saveFailed": "Could not save. Please try again."
       },
       "gateway": {
         "createTitle": "Add Anthropic Gateway",

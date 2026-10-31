@@ -3424,7 +3424,15 @@
         "model": "모델",
         "baseUrlPlaceholder": "http://model.mify.ai.srv/anthropic",
         "modelIdPlaceholder": "모델 ID 입력",
-        "saveProbeFailed": "연결 테스트에 실패했습니다. 모델이 저장되지 않았습니다"
+        "modelHint": "업스트림 모델 ID로, 그대로 게이트웨이에 전송됩니다.",
+        "baseUrlRequired": "엔드포인트 URL을 입력하세요",
+        "baseUrlInvalid": "URL은 http:// 또는 https://로 시작해야 합니다",
+        "apiKeyRequired": "API Key를 입력하세요",
+        "modelIdRequired": "모델 ID를 입력하세요",
+        "modelIdDuplicate": "이미 추가된 모델입니다",
+        "addedToast": "{{model}} 모델을 추가했습니다",
+        "savedToast": "{{model}} 모델을 저장했습니다",
+        "saveFailed": "저장하지 못했습니다. 다시 시도해 주세요."
       },
       "gateway": {
         "createTitle": "Anthropic 게이트웨이 추가",
