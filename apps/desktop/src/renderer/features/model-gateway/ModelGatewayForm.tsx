@@ -11,8 +11,9 @@
  * 留空 = 沿用已存（`readCustomProviderKey` 现读，只作为本次探测/落库的 IPC 入参，
  * 不进 React state、不落任何 JSON）。
  *
- * 编辑保存若改了 `baseUrl` / `modelId`，按 Task 1 遗留裁决把连通状态重置为
- * `untested`——旧「已连通」不得张冠李戴到没测过的新端点；两栏都没改则保留原状态。
+ * Ruling 14：保存即测试——保存门的探测结果就是条目此刻的连通状态（设计稿 §5.2
+ * 「通过 → 写入延迟」）。create / edit 成功都把本次探测结果 `setStatus` 落到条目上，
+ * 不做「改后置 untested」；正常路径下列表不出现「未测试」行。
  *
  * ⚠️ 有意偏离 DESIGN.md（沿用 `AddModelDialog.tsx` 既有偏离登记 / 设计稿 §7，
  * 不新增）：
@@ -162,16 +163,15 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
         return;
       }
 
+      // Ruling 14：保存即测试。探测刚验过这组 baseUrl/密钥/模型，结果就是最新
+      // 状态——create/edit 都写入，覆盖 add() 的初始 untested，也不留陈旧「已连通」。
       if (mode === 'create') {
         const id = await add(probeInput);
+        setStatus(id, probe);
         onSaved(id);
       } else {
         await update(editId!, probeInput);
-        // 改了端点/模型 → 旧状态作废（未测过的新端点不得标「已连通」）；没改保留。
-        const changed =
-          trimmedBase !== (initial?.baseUrl ?? '').trim() ||
-          trimmedModel !== (initial?.modelId ?? '').trim();
-        if (changed) setStatus(editId!, 'untested');
+        setStatus(editId!, probe);
         onSaved(editId!);
       }
       onClose();
@@ -190,8 +190,6 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
     baseUrl,
     editId,
     initial?.apiKey,
-    initial?.baseUrl,
-    initial?.modelId,
     mode,
     modelId,
     onClose,

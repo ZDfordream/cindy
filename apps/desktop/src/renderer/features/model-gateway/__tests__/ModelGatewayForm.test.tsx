@@ -139,7 +139,7 @@ describe('ModelGatewayForm', () => {
   });
 
   it('save persists and closes when the probe passes', async () => {
-    const { onClose, onSaved } = renderForm({ mode: 'create' });
+    const { onClose, onSaved, getApi } = renderForm({ mode: 'create' });
     await act(async () => {});
 
     fillFields({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-ok', modelId: 'm1' });
@@ -150,6 +150,34 @@ describe('ModelGatewayForm', () => {
     expect(maker.createCustomProvider).toHaveBeenCalledTimes(1);
     expect(onSaved).toHaveBeenCalledWith(expect.any(String));
     expect(onClose).toHaveBeenCalledTimes(1);
+    // Ruling 14：保存即测试——落库后的 status 就是本次探测结果（非 untested）。
+    expect(getApi().entries[0]!.status).toEqual({ ok: true, latencyMs: 128 });
+  });
+
+  it('edit save writes this probe result as the row status', async () => {
+    // Ruling 14：改过 baseUrl/modelId 的编辑保存也写本次探测结果，不再置 untested。
+    const editPhase = renderForm({
+      mode: 'edit',
+      initial: { id: 'm-existing', baseUrl: 'https://gw.example/anthropic', modelId: 'm-existing' },
+    });
+    await act(async () => {});
+    await act(async () => {
+      await editPhase.getApi().add({
+        baseUrl: 'https://gw.example/anthropic',
+        apiKey: 'sk-m-existing',
+        modelId: 'm-existing',
+      });
+    });
+    // 播种条目此时还是 untested（store.add 的初始值）。
+    expect(editPhase.getApi().entries[0]!.status).toBe('untested');
+
+    fillFields({ modelId: 'm-renamed' });
+    clickSave();
+
+    await waitFor(() => expect(editPhase.onSaved).toHaveBeenCalledTimes(1));
+    expect(maker.updateCustomProvider).toHaveBeenCalledTimes(1);
+    expect(editPhase.onClose).toHaveBeenCalledTimes(1);
+    expect(editPhase.getApi().entries[0]!.status).toEqual({ ok: true, latencyMs: 128 });
   });
 
   it('has no delete button in either mode', async () => {
