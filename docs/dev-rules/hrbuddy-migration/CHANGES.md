@@ -377,3 +377,13 @@ OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新�
 - `MainListScopeHeader.tsx` 残留死 import（侧栏清理遗留）。
 - 既有通过用例里残留永真的 `queryByTestId('model-selector')` 断言，应删或改钉 ChatModelMenu。
 - `chatInputModelLoading` 原 8 条重写为 7 条（唯一删除项 = R24 无载体用例），guest 锁选在 ChatModelMenu 无禁用态承载（deferred），现状钉在用例注释里。
+
+### 10.4 PRD 对齐计划挂账（2026-11-01，model-provider-settings）
+
+PRD `/Users/zhudong/hrworkspace/hrbuddy_prd/design/model-provider-settings.html` 六条交互已全量落地（R26–28 与三条推翻见 §10.1/§10.3）。合并后跟进项：
+
+- **在途重测的代数 token 硬化**：现方案按配置指纹比对丢弃陈旧回写（主路径已闭）；「删除→撤销→编辑」四步连招同窗 + 亚帧同到站两条窄路未封，可改探测代数 token 一并封死。丢弃路径目前静默（行停「未测试」无提示），可选补提示。
+- **store 层 URL 校验纵深**：R27/28 的 userinfo/解析闸现在只在 Form；`add`/`update` 是公开 API，后来者绕过 Form 仍可写坏 baseUrl 进镜像——建议把校验收进 store。
+- **小扫尾打包**：状态文字 `truncate`+title（ja/ko 长文案换行）、标题计数 `hydrated` 前闪 (0)、存量 16 个零引用 `modelDialog.*` 孤儿 key、store `done` 直调双保险钉。
+- **保存在途 Esc 口径**：「任何状态可关」= 非保存在途（busyRef 门闩有意），已写 Form 头注。
+- （存量，见条目 16 附记）姊妹 worker 配置 `process.env` 内联 `{}` bug。
