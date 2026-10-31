@@ -342,9 +342,9 @@ export const CINDY_EXPECTED_VALUES: Record<string, { light: string; dark: string
   'sidebar-muted': { light: '0.0 0.0% 0.0% / 0.56', dark: '0.0 0.0% 100.0% / 0.55' }, // 用户裁决 2026-10-22 墨水透明度(决策表 §9);沿革: 2026-08 §9 更新、E1D 侧栏层级 #9A9DA3/#6F6F6F
   'status-badge-fg': { light: '#1F1F1F', dark: '#121212' }, // 2026-08 §9 更新;沿革: §7 必炸点(lead 裁决)
   'surface-translucent-sidebar': {
-    light: 'rgba(238, 238, 233, 0.85)',
+    light: 'rgba(245, 245, 245, 0.85)',
     dark: 'rgba(5, 5, 5, 0.85)',
-  }, // 用户调参 2026-07-20:双端 80%(light #F6F6F6 试色后退回纯白)
+  }, // 用户调参 2026-07-20:双端 80%(light #F6F6F6 试色后退回纯白);2026-10-29 白底改动 neutralize 为 rgba(245,245,245,0.85)
   'sidebar-search-input-bg': {
     light: 'rgba(255, 255, 250, 0.55)',
     dark: 'rgba(0, 0, 0, 0.25)',

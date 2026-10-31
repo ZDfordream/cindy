@@ -143,9 +143,9 @@ describe('区域解析与派生', () => {
   });
 
   it('brandExecutableName / brandUserDataDirName 按区域取值,默认 global', () => {
-    expect(brandExecutableName()).toBe('Cindy');
+    expect(brandExecutableName()).toBe('HRBuddy');
     // global 与 cn 同值(2026-07-26 显示名统一决策);dev 仍独立。
-    expect(brandExecutableName('global')).toBe('Cindy');
+    expect(brandExecutableName('global')).toBe('HRBuddy');
     expect(brandExecutableName('dev')).toBe('CindyDev');
     expect(brandUserDataDirName()).toBe('CindyGlobal');
     expect(brandUserDataDirName('global')).toBe('CindyGlobal');
