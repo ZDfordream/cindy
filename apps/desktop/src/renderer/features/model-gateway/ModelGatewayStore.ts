@@ -99,15 +99,17 @@ function metaFor(meta: ModelGatewayMeta, id: string): ModelEntryMeta {
 }
 
 /**
- * ModelEntry → `~/.hrbuddy/models.json` 镜像行（Ruling 2 的推送载荷）。
+ * ModelEntry → `~/.hrbuddy/models.json` 镜像行（Ruling 2/17 的推送载荷）。
  * **逐字段拷贝，绝不 spread 条目/输入**——`apiKey` 只存在于 `ModelGatewayInput`，
- * 任何路径都不得进入镜像（Review Focus #1）。`provider` 取展示名、`id` 取上游模型
- * id，与 providerHandlers 的 create 钩子同一合并键（`provider + id`），两条写入
- * 路径不会出重复行。已知合并语义边界（镜像只写不读，设计 §6.3）：删除后旧行留档、
- * 改 modelId 后旧行留档、同 modelId 多条目在镜像内折叠——见 task-5-report concerns。
+ * 任何路径都不得进入镜像（Review Focus #1）。
+ *
+ * Ruling 17：镜像是 store 的 1:1 投影（`exportModels` 整组替换），`id` 取**稳定句柄**
+ * （= `entry.id`，与 ModelEntry.id 一致）、另带 `modelId` 承载上游模型 id——行身份
+ * 唯一，同 modelId 多条目并存、删除/改名即消失，不再有合并残留。
  */
 function mirrorRowFromEntry(entry: ModelEntry): {
   id: string;
+  modelId: string;
   name: string;
   provider: string;
   baseUrl: string;
@@ -117,7 +119,8 @@ function mirrorRowFromEntry(entry: ModelEntry): {
   lastTestedAt?: string;
 } {
   return {
-    id: entry.modelId,
+    id: entry.id,
+    modelId: entry.modelId,
     name: entry.name,
     provider: entry.name,
     baseUrl: entry.baseUrl,

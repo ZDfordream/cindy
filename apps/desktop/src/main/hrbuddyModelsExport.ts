@@ -5,15 +5,16 @@
  * —— 那是 WorkBuddy 的路径。本产品是 HRBuddy，写进 `~/.hrbuddy/` 而不是
  * `~/.workbuddy/`，避免与用户机器上真正的 WorkBuddy 互相覆盖。
  *
- * ⚠️ 安全边界：**只写模型元数据**（供应商名、上游 base URL、模型 id / 能力）。
+ * ⚠️ 安全边界：**只写模型元数据**（稳定句柄、上游模型 id、供应商名、base URL、能力）。
  * API key 等凭证只进系统 keychain/safeStorage，**绝不落这个 JSON**，也绝不进仓库。
  * 写盘按字段白名单组装行（`toMirrorRow`），多余字段（尤其 `apiKey`）一律丢弃——
  * 即使调用方 spread 进了密钥也不会落盘（Review Focus #1 红线）。
  *
- * 写入方有两路（口径一致，key 都是 `provider + id`）：
- *   - providerHandlers 的 create 钩子（旧表单 / 通用自定义供应商）；
- *   - `hrbuddy-models:export` IPC（Ruling 2：model-gateway store 在增删改 /
- *     开关 / 状态变化后推送不含密钥的元数据）。
+ * 镜像语义（Ruling 17）：**store 的 1:1 投影，不是增量日志**。`exportModels` 整组替换
+ * `models` 数组，调用方每次送全量当前条目——同 modelId 多条目并存、删除即消失、
+ * 同输入 → 同文件（幂等）。唯一写入方是 `hrbuddy-models:export`（model-gateway store
+ * 在增删改 / 开关 / 状态变化后的全量推送）；providerHandlers 的 create 钩子不再写镜像
+ * （其局部推送会在整组替换下覆盖别人的行，且它不知道 enabled/status 元数据）。
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -34,8 +35,10 @@ export type ExportedModelStatus =
 
 /** 镜像文件里单个模型的形状（刻意不含任何凭证字段）。 */
 export interface ExportedModel {
-  /** 上游模型 id，原样发给网关。 */
+  /** 稳定句柄（= 自定义供应商 id，与 ModelEntry.id 一致）；镜像行的唯一身份。 */
   id: string;
+  /** 上游模型 id，原样发给网关。 */
+  modelId: string;
   /** 展示名。 */
   name: string;
   /** 来源供应商展示名。 */
@@ -82,16 +85,18 @@ function sanitizeStatus(raw: unknown): ExportedModelStatus | undefined {
 
 /**
  * 按白名单组装镜像行：只保留契约字段，其余（尤其 `apiKey`）一律丢弃。
- * 入参与既有文件行都过这里——历史泄漏的密钥会在下次写盘时被洗掉。
- * 缺 `id` / `provider`（合并键必需）的行返回 null 整行跳过。
+ * 身份字段 `id`（稳定句柄）与 `modelId`（上游模型 id）必需，缺失整行跳过。
  */
 function toMirrorRow(raw: unknown): ExportedModel | null {
   if (!raw || typeof raw !== 'object') return null;
   const m = raw as Record<string, unknown>;
-  if (typeof m.id !== 'string' || typeof m.provider !== 'string') return null;
+  if (typeof m.id !== 'string') return null;
+  if (typeof m.modelId !== 'string') return null;
+  if (typeof m.provider !== 'string') return null;
   const row: ExportedModel = {
     id: m.id,
-    name: typeof m.name === 'string' ? m.name : m.id,
+    modelId: m.modelId,
+    name: typeof m.name === 'string' ? m.name : m.modelId,
     provider: m.provider,
     baseUrl: typeof m.baseUrl === 'string' ? m.baseUrl : '',
   };
@@ -107,7 +112,8 @@ function toMirrorRow(raw: unknown): ExportedModel | null {
 }
 
 /**
- * 幂等写入：按 `provider + id` 去重合并，重复调用结果相同。
+ * 整组替换写入（Ruling 17）：`models` 数组 = 本次入参经白名单组装后的全部行，
+ * 旧内容（含历史泄漏的密钥）随替换整体消失。同输入 → 同文件，满足设计稿的幂等语义。
  * 失败只告警，不阻断主流程（镜像是便利性产物，不是权威存储）。
  */
 export function exportModels(models: ExportedModel[]): void {
@@ -115,31 +121,19 @@ export function exportModels(models: ExportedModel[]): void {
     const file = modelsJsonPath();
     fs.mkdirSync(path.dirname(file), { recursive: true });
 
-    let existing: ExportedModel[] = [];
-    try {
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<ModelsJson>;
-      if (Array.isArray(parsed.models)) existing = parsed.models;
-    } catch {
-      // 文件不存在 / 尚未是合法 JSON → 从空开始重建
-    }
-
-    const merged = new Map<string, ExportedModel>();
-    for (const raw of existing) {
-      const m = toMirrorRow(raw);
-      if (m) merged.set(m.provider + ' ' + m.id, m);
-    }
+    const rows: ExportedModel[] = [];
     for (const raw of models) {
-      const m = toMirrorRow(raw);
-      if (m) merged.set(m.provider + ' ' + m.id, m);
+      const row = toMirrorRow(raw);
+      if (row) rows.push(row);
     }
 
     const payload: ModelsJson = {
       schema: 1,
       updatedAt: new Date().toISOString(),
-      models: [...merged.values()],
+      models: rows,
     };
     fs.writeFileSync(file, JSON.stringify(payload, null, 2) + '\n', 'utf8');
-    log.info('models exported', { file, count: payload.models.length });
+    log.info('models exported', { file, count: rows.length });
   } catch (error) {
     log.warn('models export failed', {
       error: error instanceof Error ? error.message : String(error),
@@ -154,7 +148,7 @@ export interface HrbuddyModelsExportDeps {
 
 /**
  * `hrbuddy-models:export` 的 handler：model-gateway store 在增删改 / 开关 /
- * 状态变化后推送全量不含密钥的元数据，main 调 `exportModels` 写盘（Ruling 2）。
+ * 状态变化后推送全量不含密钥的元数据，main 调 `exportModels` 整组替换写盘（Ruling 2/17）。
  * 载荷必须是数组（否则 INVALID_PARAMS）；行级过滤与密钥剥离在 `toMirrorRow`。
  */
 export function registerHrbuddyModelsExportIpc(

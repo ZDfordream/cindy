@@ -374,10 +374,12 @@ describe('model gateway store', () => {
       result.current.setStatus('gw-a', { ok: true, latencyMs: 80 });
     });
 
-    // 载荷含开关与最近一次测试结果（镜像「能反映」的输入侧）。
+    // 载荷含开关与最近一次测试结果（镜像「能反映」的输入侧）；id=稳定句柄、
+    // modelId=上游模型 id（Ruling 17 的 1:1 投影身份）。
     expect(maker.exportHrbuddyModels.mock.calls.at(-1)?.[0]).toEqual([
       {
-        id: 'model-a',
+        id: 'gw-a',
+        modelId: 'model-a',
         name: 'model-a',
         provider: 'model-a',
         baseUrl: 'https://gw.example/anthropic',
@@ -389,5 +391,37 @@ describe('model gateway store', () => {
     ]);
     // 密钥绝不进 export 调用（红线的调用侧断言；文件侧断言见 hrbuddyModelsExport.test.ts）。
     expect(JSON.stringify(maker.exportHrbuddyModels.mock.calls)).not.toContain('sk-');
+  });
+
+  it('pushes distinct mirror rows for two configs sharing one modelId (Ruling 17)', async () => {
+    // 折叠 bug 的源头在 store 映射：旧实现 id=entry.modelId，同 modelId 的两条配置
+    // 推成同一身份 → 镜像并成一行。Ruling 17 起 id=稳定句柄，两条必须并存。
+    const { result } = renderGateway();
+    await act(async () => {});
+
+    await act(async () => {
+      await result.current.add({
+        baseUrl: 'https://a.example/anthropic',
+        apiKey: 'sk-a',
+        modelId: 'shared-model',
+      });
+    });
+    await act(async () => {
+      await result.current.add({
+        baseUrl: 'https://b.example/anthropic',
+        apiKey: 'sk-b',
+        modelId: 'shared-model',
+      });
+    });
+
+    const pushed = maker.exportHrbuddyModels.mock.calls.at(-1)?.[0] as Array<Record<string, unknown>>;
+    expect(pushed).toHaveLength(2);
+    // 两行身份不同（稳定句柄），上游 modelId 相同且都保留。
+    expect(pushed.map((row) => row.id)).toEqual(['shared-model', 'shared-model-2']);
+    expect(pushed.map((row) => row.modelId)).toEqual(['shared-model', 'shared-model']);
+    expect(pushed.map((row) => row.baseUrl)).toEqual([
+      'https://a.example/anthropic',
+      'https://b.example/anthropic',
+    ]);
   });
 });

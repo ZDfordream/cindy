@@ -71,7 +71,6 @@ import {
 import { createLogger } from '../logger.js';
 import type { UnrecoverableProviderCredential } from '../secrets/providerSecretStore.js';
 import { throwIpcError } from '../utils/ipcValidate.js';
-import { exportModels } from '../hrbuddyModelsExport.js';
 import {
   createCustomProvider,
   customProviderExists,
@@ -2079,20 +2078,10 @@ export function registerProviderHandlers(
         );
         try {
           await createCustomProvider(separated.config);
-          // 需求 7(2026-10-29):模型添加后镜像写入 ~/.hrbuddy/models.json。
-          // 只写元数据,绝不含凭证;失败不阻断主流程。
-          exportModels(
-            (separated.config.runtimes['claude-code']?.models ?? []).map((m) => ({
-              id: m.id,
-              name: m.name,
-              provider: separated.config.name,
-              baseUrl: separated.config.runtimes['claude-code']?.baseUrl ?? '',
-              wireProtocol: separated.config.runtimes['claude-code']?.wireProtocol,
-              supportsToolCalls: m.supportsToolCalls,
-              supportsImageInput: m.supportsImageInput,
-              reasoningRequired: m.reasoningRequired,
-            })),
-          );
+          // 镜像写入改由 model-gateway store 全量推送（hrbuddy-models:export，Ruling 17：
+          // ~/.hrbuddy/models.json 是 store 的 1:1 投影，exportModels 整组替换）。此
+          // create 钩子的局部推送会在整组替换下覆盖掉 store 的行，且拿不到 enabled/
+          // status（Ruling 5 的元数据在 renderer 侧）——故 create 路径不再写镜像。
           assertProviderMutationOwner(ownerAtIngress);
         } catch (error) {
           // 换号后不在 B 的 secret store 执行 A 的回滚。
