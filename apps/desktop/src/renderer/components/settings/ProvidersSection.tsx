@@ -125,7 +125,7 @@ import { ProviderSharePasteButton } from '@/features/provider-share/ProviderShar
 import { ModelGatewayList } from '@/features/model-gateway/ModelGatewayList';
 import { ModelGatewayForm } from '@/features/model-gateway/ModelGatewayForm';
 import { isLegacyProviderUiVisible } from '@/features/model-gateway/legacyVisibility';
-import { ModelGatewayProvider } from '@/features/model-gateway/ModelGatewayStore';
+import { ModelGatewayProvider, isModelGatewayProvider } from '@/features/model-gateway/ModelGatewayStore';
 import type { ModelEntry } from '@/features/model-gateway/types';
 import {
   ProviderShareReceivedDetail,
@@ -2599,6 +2599,10 @@ export function ProvidersSection() {
     const rows: ProviderView[] = [];
     for (const p of providers) {
       if (p.removed) continue;
+      // 网关条目（model-gateway 的 ModelEntry）不进左栏：它就是 custom provider，
+      // 旧详情门后为 null，点左栏行只剩高亮、右栏无任何变化。右栏 ModelGatewayList
+      // 是网关条目的唯一入口；share / remote / signin 轨不在本列表，不受影响。
+      if (isModelGatewayProvider(p)) continue;
       if (p.source === 'builtin') {
         // reconnect-required 视同占行:凭证失效 ≠ 用户断开,重连入口必须保留。
         // OpenAI 图像 key 与 ChatGPT OAuth 两套凭证解耦:imageModels 已声明时,

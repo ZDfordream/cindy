@@ -281,6 +281,50 @@ describe('ProvidersSection — 深链定位', () => {
     expect(screen.queryByTestId('provider-detail-identity')).toBeNull();
   });
 
+  // 测试价值
+  // - 生产入口与可观察结果：真实 ProvidersSection 渲染；网关条目（custom provider 带
+  //   `catalogPresetId: 'hrbuddy-gateway'` 标记）不得出现在左栏行里，但仍出现在右栏
+  //   模型列表（ModelGatewayList → model-gateway-row）。
+  // - Bug／规则依据：最终全分支 review F1——网关条目即 custom provider，曾整行落进
+  //   左栏；点它旧详情门后为 null，只剩高亮、右栏无任何变化（点击无响应）。
+  // - 现有覆盖缺口：providersSection* 只验过左栏普通行 / 深链，从未断言网关条目行
+  //   的归属（右栏列表才是网关条目唯一入口）。
+  // - 最小失败输入：providers 目录里一条带网关标记的 user 条目 + 一条普通内置行。
+  // - tier：unit（jsdom 渲染生产组件，无网络 / 真实计时）。
+  it('keeps gateway entries out of the left rail while the right model list still lists them', async () => {
+    providersState.providers = [
+      makeProvider('anthropic', { name: 'Anthropic', connected: true }),
+      makeProvider('gw-entry', {
+        name: 'gw-model-alpha',
+        source: 'user',
+        agents: ['claude-code'],
+        connected: true,
+        models: {
+          'claude-code': [
+            {
+              id: 'gw-model-alpha',
+              name: 'gw-model-alpha',
+              catalogPresetId: 'hrbuddy-gateway',
+              contextWindow: 200_000,
+              efforts: [],
+              defaultEffort: null,
+            },
+          ],
+        },
+      }),
+    ];
+    renderAt('?tab=providers');
+
+    // 对照行：普通供应商照常占左栏。
+    expect(await screen.findByRole('button', { name: /Anthropic/ })).toBeTruthy();
+    // 网关条目行不得进左栏（点它右栏无任何变化）。
+    expect(screen.queryByRole('button', { name: /gw-model-alpha/ })).toBeNull();
+    // 右栏模型列表仍是网关条目的入口。
+    const rows = await screen.findAllByTestId('model-gateway-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain('gw-model-alpha');
+  });
+
   // 「keeps identity outside the shared model scroll area for %s」——裁剪：断言全部
   // 落在隐藏的旧详情块（provider-detail-scroll / 模型工具条布局），默认面不可达（§3.2）。
   // 「shows usage windows without a details disclosure across %s changes」——裁剪：

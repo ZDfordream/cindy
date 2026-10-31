@@ -162,10 +162,18 @@ function entryFromNew(providerId: string, input: ModelGatewayInput): ModelEntry 
   };
 }
 
+/**
+ * 网关条目身份判定：custom provider 上带新表单标记的 claude-code 单模型条目。
+ * 与 `entryFromProviderView` 的收录条件同源——设置左栏等处据此识别「这是网关条目」。
+ */
+export function isModelGatewayProvider(provider: ProviderView): boolean {
+  if (provider.source !== 'user' || provider.removed) return false;
+  return provider.models['claude-code']?.[0]?.catalogPresetId === MODEL_GATEWAY_CATALOG_PRESET_ID;
+}
+
 function entryFromProviderView(provider: ProviderView, meta: ModelGatewayMeta): ModelEntry | null {
-  if (provider.source !== 'user' || provider.removed) return null;
   const model = provider.models['claude-code']?.[0];
-  if (model?.catalogPresetId !== MODEL_GATEWAY_CATALOG_PRESET_ID) return null;
+  if (!isModelGatewayProvider(provider) || !model) return null;
   const id = storedCustomProviderId(provider.id);
   return {
     id,
