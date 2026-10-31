@@ -98,9 +98,11 @@ export interface BrandIdentity {
   /** 历史 scheme,永久保持注册 + 解析兼容(存量链接不能死)。只增不减。 */
   readonly legacySchemes: readonly string[];
   /**
-   * Electron 默认派生的 userData 目录名(= package.json productName)。已发布的
-   * cn 构建沿用该目录；global 继续使用历史独立目录 `CindyGlobal`，避免启动时
-   * 改名或搬迁用户数据。
+   * userData 目录名（Ruling 22 起与 package.json productName 解耦：productName
+   * 是展示品牌 HRBuddy，本字段是数据目录的显式钉子，由主进程
+   * `app.setPath('userData', appData/regionUserDataDirName)` 钉住，不再依赖
+   * Electron 从 productName 默认派生）。已发布的 cn 构建沿用该目录；global
+   * 继续使用历史独立目录 `CindyGlobal`，避免启动时改名或搬迁用户数据。
    */
   readonly userDataDirName: string;
   /** 按区域派生的 userData 目录名。 */

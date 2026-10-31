@@ -134,7 +134,7 @@ test('extractRouterFacts: 真实 router.tsx 的三类去向逐条钉死', () => 
     '/login LoginPage',
     '/maker-experimental MakerExperimentalView',
     '/plugins GhostPluginPage',
-    '/settings SettingsView',
+    '/settings SettingsModalHost',
     '/sidebar-window SidebarWindowLayout',
     '/skillhub SkillhubLocalLayout',
     '/skillhub/detail SkillhubDetailRoute',

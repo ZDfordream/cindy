@@ -107,10 +107,27 @@ test('desktop dev userData region map mirrors brandIdentity.userDataDirNameByReg
   assert.deepEqual(actual, expected);
 });
 
-test('desktop package.json productName mirrors brandIdentity.userDataDirName', () => {
-  // Electron userData 目录名默认派生自 productName;brandIdentity.userDataDirName
-  // 的注释也声明二者同源——两边漂移会让主进程 <userData>-dev 沙箱与 restart 脚本
-  // 的 XDT_USER_DATA_DIR 落在不同目录。
+test('desktop package.json productName mirrors brandIdentity displayName; userData pin holds', () => {
+  // Ruling 22（2026-10-31 HRBuddy 改名）：productName 是展示品牌，与 userData
+  // 目录**有意解耦**——userData 由主进程显式钉在 regionUserDataDirName（Cindy 族），
+  // 不再依赖 Electron 从 productName 默认派生。故钉两件事：
+  // ① productName 与展示名同源（用户看到的名字）；
+  // ② 显式 setPath 钉子仍在（钉子一旦没了，productName 漂移就会搬走用户数据目录，
+  //    与「不搬迁已发布构建用户数据」冲突——这就是旧契约要防的事故）。
   const pkg = JSON.parse(readSource('apps/desktop/package.json'));
-  assert.equal(pkg.productName, USER_DATA_DIR_NAME);
+  const displayName = extractLiteral(
+    readSource('packages/maker-shared/src/branding.ts'),
+    /export const BRAND_NAME = '([^']+)';/,
+    'branding.ts BRAND_NAME',
+  );
+  assert.equal(pkg.productName, displayName);
+
+  const indexSource = readSource('apps/desktop/src/main/index.ts');
+  assert.ok(
+    indexSource.includes(
+      "app.setPath('userData', path.join(app.getPath('appData'), regionUserDataDirName))",
+    ),
+    'userData 显式钉子被移除：Electron 会从 productName 默认派生目录，搬走已发布构建的用户数据',
+  );
+  assert.equal(USER_DATA_DIR_NAME, 'Cindy');
 });
