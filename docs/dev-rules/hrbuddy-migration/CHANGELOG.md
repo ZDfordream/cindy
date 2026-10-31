@@ -49,7 +49,12 @@
 > Vite 对非 lib 构建默认把 `process.env` 内联成 `{}`，而 forge preload target 走
 > `build.rollupOptions.input`（插件模板为 web 资源改道），导致 preload 的
 > `process.env.XDT_UI_MOCK` 投影被静态替换成空对象、`uiMockData` 恒 false、mock 演示
-> 规则永不生效（实机复现后定位）。`process.env.NODE_ENV` 的死代码消除不受影响。
+> 规则永不生效（实机复现后定位）。**NODE_ENV 语义更正**：`keepProcessEnv` 会整表跳过
+> Vite 的 processEnv define（含 `process.env.NODE_ENV`），故 preload-target bundle 的
+> `process.env` 与 `NODE_ENV` **均改为运行时读取**（与 main 的 build.lib 语义一致，
+> 结论仍安全），不再按构建期值做死代码折叠；要保折叠需显式补 `define`（本轮不加）。
+> **follow-up 挂账**：姊妹 worker 配置（`vite.watcher-host.config.ts` 等）同款内联 `{}`
+> 存量 bug，watcherHostProcess 的 env 注入旁路静默失效——后续统一加构建物断言收口。
 
 ---
 
