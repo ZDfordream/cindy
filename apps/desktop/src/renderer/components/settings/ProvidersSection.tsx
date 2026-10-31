@@ -3280,7 +3280,9 @@ export function ProvidersSection() {
                 className="w-full"
               >
                 <Plus size={15} />
-                {t('settings.providers.addProvider')}
+                {/* F2：按钮打开的是「添加模型」弹窗（ModelGatewayForm），文案跟弹窗
+                    同源（settings.providers.modelGateway.add），不再用「添加供应商」。 */}
+                {t('settings.providers.modelGateway.add')}
               </Button>
             </div>
           </div>

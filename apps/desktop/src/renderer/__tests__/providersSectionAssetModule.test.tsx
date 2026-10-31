@@ -315,7 +315,11 @@ describe('ProvidersSection — 旧详情块可见性（单一恢复点）', () =
     expect(screen.queryByTestId('cindy-ai-asset-module')).toBeNull();
     expect(screen.queryByTestId('provider-detail-scroll')).toBeNull();
     expect(screen.getByText('settings.providers.modelGateway.title')).toBeTruthy();
-    expect(screen.getByText('settings.providers.modelGateway.add')).toBeTruthy();
+    // F2 起左栏「添加」按钮与列表「添加模型」同文案（同一 ModelGatewayForm 入口），
+    // getByText 会命中多处，按至少一处收口。
+    expect(
+      screen.getAllByText('settings.providers.modelGateway.add').length,
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it('flipping the single flag restores the legacy block', async () => {
