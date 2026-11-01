@@ -4,11 +4,13 @@
  * 三栏固定顺序：**接口地址 → 密钥 → 模型**；没有删除按钮（删除在列表行上）；
  * 协议写死 `anthropic-messages`（表单不出协议选项，store 内固定）。
  *
- * 保存门 = **合法性门**（PRD：合法即存、保存不探测）：URL `^https?:\/\/\S+$`、
- * 密钥非空、模型非空且不与其它条目 modelId 重复，三项零错「保存」才可点；点了就
- * `add`/`update` 落库并关窗，落库后条目恒「未测试」（连通性由列表行「重测」负责，
- * 不拦保存）。写盘失败弹窗内显示失败原因（Ruling 11：主文案是人话标签，原始
- * detail 只进 tooltip / 次要行——它可能是 `AUTH_INVALID` 这类机器码）。
+ * 保存门 = **合法性门**：URL `^https?:\/\/\S+$`、密钥非空、模型非空且不与其它条目
+ * modelId 重复，三项零错「保存」才可点。默认（设置面）**合法即存、保存不探测**：
+ * 点了就 `add`/`update` 落库并关窗，落库后条目恒「未测试」（连通性由列表行「重测」
+ * 负责，不拦保存）。`probeOnSave`（S3 / 首页弹窗，Ruling 9）时点击后先真实探测、
+ * 通了才落库，探测不过 / 超时零落库——两 PRD「保存是否探测」的分流口径见该 prop
+ * 注释与 CHANGES.md §6 挂账。写盘失败弹窗内显示失败原因（Ruling 11：主文案是人话
+ * 标签，原始 detail 只进 tooltip / 次要行——它可能是 `AUTH_INVALID` 这类机器码）。
  * 密钥非空的编辑例外：编辑态密钥不回显（见下），**留空 = 沿用已存**，与「key
  * 非空」在有效密钥层面等价；留空且 keychain 读不到已存密钥时才按「未填」报错。
  *
@@ -45,13 +47,16 @@
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Check } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
 import { readCustomProviderKey } from '@/lib/customProviders';
 import { toast } from '@/lib/toast';
 
+import { testModelConnectivity, type ModelConnectivityResult } from './useModelConnectivity';
 import { useModelGateway } from './ModelGatewayStore';
 import type { ModelEntry, ModelGatewayInput } from './types';
 
@@ -70,6 +75,16 @@ export interface ModelGatewayFormProps {
    * 显隐，校验 / 落库 / 遮罩 dirty 抖动 / 保存锁一概不随 origin 变。
    */
   origin?: 'onboarding' | 'home';
+  /**
+   * 保存时真实连通性检测（Ruling 9，login-onboarding PRD FR-MODEL-05 / §7 保存结果）：
+   * `true` 时保存 = 探测（「检测连接中…」+ 输入只读）→ 通了才落库 → ✓「已保存」保持
+   * 450ms 交棒；探测不过 / 10s 超时出失败条 + 抖动、**零落库**（OQ-6 不允许「仍然
+   * 保存」）。`false`（默认）= 设置 → 模型面的「合法即存、保存不探测、存后未测试」
+   * （model-provider-settings PRD 的 R14 推翻口径），**不许随本 prop 漂移**——两 PRD
+   * 在「保存是否探测」上冲突，按表面分流执行，冲突本身登记在 CHANGES.md §6 待 owner
+   * 统一。仅 `OnboardingModelDialog`（S3 / 首页补配，两 origin）打开它。
+   */
+  probeOnSave?: boolean;
   onClose: () => void;
   /**
    * `origin='onboarding'` 的跳过出口：× / 取消 / Esc / **无输入**点遮罩 = 跳过走它
@@ -88,6 +103,34 @@ interface FormFieldErrors {
   baseUrl?: string;
   apiKey?: string;
   modelId?: string;
+}
+
+/** Ruling 9：探测超时（不回包按超时出独立失败条，不空等用户）。 */
+const PROBE_TIMEOUT_MS = 10_000;
+/** Ruling 9：检测成功后按钮 ✓「已保存」的保持时长，到点才交棒 `onSaved`。 */
+const SAVED_FLASH_MS = 450;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * 给连通性探测加超时护栏：10s 不回包收敛成 `'timeout'`（超时条独立文案）；
+ * 探测原语 `testModelConnectivity` 自身永不 reject（失败也以 `{ok:false}` 回），
+ * 这里只裁决「到点还没回」，先回包的一侧作废另一侧。
+ */
+async function withProbeTimeout(
+  probe: Promise<ModelConnectivityResult>,
+): Promise<ModelConnectivityResult | 'timeout'> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), PROBE_TIMEOUT_MS);
+    void probe.then((result) => {
+      clearTimeout(timer);
+      resolve(result);
+    });
+  });
 }
 
 /**
@@ -146,6 +189,7 @@ export function ModelGatewayForm({
   mode,
   initial,
   origin = 'home',
+  probeOnSave = false,
   onClose,
   onSkipped,
   onSaved,
@@ -169,8 +213,10 @@ export function ModelGatewayForm({
   }>({});
   // 编辑留空密钥但 keychain 也读不到已存值：保存时才判得出，用它顶出「请输入 API Key」。
   const [keyMissing, setKeyMissing] = useState(false);
-  const [saveError, setSaveError] = useState<{ label: string; detail: string } | null>(null);
+  const [saveError, setSaveError] = useState<{ label: string; detail?: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  // Ruling 9：检测成功后的 ✓「已保存」保持拍（按钮三态：保存 → 检测连接中… → 已保存）。
+  const [justSaved, setJustSaved] = useState(false);
   // 同步重复提交门闩（DS-6：请求期间表单自己挡住二次提交）。
   const busyRef = useRef(false);
   // 打开时的三栏初值：遮罩 dirty 判定（相对初值被改动）钉在它上。
@@ -199,6 +245,7 @@ export function ModelGatewayForm({
     setKeyMissing(false);
     setSaveError(null);
     setSaving(false);
+    setJustSaved(false);
     busyRef.current = false;
   }, [open, mode, initial?.baseUrl, initial?.modelId]);
 
@@ -299,17 +346,48 @@ export function ModelGatewayForm({
         modelId: trimmedModel,
       };
 
-      // PRD：合法即存（保存门 = 合法性门），保存不探测——落库后恒「未测试」，
-      // 点状态文字才重测。
+      // Ruling 9（probeOnSave）：S3 / 首页弹窗保存 = 真实连通性检测，探测不过**零落库**
+      // （OQ-6：不允许「仍然保存」），10s 不回包按超时。设置页（不传 probeOnSave）保持
+      // 「合法即存、保存不探测、存后未测试」（model-provider-settings PRD R14 推翻口径）。
+      if (probeOnSave) {
+        const probe = await withProbeTimeout(testModelConnectivity(input));
+        if (probe === 'timeout') {
+          setSaveError({ label: t('settings.providers.modelDialog.probeTimeout') });
+          shakePanel();
+          return;
+        }
+        if (!probe.ok) {
+          setSaveError({
+            label: t('settings.providers.modelDialog.saveFailed'),
+            detail: probe.detail,
+          });
+          shakePanel();
+          return;
+        }
+      }
+
+      // PRD（设置面）：合法即存（保存门 = 合法性门），保存不探测——落库后恒「未测试」，
+      // 点状态文字才重测。probeOnSave 路径已在上方真实探测，这里复用同一落库。
+      let savedId: string;
       if (mode === 'create') {
-        const id = await add(input);
-        toast.success(t('settings.providers.modelDialog.addedToast', { model: trimmedModel }));
-        onSaved(id);
+        savedId = await add(input);
+        if (!probeOnSave) {
+          toast.success(t('settings.providers.modelDialog.addedToast', { model: trimmedModel }));
+        }
       } else {
         await update(editId!, input);
-        toast.success(t('settings.providers.modelDialog.savedToast', { model: trimmedModel }));
-        onSaved(editId!);
+        if (!probeOnSave) {
+          toast.success(t('settings.providers.modelDialog.savedToast', { model: trimmedModel }));
+        }
+        savedId = editId!;
       }
+      if (probeOnSave) {
+        // Ruling 9 保存结果：按钮 ✓「已保存」保持 450ms 再交棒（成功反馈在按钮态，
+        // 不再叠加 toast）。
+        setJustSaved(true);
+        await delay(SAVED_FLASH_MS);
+      }
+      onSaved(savedId);
       onClose();
     } catch (error) {
       setSaveError({
@@ -333,6 +411,7 @@ export function ModelGatewayForm({
     modelId,
     onClose,
     onSaved,
+    probeOnSave,
     t,
     update,
   ]);
@@ -404,7 +483,12 @@ export function ModelGatewayForm({
               <Input
                 {...control}
                 value={baseUrl}
-                onChange={setBaseUrl}
+                readOnly={probeOnSave && saving}
+                onChange={(v) => {
+                  setBaseUrl(v);
+                  // FR-MODEL-08（Ruling 9 重申）：失败条在任意字段再次输入后消失。
+                  setSaveError(null);
+                }}
                 onBlur={() => setTouched((prev) => ({ ...prev, baseUrl: true }))}
                 placeholder={t('settings.providers.modelDialog.baseUrlPlaceholder')}
                 autoComplete="off"
@@ -427,9 +511,12 @@ export function ModelGatewayForm({
                   secret
                   mono
                   value={apiKey}
+                  readOnly={probeOnSave && saving}
                   onChange={(v) => {
                     setApiKey(v);
                     setKeyMissing(false);
+                    // FR-MODEL-08：失败条在任意字段再次输入后消失。
+                    setSaveError(null);
                   }}
                   onBlur={() => setTouched((prev) => ({ ...prev, apiKey: true }))}
                   placeholder={
@@ -458,7 +545,12 @@ export function ModelGatewayForm({
                 <Input
                   {...control}
                   value={modelId}
-                  onChange={setModelId}
+                  readOnly={probeOnSave && saving}
+                  onChange={(v) => {
+                    setModelId(v);
+                    // FR-MODEL-08：失败条在任意字段再次输入后消失。
+                    setSaveError(null);
+                  }}
                   onBlur={() => setTouched((prev) => ({ ...prev, modelId: true }))}
                   placeholder={t('settings.providers.modelDialog.modelIdPlaceholder')}
                   autoComplete="off"
@@ -475,11 +567,14 @@ export function ModelGatewayForm({
               title={saveError.detail}
               className="mt-1 rounded-xl border border-[var(--error-border)] px-3 py-2"
             >
-              {/* Ruling 11：主文案人话标签；原始 detail（可能是机器码）只在次要行。 */}
+              {/* Ruling 11：主文案人话标签；原始 detail（可能是机器码）只在次要行
+                  （超时这类没有机器 detail 的失败只有主文案一行）。 */}
               <p className="text-13 text-[var(--error-fg)]">{saveError.label}</p>
-              <p className="mt-1 text-12 text-[var(--text-tertiary)] [overflow-wrap:anywhere]">
-                {saveError.detail}
-              </p>
+              {saveError.detail ? (
+                <p className="mt-1 text-12 text-[var(--text-tertiary)] [overflow-wrap:anywhere]">
+                  {saveError.detail}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -515,18 +610,33 @@ export function ModelGatewayForm({
             {t('settings.providers.custom.cancel')}
           </Button>
           {/* primary 深色填充（PRD `.btn.primary`）：palette=confirmation 走
-              confirm-btn-primary-bg（light 深 / dark 浅的反转实底），两模式同源。 */}
+              confirm-btn-primary-bg（light 深 / dark 浅的反转实底），两模式同源。
+              probeOnSave（Ruling 9）三态：保存 → 「检测连接中…」+转圈 → ✓「已保存」
+              保持 450ms；不探测的设置面保持原「保存 + loading 转圈」。 */}
           <Button
             variant="primary"
             palette="confirmation"
             size="lg"
             type="button"
             disabled={!canSave}
-            loading={saving}
+            loading={saving && !probeOnSave}
+            aria-busy={probeOnSave && saving ? true : undefined}
             onClick={() => void handleSave()}
             className="!rounded-[14px] px-6"
           >
-            {t('settings.providers.custom.save')}
+            {probeOnSave && justSaved ? (
+              <>
+                <Check size={14} aria-hidden="true" />
+                {t('settings.providers.modelDialog.saved')}
+              </>
+            ) : probeOnSave && saving ? (
+              <>
+                <Spinner size={14} />
+                {t('settings.providers.modelDialog.probing')}
+              </>
+            ) : (
+              t('settings.providers.custom.save')
+            )}
           </Button>
         </div>
         {origin === 'onboarding' ? (

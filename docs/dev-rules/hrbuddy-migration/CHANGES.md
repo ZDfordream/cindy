@@ -181,6 +181,7 @@ i18n 五语 locale、以及配套测试期望。
 
 | 项 | 说明 |
 | --- | --- |
+| 模型弹窗「保存」是否真实探测连通性——两 PRD 冲突，**未消解**，待 owner 统一 | login-onboarding PRD（FR-MODEL-05 / AC-09 / §7 保存结果，OQ-6）要求 S3 / 首页弹窗保存即真实连通性检测：「检测连接中…」+ 输入只读，成功 ✓「已保存」保持 450ms，失败条 + 抖动 + 零落库（不允许「仍然保存」），10s 超时独立文案；model-provider-settings PRD（Ruling 14 推翻）要求设置 → 模型弹窗「合法即存、保存不探测、存后未测试、点状态文字才测」。Ruling 9（controller 2026-11-01）：两表面按各自 PRD 分别执行，`ModelGatewayForm.probeOnSave` 分流（`OnboardingModelDialog` 两 origin 开、设置页关），**冲突本身挂账**——owner 统一口径后收敛为单一行为并撤掉分流 |
 | 深处品牌残留 ~1485 处 / 432 文件 | 生成帮助知识 `helpKnowledge.generated.ts`（216）、maker-core Agent 提示词、SSH 注释等。改提示词须先读 `maker-core-and-agent-behavior.md`，风险高于 UI 文案 |
 | 角色立绘 / slogan | hero、chibi、壁纸、`cindy-share-character.jpg`、「Dream it Create it」手写 slogan 仍是 Cindy 视觉体系，HRBuddy 无对应资产 |
 | 公司名 | `author: "XD Inc."`、`win32metadata.CompanyName: 'XD'`、NSIS `feedback@cindy.app` 未改（需目标主体名） |

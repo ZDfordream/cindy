@@ -12,20 +12,23 @@
  * 测试价值
  * - 生产入口与可观察结果：`OnboardingModelDialog`（S3 / 首页补配的生产入口）；
  *   origin='onboarding' 显示「跳过，稍后配置」与底部提示且 ×/取消/跳过/Esc/无输入遮罩
- *   = `onSkipped`；origin='home' 无跳过出口、同路径 = `onClose`；保存中取消/关闭/跳过
- *   禁用且 Esc/遮罩忽略；保存成功 `onSaved(id)`；保存失败出失败条 + 面板 shake + 输入保留。
- * - Bug／规则依据：login-onboarding Task 5 简报 S3 合同（origin 差异、五条跳过/关闭
- *   路径、保存失败条）；DESIGN.md §4 遮罩 dirty 抖动不关（PRD 2026-11-01）；
+ *   = `onSkipped`；origin='home' 无跳过出口、同路径 = `onClose`；保存走真实连通性检测
+ *   （Ruling 9）：检测中「检测连接中…」+ 输入只读 + 关闭类动作禁用 + Esc/遮罩忽略，
+ *   检测成功 ✓「已保存」保持 450ms 才回 `onSaved(id)`，检测失败 / 10s 超时出失败条 +
+ *   面板 shake + 输入保留且零落库，失败条在任意字段再次输入后消失。
+ * - Bug／规则依据：Ruling 9（controller 2026-11-01，login-onboarding PRD FR-MODEL-05 /
+ *   AC-09 / §7 保存结果，OQ-6 真实校验不允许「仍然保存」）；S3 合同（origin 差异、
+ *   五条跳过/关闭路径）；DESIGN.md §4 遮罩 dirty 抖动不关（PRD 2026-11-01）；
  *   Ruling 16/27/28 与合法性门经 wrapper 的回归护栏（简报测试清单末两项）。
- * - 现有覆盖缺口：`ModelGatewayForm.test.tsx` 只覆盖 origin 缺省（home 语义）与落库
- *   主路径，没有 onboarding 跳过出口 / skip 按钮 / 底部提示 / 保存失败条与失败抖动的
- *   任何断言；S3 合同（onSkipped 与 onClose 分流）在旧入口下无法观察。
- * - 最小失败输入：origin='onboarding' 点 × 未实现前只回 onClose（onSkipped 不触发）；
- *   保存中点遮罩未加 busy 门前会误关；createCustomProvider 拒绝未实现前不出失败条、
- *   不 shake、输入被复位。
- * - tier：unit（jsdom 组件渲染 + IPC 边界打桩；无真实 I/O、无真实等待）。
+ * - 现有覆盖缺口：`ModelGatewayForm.test.tsx` 只覆盖不探测的设置面（probeOnSave 缺省）
+ *   与落库主路径，没有探测锁定 / 探测失败不落库 / 超时条 / ✓已保存 450ms 保持 /
+ *   失败条输入即清的任何断言；S3 合同（onSkipped 与 onClose 分流）在旧入口下无法观察。
+ * - 最小失败输入：改前点保存直接落库（探测从不发生）→ 探测失败例会落库并回 onSaved、
+ *   超时例无超时条、锁定例无「检测连接中…」与输入只读、成功例无 450ms 保持。
+ * - tier：unit（jsdom 组件渲染 + IPC 边界打桩；无真实 I/O；超时例用 fake timers
+ *   推进 10s，不做真实等待）。
  * - 实测耗时：~2.6s 墙钟（`pnpm --dir apps/desktop exec vitest run
- *   src/renderer/features/model-gateway/__tests__/onboardingModelDialog.test.tsx`，16 用例）。
+ *   src/renderer/features/model-gateway/__tests__/onboardingModelDialog.test.tsx`，18 用例）。
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, type RenderResult } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,6 +67,10 @@ const SKIP_LABEL = 'settings.providers.modelDialog.skip';
 const SKIP_HINT = 'settings.providers.modelDialog.skipHint';
 const SAVE_FAILED = 'settings.providers.modelDialog.saveFailed';
 const ERR_MODEL_DUPLICATE = 'settings.providers.modelDialog.modelIdDuplicate';
+// Ruling 9 保存结果三态与超时条的文案 key（译文在 5 语 locale JSON 里逐 key 落位）。
+const PROBING_LABEL = 'settings.providers.modelDialog.probing';
+const SAVED_LABEL = 'settings.providers.modelDialog.saved';
+const PROBE_TIMEOUT = 'settings.providers.modelDialog.probeTimeout';
 
 /** 表单与 store 探针共享同一 `ModelGatewayProvider` 实例（重复拦截播种要用到）。 */
 function renderDialog(props: { origin: 'onboarding' | 'home' }) {
@@ -207,14 +214,14 @@ describe('OnboardingModelDialog', () => {
     },
   );
 
-  it('test_save_lock_disables_cancel_close_skip_and_ignores_esc_scrim', async () => {
-    // 保存锁定期（保存按钮忙碌态）：取消/关闭/跳过禁用，Esc 与点遮罩忽略——
-    // 防落库半截被误关丢掉已填内容。
-    let releaseCreate!: () => void;
-    maker.createCustomProvider = vi.fn(
+  it('test_probing_lock_freezes_inputs_disables_close_actions_ignores_esc_scrim', async () => {
+    // Ruling 9 保存锁（「检测连接中…」期间）：全部输入只读、取消/关闭/跳过禁用，
+    // Esc 与点遮罩忽略——防探测/落库半截被误关丢掉已填内容。
+    let releaseProbe!: (result: { ok: boolean; latencyMs?: number; detail?: string }) => void;
+    maker.testProviderConnection = vi.fn(
       () =>
-        new Promise<void>((resolve) => {
-          releaseCreate = resolve;
+        new Promise((resolve) => {
+          releaseProbe = resolve;
         }),
     );
     const { onSkipped, onSaved, onClose, view } = renderDialog({ origin: 'onboarding' });
@@ -223,43 +230,71 @@ describe('OnboardingModelDialog', () => {
     fillFields({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-ok', modelId: 'm1' });
     clickSave();
 
-    await waitFor(() => {
-      expect((screen.getByRole('button', { name: CANCEL_LABEL }) as HTMLButtonElement).disabled).toBe(true);
-    });
+    await screen.findByText(PROBING_LABEL);
+    expect((screen.getByLabelText(ENDPOINT_LABEL) as HTMLInputElement).readOnly).toBe(true);
+    expect((screen.getByLabelText(KEY_LABEL) as HTMLInputElement).readOnly).toBe(true);
+    expect((screen.getByLabelText(MODEL_LABEL) as HTMLInputElement).readOnly).toBe(true);
+    expect((screen.getByRole('button', { name: CANCEL_LABEL }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: CLOSE_LABEL }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: SKIP_LABEL }) as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.keyDown(screen.getByRole('button', { name: SAVE_LABEL }), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText(ENDPOINT_LABEL), { key: 'Escape' });
     fireEvent.click(scrim(view));
     expect(onSkipped).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
 
     await act(async () => {
-      releaseCreate();
+      releaseProbe({ ok: true, latencyMs: 5 });
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
   });
 
-  it('test_save_success_returns_new_id', async () => {
-    // S3 合同：保存成功 → onSaved(id)（条目落库并成为当前模型由宿主处理）。
-    const { onSaved, getApi } = renderDialog({ origin: 'onboarding' });
-    await act(async () => {});
+  it('test_probe_success_shows_saved_check_then_returns_id_after_hold', async () => {
+    // Ruling 9 保存结果（AC-09）：检测成功 → 按钮 ✓「已保存」保持 450ms → onSaved(id)；
+    // 探测先于落库（真实探测一次、通了才写盘）。fake timers 钉 450ms 保持，不真实等待。
+    vi.useFakeTimers();
+    try {
+      let releaseProbe!: (result: { ok: boolean; latencyMs?: number }) => void;
+      maker.testProviderConnection = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            releaseProbe = resolve;
+          }),
+      );
+      const { onSaved, getApi } = renderDialog({ origin: 'onboarding' });
+      await act(async () => {});
 
-    fillFields({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-ok', modelId: 'm1' });
-    clickSave();
+      fillFields({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-ok', modelId: 'm1' });
+      clickSave();
+      expect(screen.getByText(PROBING_LABEL)).toBeTruthy();
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(onSaved).toHaveBeenCalledWith(expect.any(String));
-    expect(maker.createCustomProvider).toHaveBeenCalledTimes(1);
-    expect(maker.testProviderConnection).not.toHaveBeenCalled();
-    expect(getApi().entries).toHaveLength(1);
+      await act(async () => {
+        releaseProbe({ ok: true, latencyMs: 5 });
+      });
+      await act(async () => {});
+      expect(maker.testProviderConnection).toHaveBeenCalledTimes(1);
+      expect(maker.createCustomProvider).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(SAVED_LABEL)).toBeTruthy();
+      // 保持期内不交棒；450ms 整点才回 onSaved(id)。
+      expect(onSaved).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(449);
+      });
+      expect(onSaved).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(onSaved).toHaveBeenCalledWith(expect.any(String));
+      expect(getApi().entries).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('test_save_failure_shows_strip_shakes_and_keeps_input', async () => {
-    // S3 合同：保存失败 → 失败提示条 + 弹窗抖动 + 输入保留（不丢已填内容）。
-    maker.createCustomProvider = vi.fn(async () => {
-      throw new Error('disk full');
-    });
+  it('test_probe_failure_shows_strip_shakes_keeps_input_and_never_persists', async () => {
+    // Ruling 9 检测失败（OQ-6）：失败条 + 抖动 + 输入保留；**不允许「仍然保存」**——
+    // 探测不过零落库，可改后重试或跳过。
+    maker.testProviderConnection = vi.fn(async () => ({ ok: false, code: 'AUTH_INVALID', latencyMs: 0 }));
     const { onSkipped, onSaved, onClose, view } = renderDialog({ origin: 'onboarding' });
     await act(async () => {});
 
@@ -273,9 +308,50 @@ describe('OnboardingModelDialog', () => {
     expect((screen.getByLabelText(ENDPOINT_LABEL) as HTMLInputElement).value).toBe('https://gw.example/anthropic');
     expect((screen.getByLabelText(KEY_LABEL) as HTMLInputElement).value).toBe('sk-ok');
     expect((screen.getByLabelText(MODEL_LABEL) as HTMLInputElement).value).toBe('m1');
+    expect(maker.createCustomProvider).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
     expect(onSkipped).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('test_probe_timeout_after_10s_shows_timeout_strip', async () => {
+    // Ruling 9 超时护栏：10s 不回包 → 独立超时条「连接超时，请检查接口地址或网络」+
+    // 抖动 + 零落库；fake timers 推进 10s，不做真实等待。
+    vi.useFakeTimers();
+    try {
+      maker.testProviderConnection = vi.fn(() => new Promise(() => {}));
+      const { onSaved, view } = renderDialog({ origin: 'onboarding' });
+      await act(async () => {});
+
+      fillFields({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-ok', modelId: 'm1' });
+      clickSave();
+      expect(screen.getByText(PROBING_LABEL)).toBeTruthy();
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+
+      expect(screen.getByRole('alert').textContent).toContain(PROBE_TIMEOUT);
+      expect(panel(view).classList.contains('shake')).toBe(true);
+      expect(maker.createCustomProvider).not.toHaveBeenCalled();
+      expect(onSaved).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('test_failure_strip_clears_on_any_field_input', async () => {
+    // Ruling 9（FR-MODEL-08）：失败提示条在任意字段再次输入后消失，不糊住下一次尝试。
+    maker.testProviderConnection = vi.fn(async () => ({ ok: false, detail: '连不上' }));
+    renderDialog({ origin: 'onboarding' });
+    await act(async () => {});
+
+    fillFields({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-ok', modelId: 'm1' });
+    clickSave();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+
+    fillFields({ modelId: 'm2' });
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('test_save_gate_and_duplicate_model_guard_through_wrapper', async () => {

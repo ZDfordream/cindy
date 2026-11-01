@@ -3463,7 +3463,10 @@
         "savedToast": "Saved {{model}}",
         "saveFailed": "Connection failed. Check the endpoint URL, API key, or model ID.",
         "skip": "Skip for now",
-        "skipHint": "You can also skip now and configure later under More → Custom."
+        "skipHint": "You can also skip now and configure later under More → Custom.",
+        "probing": "Checking connection…",
+        "saved": "Saved",
+        "probeTimeout": "Connection timed out. Check the endpoint URL or your network."
       },
       "custom": {
         "tag": "Custom",

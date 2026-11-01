@@ -10,10 +10,12 @@
  *   × / 取消 / 跳过 / Esc / **无输入时**点遮罩 = 跳过 → **只**回 `onSkipped()`。
  * - `origin='home'`（更多 → 自定义 / 补配）：无跳过按钮、无底部提示；
  *   × / 取消 / Esc / 无输入点遮罩 = 关闭 → **只**回 `onClose()`（`onSkipped` 不触发）。
- * - 保存成功 → `onSaved(id)`，随后沿用表单既有收尾再回 `onClose()`（两 origin 同一
- *   路径；宿主在 `onSaved` 关窗即可，`onClose` 是冗余收尾信号）。
- * - 保存失败：失败条 + 面板抖动 + 输入保留，三个回调都不触发。
- * - 保存锁定期（保存在途）：取消 / 关闭 / 跳过禁用，Esc 与点遮罩忽略。
+ * - 保存 = 真实连通性检测（Ruling 9，两 origin 同）：「检测连接中…」+ 输入只读 +
+ *   关闭类动作禁用；检测成功 → 按钮 ✓「已保存」保持 450ms → `onSaved(id)`（随后沿用
+ *   表单既有收尾再回 `onClose()`，宿主在 `onSaved` 关窗即可）；检测失败 / 10s 超时 →
+ *   失败条 + 面板抖动 + 输入保留 + **零落库**（OQ-6 不允许「仍然保存」），三个回调
+ *   都不触发。设置 → 模型面直接挂 `ModelGatewayForm`（不传 `probeOnSave`）保持
+ *   「保存不探测」，两 PRD 冲突登记在 CHANGES.md §6 待 owner 统一。
  */
 import { ModelGatewayForm } from './ModelGatewayForm';
 
@@ -35,6 +37,7 @@ export function OnboardingModelDialog({ open, origin, onSkipped, onSaved, onClos
       open={open}
       mode="create"
       origin={origin}
+      probeOnSave
       onSkipped={onSkipped}
       onSaved={onSaved}
       onClose={onClose}

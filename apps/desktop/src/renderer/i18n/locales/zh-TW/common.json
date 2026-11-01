@@ -3434,7 +3434,10 @@
         "savedToast": "已儲存 {{model}}",
         "saveFailed": "連線失敗，請檢查介面位址、金鑰或模型 ID",
         "skip": "跳過，稍後設定",
-        "skipHint": "也可以先跳過，稍後在「更多 → 自訂」中設定。"
+        "skipHint": "也可以先跳過，稍後在「更多 → 自訂」中設定。",
+        "probing": "檢測連線中…",
+        "saved": "已儲存",
+        "probeTimeout": "連線逾時，請檢查介面位址或網路"
       },
       "custom": {
         "tag": "自定義",
