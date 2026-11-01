@@ -27,7 +27,9 @@
  * 任何状态都关——「任何状态」指**非保存在途**：`busyRef` 门闩挡住的是保存中的关闭，
  * 这是有意的（防丢落库半截），不是对 PRD「任何状态可关」的偏离。Esc 用 capture +
  * stopPropagation 抢占（Ruling 16 同批修复）：一次按键只关本弹窗，不级联触发
- * `useSettingsEscape` 再退一层设置。
+ * `useSettingsEscape` 再退一层设置。这些关闭路径按 `origin` 分流出出口（S3 合同）：
+ * `onboarding` = 跳过（回 `onSkipped`），`home`（默认）= 关闭（回 `onClose`）；
+ * 落库成功不受影响，仍走 `onSaved` + `onClose`。
  *
  * 保存成功 toast（PRD）：新建「已添加 {model}」/ 编辑「已保存 {model}」。
  *
@@ -61,7 +63,20 @@ export interface ModelGatewayFormProps {
    * `apiKey` 只作密钥留空时的兜底落库入参，**绝不回显**。
    */
   initial?: { id?: string; baseUrl: string; apiKey?: string; modelId: string };
+  /**
+   * 弹窗来源（S3 合同，login-onboarding Task 5）：`onboarding` = 首登引导（可跳过），
+   * 显示「跳过，稍后配置」文字按钮 + 底部提示；`home`（默认，既有调用方不受影响）=
+   * 首页补配 / 更多 → 自定义，无跳过 affordance。只分流「跳过 vs 关闭」出口与这两处
+   * 显隐，校验 / 落库 / 遮罩 dirty 抖动 / 保存锁一概不随 origin 变。
+   */
+  origin?: 'onboarding' | 'home';
   onClose: () => void;
+  /**
+   * `origin='onboarding'` 的跳过出口：× / 取消 / Esc / **无输入**点遮罩 = 跳过走它
+   * （不再回 `onClose`，宿主才能把「跳过」与「关闭」分开处理）；缺省回落 `onClose`。
+   * `origin='home'` 不触发。落库成功仍走既有收尾 `onSaved` + `onClose`。
+   */
+  onSkipped?: () => void;
   /** 落库成功后回传条目稳定 id（create = 新句柄，edit = 原句柄）。 */
   onSaved: (id: string) => void;
 }
@@ -126,12 +141,22 @@ function validateFields(
   return errors;
 }
 
-export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: ModelGatewayFormProps) {
+export function ModelGatewayForm({
+  open,
+  mode,
+  initial,
+  origin = 'home',
+  onClose,
+  onSkipped,
+  onSaved,
+}: ModelGatewayFormProps) {
   const { t } = useTranslation();
   const uid = useId();
   const { add, update, entries } = useModelGateway();
 
   const editId = initial?.id;
+  // S3 分流：onboarding 的关闭路径 = 跳过（onSkipped 缺省回落 onClose 保持可关）。
+  const skipExit = origin === 'onboarding' ? (onSkipped ?? onClose) : null;
 
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -152,6 +177,14 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
   const initialRef = useRef({ baseUrl: '', apiKey: '', modelId: '' });
   // shake 是命令式类名增删（PRD 重启动画），className 必须保持常量不被 React 改写。
   const panelRef = useRef<HTMLDivElement | null>(null);
+
+  // 关闭请求的唯一出口（×/取消/Esc/无输入遮罩共用）：保存在途一律不响应；
+  // onboarding 走跳过出口，home 走 onClose。
+  const requestDismiss = useCallback(() => {
+    if (busyRef.current) return;
+    if (skipExit) skipExit();
+    else onClose();
+  }, [skipExit, onClose]);
 
   // 每次打开按模式复位：create 全空；edit 预填接口地址/模型，密钥永不回显。
   // （密钥的清空不在这里——Ruling 16 把它唯一挂在关闭路径，见下方 effect。）
@@ -184,11 +217,11 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
       if (event.key !== 'Escape' || event.repeat) return;
       event.preventDefault();
       event.stopPropagation();
-      if (!busyRef.current) onClose();
+      requestDismiss();
     };
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [open, onClose]);
+  }, [open, requestDismiss]);
 
   // 合法性门（PRD）：零错才可保存；keyMissing 是保存时才判出的密钥缺口。
   const fieldErrors = validateFields(baseUrl, apiKey, modelId, mode, entries, editId, (key) => t(key));
@@ -218,11 +251,11 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
     panel.classList.add('shake');
   };
 
-  // 遮罩语义分层（PRD 2026-11-01）：dirty 不关只抖；clean 才关。
+  // 遮罩语义分层（PRD 2026-11-01）：dirty 不关只抖；clean 才关（onboarding = 跳过）。
   const handleScrimClick = () => {
     if (busyRef.current) return;
     if (isDirty()) shakePanel();
-    else onClose();
+    else requestDismiss();
   };
 
   const handleSave = useCallback(async () => {
@@ -283,6 +316,8 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
         label: t('settings.providers.modelDialog.saveFailed'),
         detail: error instanceof Error ? error.message : String(error),
       });
+      // 失败提示条 + 面板抖一下（S3 合同）：输入原样保留，可改后直接重试。
+      shakePanel();
     } finally {
       busyRef.current = false;
       setSaving(false);
@@ -309,11 +344,6 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
   }
 
   if (!open) return null;
-
-  const dismiss = () => {
-    if (busyRef.current) return;
-    onClose();
-  };
 
   return (
     <div
@@ -348,7 +378,7 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
             type="button"
             aria-label={t('settings.providers.modelDialog.close')}
             className="mt-0.5 rounded-full p-1 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] disabled:opacity-60"
-            onClick={dismiss}
+            onClick={requestDismiss}
             disabled={saving}
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -454,13 +484,32 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
           ) : null}
         </div>
 
-        <div className="flex items-center justify-end gap-3 px-6 pb-5 pt-3">
+        <div
+          className={`flex items-center justify-end gap-3 px-6 pt-3 ${origin === 'onboarding' ? 'pb-2' : 'pb-5'}`}
+        >
+          {origin === 'onboarding' ? (
+            /* 「跳过，稍后配置」文字按钮（S3 合同）：非提交动作，左侧安置（DESIGN.md §4
+               向导「← 上一步」同款位置口径——非提交动作不得挤进右侧药丸组）；静音档
+               文字按钮（tone=quiet 静止无底、`--text-secondary`），保存锁定期禁用。
+               圆角 14px = §5 `hrbuddy-prd-control`（S3 动作钮家族，hover 底同族几何）。 */
+            <Button
+              variant="secondary"
+              tone="quiet"
+              size="lg"
+              type="button"
+              disabled={saving}
+              onClick={requestDismiss}
+              className="mr-auto !rounded-[14px] px-4"
+            >
+              {t('settings.providers.modelDialog.skip')}
+            </Button>
+          ) : null}
           <Button
             variant="secondary"
             size="lg"
             type="button"
             disabled={saving}
-            onClick={dismiss}
+            onClick={requestDismiss}
             className="!rounded-[14px] px-6"
           >
             {t('settings.providers.custom.cancel')}
@@ -480,6 +529,10 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
             {t('settings.providers.custom.save')}
           </Button>
         </div>
+        {origin === 'onboarding' ? (
+          /* 底部提示（S3 合同）：补充说明跳过后去哪配置，只在 onboarding 出。 */
+          <p className="px-6 pb-5 text-12 text-[var(--text-tertiary)]">{t('settings.providers.modelDialog.skipHint')}</p>
+        ) : null}
       </div>
     </div>
   );

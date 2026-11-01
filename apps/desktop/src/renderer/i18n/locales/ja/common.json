@@ -3432,7 +3432,9 @@
         "modelIdDuplicate": "このモデルは追加済みです",
         "addedToast": "{{model}} を追加しました",
         "savedToast": "{{model}} を保存しました",
-        "saveFailed": "保存できませんでした。もう一度お試しください。"
+        "saveFailed": "接続に失敗しました。エンドポイント URL、APIキー、モデル ID を確認してください。",
+        "skip": "あとで設定する",
+        "skipHint": "スキップして、あとで「その他 → カスタム」から設定することもできます。"
       },
       "custom": {
         "tag": "カスタム",
