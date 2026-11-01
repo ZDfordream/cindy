@@ -3,6 +3,7 @@ import { BRAND_NAME } from '@cindy/maker-shared/branding';
 
 import { LOGIN_HANDOFF_TIMINGS, useLoginHandoff } from '@/contexts/LoginHandoffContext';
 import { useIsDarkMode } from '@/components/markdown/useIsDarkMode';
+import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
 
 import heroPng from '@/assets/login/hero.png';
 import heroPng2x from '@/assets/login/hero@2x.png';
@@ -37,6 +38,10 @@ import { useViewportSize } from './LoginStage';
  *   内容子层,背景不参与任何 handoff 变换。
  * - 不透明白底全盖机制承接自 main Splash v2(PR #104):启动加载期完全遮蔽已挂载
  *   主界面,底色消费 token 不另造字面值——本层挂载期间该机制持续生效,不得回退。
+ * - 藏不删(2026-11-01):本层是 Cindy 登录视觉系统的一部分,与 Cindy 登录页同走
+ *   `SHOW_CINDY_ACCOUNT_UI` 开关——账号层收起时整层不渲染(真机缺陷:立绘盖住
+ *   HRBuddy S1 门禁),加载期遮蔽改由 HrOaGate 自带 boot 底板承接;恢复开关一开
+ *   即回,几何/动画合同不变。
  *
  * 几何:wave4 帧(368:1375 与 Splash 五帧 379:5xx 实测同坐标)——立绘 934×934
  * @(443,275)、字标黑红版内层 423×145 @(698,1046)、SLOGAN 453.22×129.12 @(1194,866);
@@ -88,6 +93,11 @@ export function LoginBrandStage() {
     },
     [handleAssetSettled],
   );
+
+  // 藏不删:Cindy 账号层整体收起(SHOW_CINDY_ACCOUNT_UI=false)时,品牌视觉层随
+  // Cindy 登录页一并隐藏;开关恢复 true 时照常渲染。判据放 hooks 之后,不破
+  // rules-of-hooks。
+  if (!isCindyAccountUiVisible()) return null;
 
   if (!handoff.brandStageMounted) return null;
 

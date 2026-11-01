@@ -232,20 +232,24 @@ describe('HrOaGate 门禁收口（G1 / FR-WELCOME-03）', () => {
     expect(welcomeTitle()).toBeNull();
   });
 
-  it('静默重登落定前不判决：加载期不出 S1 也不出 children，落定 signed-in 直接进 children', async () => {
+  it('静默重登落定前不判决：加载期只出不透明底板，落定 signed-in 直接进 children', async () => {
     let settle!: (state: unknown) => void;
     bridge.getState.mockReturnValue(new Promise((resolve) => (settle = resolve)));
     renderGate();
     await act(async () => {});
 
-    // 门禁在 hrOa:state 落定前不判决：既不闪 S1，也不露出主界面空壳。
+    // 门禁在 hrOa:state 落定前不判决：既不闪 S1，也不露出主界面空壳。Cindy 品牌层
+    // 随 SHOW_CINDY_ACCOUNT_UI 收起后，加载期由门禁自带的不透明底板承接启动遮蔽
+    // 合同（StartupLogSupport 仍可见在它之上）。
     expect(containerEmpty()).toBe(true);
+    expect(screen.queryByTestId('hr-oa-gate-boot-surface')).toBeTruthy();
 
     await act(async () => {
       settle(SIGNED_IN);
     });
     expect(childrenMarker()).toBeTruthy();
     expect(welcomeTitle()).toBeNull();
+    expect(screen.queryByTestId('hr-oa-gate-boot-surface')).toBeNull();
   });
 
   it('登录态失效推送 → 回 S1；toast「登录已过期」在 T9 转场锁结束后弹', async () => {
@@ -456,7 +460,7 @@ describe('HrOaGate 门禁收口（G1 / FR-WELCOME-03）', () => {
   });
 });
 
-/** 加载期容器应为空（无 S1、无 children、无登录表单）。 */
+/** 加载期不得出判决面（无 S1、无 children、无登录表单；不透明 boot 底板除外）。 */
 function containerEmpty(): boolean {
   return (
     childrenMarker() === null

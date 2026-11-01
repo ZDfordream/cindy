@@ -54,6 +54,12 @@ vi.mock('@/components/ui/confirm-dialog-provider', () => ({
 vi.mock('@/hooks/useLogin', () => ({ useLogin: () => svc.loginHook }));
 vi.mock('@/components/title-bar/WindowControls', () => ({ WindowControls: () => null }));
 vi.mock('@/hooks/useUpdateStatus', () => ({ useUpdateStatus: () => ({ errorCode: undefined }) }));
+// 藏不删：本文件测 Cindy 登录衔接动画（品牌层播完整 handoff），夹具钉在 Cindy 账号层
+// 恢复面（SHOW_CINDY_ACCOUNT_UI=true 的历史配置）；生产默认收起时 LoginBrandStage 不渲染。
+vi.mock('@/features/hr-oa-auth/legacyVisibility', () => ({
+  SHOW_CINDY_ACCOUNT_UI: true,
+  isCindyAccountUiVisible: () => true,
+}));
 
 import {
   LOGIN_HANDOFF_TIMINGS,

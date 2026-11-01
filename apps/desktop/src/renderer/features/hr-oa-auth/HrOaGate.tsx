@@ -7,8 +7,11 @@
  * 本地状态，不走路由——快捷键 / 菜单 / URL scheme 触发的入口一律回 S1。
  *
  * 静默重登落定前不判决：`useHrOaAuth().state === null`（main 侧 `hrOa:state` 等
- * `manager.startup()` 落定后才回）时渲染 null——既不闪 S1（冷启动直进首页），也不
- * 露出主界面空壳。落定 `signed-in`/`offline` 直接进 children。
+ * `manager.startup()` 落定后才回）时只渲染一块不透明 boot 底板（`--surface`，
+ * 与 S1/S2 同底色，Light/Dark 双模式走语义 token）——既不闪 S1（冷启动直进首页），
+ * 也不露出主界面空壳。底板承接启动遮蔽合同：Cindy 品牌层（LoginBrandStage）随
+ * `SHOW_CINDY_ACCOUNT_UI` 收起后，决策窗口不得闪出未样式化/主界面内容。
+ * 落定 `signed-in`/`offline` 直接进 children。
  *
  * **重挂载合同**（review Important 2026-11-01）：`OwnerScopedRouter` 以
  * `${dataOwnerId}:${ownerGeneration}` 作 RouterProvider 的 key，每次 hr 落定都会
@@ -76,8 +79,18 @@ export function HrOaGate(props: { children: ReactNode }): React.JSX.Element | nu
     );
   }
 
-  // 静默重登落定前不判决（防 S1 冷启动闪现 / 防主界面空壳先行）。
-  if (state === null) return null;
+  // 静默重登落定前不判决（防 S1 冷启动闪现 / 防主界面空壳先行）。加载期只出
+  // 不透明底板：品牌层藏不删收起后，由门禁自带 token 底色承接启动遮蔽合同，
+  // 底板与 S1/S2 同色（--surface）保证落定切面无色跳。
+  if (state === null) {
+    return (
+      <div
+        aria-hidden
+        data-testid="hr-oa-gate-boot-surface"
+        className="fixed inset-0 bg-[var(--surface)]"
+      />
+    );
+  }
 
   const sessionActive = state.status === 'signed-in' || state.status === 'offline';
   if (sessionActive) return <>{children}</>;

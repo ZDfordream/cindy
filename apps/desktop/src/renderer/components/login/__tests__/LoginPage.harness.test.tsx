@@ -43,6 +43,12 @@ vi.mock('../../../../shared/brandRegion', () => ({
 }));
 vi.mock('@/hooks/useLogin', () => ({ useLogin: () => loginHook.value }));
 vi.mock('@/components/title-bar/WindowControls', () => ({ WindowControls: () => null }));
+// 藏不删：本文件测 Cindy 登录视觉（品牌层几何/资产），夹具钉在 Cindy 账号层恢复面
+// （SHOW_CINDY_ACCOUNT_UI=true 的历史配置）；生产默认收起时 LoginBrandStage 不渲染。
+vi.mock('@/features/hr-oa-auth/legacyVisibility', () => ({
+  SHOW_CINDY_ACCOUNT_UI: true,
+  isCindyAccountUiVisible: () => true,
+}));
 
 import { LoginPage } from '../LoginPage';
 import { LoginBrandStage } from '../LoginBrandStage';
