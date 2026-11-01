@@ -226,3 +226,5 @@
 
 **模式教训**：批量改写类操作必须**先小样本验证、双侧边界保护标识符、改后立即跑门禁**；
 回退未提交改动用 `git checkout` 之外的方式（或先提交）。
+
+- **改动（2026-11-01）**：修发送门禁冷启动竞态——`useCurrentModelRoute` 区分「尚未水合」与「无模型」，零来源门禁只在 providers/网关条目表就绪时判定，加载窗口 Send 置灰、间接派发静默等待；此前启动后 ~1.5s 内点发送会把 `sendModel` 落回内置默认模型并误弹「当前模型没有可用来源」。回归钉子：`chatInputModelLoading` 水合窗口两用例 + 稳态真零来源对照。已知残留：`ensureLoaded` 无 catch（既有挂账），listProviders 拒绝时发送持续置灰 fail-closed。
