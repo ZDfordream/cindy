@@ -176,6 +176,34 @@ export function resolveAccountKey(
   return key;
 }
 
+/** 同 username 存量凭证里的冻结键（过期也算——键不得因 TTL 换掉）；不是同一账号返回 null。 */
+function readPriorFrozenKey(username: string, deps: OaCredentialDeps): string | null {
+  if (!username) return null;
+  let raw: string | null;
+  try {
+    raw = deps.secretIo.read(OA_LOGIN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (raw == null) return null;
+  const record = parseStoredLogin(raw);
+  if (!record || record.username !== username) return null;
+  return record.accountKey || null;
+}
+
+/** 冻结写入：条目已存在且键不同则不动（冻结不漂移）；缺失或同键才写/刷新登录时效。 */
+function freezeEntry(
+  map: Record<string, AccountMapEntry>,
+  key: string,
+  accountKey: string,
+  expiresAt: number,
+): void {
+  if (!key || !accountKey) return;
+  const existing = map[key];
+  if (existing && existing.accountKey !== accountKey) return;
+  map[key] = { accountKey, expiresAt };
+}
+
 /**
  * 保存（覆盖）当前登录；账号键经 resolveAccountKey 冻结，映射条目的登录时效随之滑动刷新。
  * 口令只经 secret IO 落盘；IO 失败只记 warn（不含任何字段值），不向调用方抛口令相关错误。
@@ -185,14 +213,23 @@ export async function saveOaLogin(
   deps: OaCredentialDeps = defaultDeps(),
 ): Promise<void> {
   const now = input.now ?? (deps.now ?? Date.now)();
+  const expiresAt = now + OA_LOGIN_TTL_MS;
   const loginName = input.profile.loginName || input.username;
-  const accountKey = resolveAccountKey(loginName, input.profile, deps);
+  // 冻结源优先级：同 username 存量凭证的冻结键 → 映射表（loginName / username 双标识）
+  // → 经 resolveAccountKey 新冻结。三者共同兜住「同一账号的键不得漂移」（Review Focus #3）。
+  const priorMap = readAccountMap(deps.mappingFilePath);
+  const frozen =
+    readPriorFrozenKey(input.username, deps) ??
+    priorMap[loginName]?.accountKey ??
+    priorMap[input.username]?.accountKey ??
+    null;
+  const accountKey = frozen ?? resolveAccountKey(loginName, input.profile, deps);
   const record: OaStoredLogin = {
     username: input.username,
     password: input.password,
     accountKey,
     loginName,
-    expiresAt: now + OA_LOGIN_TTL_MS,
+    expiresAt,
   };
   try {
     if (!deps.secretIo.write(OA_LOGIN_STORAGE_KEY, JSON.stringify(record))) {
@@ -201,14 +238,16 @@ export async function saveOaLogin(
   } catch (err) {
     log.warn('oa credential write failed', { err: errorText(err) });
   }
-  // 映射条目的登录时效与凭证同寿命（冻结键不动，只刷新 expiresAt）。
+  // 双标识挂同一把冻结键：username 与 loginName 常不同（资料解析不出 loginName 时尤甚）。
+  // 只冻 loginName 一侧的话，登出（映射表保留、凭证清除）后仅凭 username 重登、资料页又
+  // 不可用时会另起新键换掉数据分区。已存在且不同的条目不动（冻结不漂移）。
   try {
     const map = readAccountMap(deps.mappingFilePath);
-    const existing = map[loginName];
-    if (existing) {
-      map[loginName] = { accountKey: existing.accountKey, expiresAt: now + OA_LOGIN_TTL_MS };
-      writeAccountMap(deps.mappingFilePath, map);
+    freezeEntry(map, loginName, accountKey, expiresAt);
+    if (input.username && input.username !== loginName) {
+      freezeEntry(map, input.username, accountKey, expiresAt);
     }
+    writeAccountMap(deps.mappingFilePath, map);
   } catch (err) {
     mapWriteFailed(err);
   }

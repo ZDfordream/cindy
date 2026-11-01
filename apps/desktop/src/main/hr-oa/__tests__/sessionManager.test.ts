@@ -287,6 +287,40 @@ describe('manual login', () => {
     });
   });
 
+  it('does not fork the frozen mapping key when an explicit re-login cannot fetch the profile', async () => {
+    // 首登 username='u1' 但资料 loginName='login-u1'：映射键按 loginName 冻结。
+    clientProfile = profile({ loginName: 'login-u1' });
+    const manager = makeManager();
+    await manager.login('u1', PASSWORD);
+    expect(await loadOaLogin(clock, testDeps)).toMatchObject({
+      loginName: 'login-u1',
+      accountKey: 'login-u1',
+    });
+
+    // 显式重登时资料页不可用（profile reject）：不得退化成用 username 'u1' 另起新键，
+    // 否则 dataOwner 换键、本地数据分区被孤儿化（Review Focus #3 账号键漂移）。
+    clientProfile = new Error('profile down');
+    const state = await manager.login('u1', PASSWORD);
+    expect(state).toMatchObject({ status: 'signed-in', accountKey: 'login-u1' });
+    expect(await loadOaLogin(clock, testDeps)).toMatchObject({
+      loginName: 'login-u1',
+      accountKey: 'login-u1',
+    });
+  });
+
+  it('keeps the frozen key across logout when the re-login cannot fetch the profile', async () => {
+    clientProfile = profile({ loginName: 'login-u1' });
+    const manager = makeManager();
+    await manager.login('u1', PASSWORD);
+    await manager.logout();
+    // clearOaLogin 的承诺：登出（映射表保留、凭证清除）后重登不得换键。仅凭 username、
+    // 资料页又不可用时也必须仍命中冻结键，不得另起 'u1' 新键。
+    clientProfile = new Error('profile down');
+    const state = await manager.login('u1', PASSWORD);
+    expect(state).toMatchObject({ status: 'signed-in', accountKey: 'login-u1' });
+    expect(await loadOaLogin(clock, testDeps)).toMatchObject({ accountKey: 'login-u1' });
+  });
+
   it.each(['wrong_credentials', 'locked', 'network_error', 'timeout'] as const)(
     'explicit login %s returns an inline error and leaves state and stored credential untouched',
     async (kind: OaLoginFailure) => {

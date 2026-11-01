@@ -98,7 +98,8 @@ export function createHrOaSessionManager(deps: {
       return settle({ status: 'signed-in', accountKey: stored.accountKey, profile: blankProfile() });
     }
     const loginName = profile.loginName || stored.loginName || stored.username;
-    const accountKey = credentials.resolveAccountKey(loginName, profile);
+    // 键按已缓存的冻结键：资料再全也不许换键（键漂移 = 换 dataOwner）；存量缺键才走冻结解析。
+    const accountKey = stored.accountKey || credentials.resolveAccountKey(loginName, profile);
     await credentials.saveOaLogin({
       username: stored.username,
       password: stored.password,
@@ -126,9 +127,24 @@ export function createHrOaSessionManager(deps: {
       profile = null;
     }
     const effective = profile ?? blankProfile();
-    const loginName = effective.loginName || username;
-    const accountKey = credentials.resolveAccountKey(loginName, effective);
-    await credentials.saveOaLogin({ username, password, profile: effective, now: now() });
+    // Review Focus #3（账号键漂移）：显式登录同样必须续用已冻结的键。先读存量凭证——
+    // 同一 username 的冻结键/映射键接着用；资料页不可用时尤其不能退化成用 username
+    // 另起新键（那会换掉 dataOwner、把本地数据分区孤儿化）。
+    const stored = await credentials.loadOaLogin(now());
+    const cached = stored && stored.username === username ? stored : null;
+    const loginName = effective.loginName || cached?.loginName || username;
+    await credentials.saveOaLogin({
+      username,
+      password,
+      // 与冻结键同源的映射键（回填 loginName）：save 内部不得另起键重解账号键。
+      profile: { ...effective, loginName },
+      now: now(),
+    });
+    const saved = await credentials.loadOaLogin(now());
+    const accountKey =
+      cached?.accountKey ||
+      (saved && saved.username === username ? saved.accountKey : null) ||
+      credentials.resolveAccountKey(loginName, effective);
     return settle({ status: 'signed-in', accountKey, profile: effective });
   }
 
