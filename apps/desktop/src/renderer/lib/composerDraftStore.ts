@@ -345,6 +345,10 @@ export function subscribeDraftContent(sessionId: string, handler: DraftListener)
 }
 
 function recomputeDraftPresence(sessionId: string, key = draftKey(sessionId)): void {
+  recomputeDraftPresenceForKey(key);
+}
+
+function recomputeDraftPresenceForKey(key: string): void {
   const contentSet = contentListeners.get(key);
   if (contentSet)
     for (const fn of contentSet) {
@@ -554,7 +558,10 @@ export function discardDraft(sessionId: string): void {
  * has no entry, so it skips the re-save.
  */
 export function clearDraftAndNotify(sessionId: string): void {
-  const key = draftKey(sessionId);
+  clearDraftAndNotifyAtKey(draftKey(sessionId));
+}
+
+function clearDraftAndNotifyAtKey(key: string): void {
   const set = listeners.get(key);
   if (set && set.size > 0) {
     // Stage an explicit empty draft, then notify: the subscriber reads
@@ -570,29 +577,41 @@ export function clearDraftAndNotify(sessionId: string): void {
   }
   drafts.delete(key);
   remoteOptimisticRecoveries.delete(key);
-  recomputeDraftPresence(sessionId);
+  recomputeDraftPresenceForKey(key);
   syncDraftUrlsToMain();
 }
 
 /**
- * Clear every unsent draft owned by the **active** owner (HR OA 退出登录，
- * FR-SESSION-03「清除内存会话与对话草稿」）。
+ * Capture the active owner's unsent drafts and return their destroyer
+ * (HR OA 退出登录，FR-SESSION-03「清除内存会话与对话草稿」）.
+ *
+ * Capture and destroy are deliberately separate: the logout chain must only
+ * destroy drafts **after** `hrOa:logout` succeeds (failure = login state AND
+ * drafts stay as they were, awaiting the next trigger), while the
+ * `auth:state-change` push may flip the active owner mid-IPC — re-deriving the
+ * prefix afterwards would miss exactly the drafts we mean to clear. The
+ * destroyer sweeps by the prefix captured **now** (including anything the same
+ * owner adds before it runs) and is idempotent.
  *
  * 与 FR-SESSION-02（登录态失效时草稿**保留**、同账号重新登录恢复）的分界刻意在此：
  * 只有主动登出走这里；失效路径不清，靠 owner 前缀（`setComposerDraftOwner`）继续
  * 让同账号恢复原草稿。草稿是「丢弃」而非「发出」，暂存附件副本照 `discardDraft`
  * 口径释放，不在磁盘留孤儿。
  */
-export function clearActiveOwnerComposerDrafts(): void {
+export function captureActiveOwnerComposerDrafts(): () => void {
   const prefix = ownerPrefix();
-  for (const key of [...drafts.keys()]) {
-    if (!key.startsWith(prefix)) continue;
-    const sessionId = key.slice(prefix.length);
-    const draft = drafts.get(key);
-    if (draft) cleanupStagedChatAttachmentFiles(draft.attachments);
-    draftDiscardGenerations.set(key, (draftDiscardGenerations.get(key) ?? 0) + 1);
-    clearDraftAndNotify(sessionId);
-  }
+  let destroyed = false;
+  return () => {
+    if (destroyed) return;
+    destroyed = true;
+    for (const key of [...drafts.keys()]) {
+      if (!key.startsWith(prefix)) continue;
+      const draft = drafts.get(key);
+      if (draft) cleanupStagedChatAttachmentFiles(draft.attachments);
+      draftDiscardGenerations.set(key, (draftDiscardGenerations.get(key) ?? 0) + 1);
+      clearDraftAndNotifyAtKey(key);
+    }
+  };
 }
 
 function normalizedDraftBlocks(document: JSONContent | null | undefined): JSONContent[] {

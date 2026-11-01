@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { clearActiveOwnerComposerDrafts } from '@/lib/composerDraftStore';
+import { captureActiveOwnerComposerDrafts } from '@/lib/composerDraftStore';
 import { createLogger } from '@/lib/logger';
 
 import type { OaLoginFailure } from '../../../main/hr-oa/errors';
@@ -214,17 +214,22 @@ export async function requestHrOaLogout(): Promise<boolean> {
   gateMemory.voluntaryLogout = true;
   gateMemory.leaveDeadline = Date.now() + HR_OA_LEAVE_LOCK_MS;
   if (typeof document !== 'undefined') document.body.dataset.hrLeave = 'leaving';
+  // 草稿销毁器先**捕获**（此刻 owner 前缀还是登录账号），登出**成功**才销毁
+  // （FR-SESSION-03）：失败 = 登录态与草稿都留在原状，等下一次触发。推送可能在
+  // IPC 期间把 active owner 切走，事后再按当前前缀找就找不到这批草稿（见
+  // composerDraftStore 的 capture 头注）。expiry 路径刻意不走这里（FR-SESSION-02
+  // 同账号重新登录恢复草稿）。
+  const destroyDrafts = captureActiveOwnerComposerDrafts();
   try {
-    // 未发送草稿清除（FR-SESSION-03）：expiry 路径刻意不清（FR-SESSION-02 同账号恢复）。
-    clearActiveOwnerComposerDrafts();
     const fadeMs = leaveFadeMs();
     if (fadeMs > 0) await new Promise((resolve) => window.setTimeout(resolve, fadeMs));
     await window.electronAPI.hrOa.logout();
+    destroyDrafts();
     landHrOaState({ status: 'signed-out' });
     publishGateMemory();
     return true;
   } catch (err) {
-    // 登出失败（keychain / IPC）：登录态未变，留在原界面；口令与登录态照旧保留。
+    // 登出失败（keychain / IPC）：登录态未变、草稿未动，留在原界面；口令照旧保留。
     log.warn('hrOa logout failed', err);
     return false;
   } finally {

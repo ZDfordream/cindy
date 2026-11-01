@@ -53,7 +53,7 @@ import {
 import { OnboardingHomeBanner } from '@/features/model-gateway/OnboardingHomeBanner';
 import { useCurrentModel } from '@/features/model-gateway/currentModelStore';
 import { HrOaGate } from '../HrOaGate';
-import { HrOaMoreMenuItems } from '../HrOaMoreMenuItems';
+import { HrOaCustomizeFallbackHost, HrOaMoreMenuItems } from '../HrOaMoreMenuItems';
 import { OnboardingSessionHost } from '../OnboardingSessionHost';
 import { __testing as hrOaStoreTesting } from '../hrOaAuthStore';
 
@@ -463,6 +463,31 @@ describe('FR-SESSION-03 / FR-HOME-03：退出登录', () => {
     newToasts = getToastSnapshot().filter((item) => !toastsBefore.includes(item));
     expect(newToasts.some((item) => item.message === EXPIRED_TOAST)).toBe(false);
   });
+
+  it('登出链失败：登录态与未发送草稿都留在原状（评审 Finding 2）', async () => {
+    vi.useFakeTimers();
+    bridge.getState.mockResolvedValue(SIGNED_IN_A);
+    renderSessionHome();
+    await flush();
+    await act(async () => {
+      saveComposerDraft(DRAFT_KEY, { text: plainTextToTiptapDoc('未发送草稿'), attachments: [] });
+    });
+    expect(draftProbe()).toBe('has-draft');
+
+    // hrOa:logout 失败（keychain / IPC）：登出链承诺「登录态未变、留在原界面」——
+    // 草稿也必须跟着留下（FR-SESSION-03 的清草稿只发生在**成功**后）。
+    bridge.logout.mockRejectedValueOnce(new Error('keychain unavailable'));
+    const menu = await openMoreMenu();
+    await act(async () => {
+      fireEvent.click(within(menu).getByRole('menuitem', { name: LOGOUT_LABEL }));
+    });
+    await flush();
+
+    expect(welcomeTitle()).toBeNull();
+    expect(homeSurface()).toBeTruthy();
+    expect(draftProbe()).toBe('has-draft');
+    expect(getDraft(DRAFT_KEY)).toBeTruthy();
+  });
 });
 
 describe('FR-SESSION-02 / T10：登录态失效', () => {
@@ -533,5 +558,35 @@ describe('FR-HOME-02 / AC-14：更多 → 自定义', () => {
     expect(entryIds()).toContain('gw-model-beta');
     expect(currentModel()).toBe('gw-model-beta');
     expect(bannerText()).toBeNull();
+  });
+
+  it('回落弹窗全窗单例：共存的两份「更多」浮层只出一份弹窗（AC-14 非首页路径）', async () => {
+    // 生产形态（评审 Finding 1）：CCAgentSidebarUpper 的展开 + rail 两份「更多」
+    // 菜单**常驻同挂**（隐藏的一份只是 opacity-0 pointer-events-none，拦不住 portal），
+    // 两份菜单各挂一个回落宿主。宿主必须全窗单例，否则两套遮罩 / 两套表单叠开。
+    render(
+      <>
+        <HrOaCustomizeFallbackHost />
+        <HrOaCustomizeFallbackHost />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button">{MORE_LABEL}</button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <HrOaMoreMenuItems />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </>,
+    );
+    await flush();
+
+    // 首页宿主不在（会话页等）→ 「自定义」走回落。
+    const menu = await openMoreMenu();
+    await act(async () => {
+      fireEvent.click(within(menu).getByRole('menuitem', { name: CUSTOMIZE_LABEL }));
+    });
+    await flush();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(document.querySelectorAll('.modal-scrim')).toHaveLength(1);
   });
 });

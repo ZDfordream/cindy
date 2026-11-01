@@ -17,7 +17,7 @@
  * 模块级小 store，弹窗由 `HrOaCustomizeFallbackHost` 在菜单**外**挂载（同返回树的
  * 兄弟位，随侧栏常驻）。
  */
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LogOut, SlidersHorizontal } from 'lucide-react';
 
@@ -36,6 +36,14 @@ let fallbackOpen = false;
 let fallbackUsed = false;
 const fallbackListeners = new Set<() => void>();
 
+// ── 回落宿主注册表（评审 Finding 1）────────────────────────────────────────────
+// 「更多」浮层在任务视图下有**两份常驻同挂**（展开 + rail，隐藏的只是 opacity-0
+// pointer-events-none，拦不住 portal 到 body 的弹窗），每份菜单各挂一个宿主。
+// 弹窗必须全窗单例：注册表选出唯一 active 宿主渲染，其余返回 null；active 卸载
+// （菜单/侧栏拆卸）即移交下一个注册者，弹窗不因单个宿主消失而丢失。
+const fallbackHostTokens: object[] = [];
+let activeFallbackHostToken: object | null = null;
+
 function publishFallback(): void {
   for (const listener of fallbackListeners) listener();
 }
@@ -45,6 +53,23 @@ function subscribeFallback(listener: () => void): () => void {
   return () => {
     fallbackListeners.delete(listener);
   };
+}
+
+function registerFallbackHost(token: object): void {
+  fallbackHostTokens.push(token);
+  if (activeFallbackHostToken === null) {
+    activeFallbackHostToken = token;
+    publishFallback();
+  }
+}
+
+function unregisterFallbackHost(token: object): void {
+  const index = fallbackHostTokens.indexOf(token);
+  if (index >= 0) fallbackHostTokens.splice(index, 1);
+  if (activeFallbackHostToken === token) {
+    activeFallbackHostToken = fallbackHostTokens[0] ?? null;
+    publishFallback();
+  }
 }
 
 function openCustomizeFallback(): void {
@@ -70,11 +95,25 @@ function fallbackUsedSnapshot(): boolean {
  * 回落弹窗宿主：挂在「更多」浮层**外**（菜单关闭不随之卸载）。仅在真正回落后
  * 才建 `ModelGatewayScope` store（侧栏常态零成本）；弹窗本体与首页同款
  * `OnboardingModelDialog`（origin=home）。
+ *
+ * **全窗单例**（注册表）：N 份菜单各挂一个宿主，但只有 active 那份渲染弹窗——
+ * 否则展开 + rail 双常驻会叠出两套遮罩 / 两套表单（评审 Finding 1）。
  */
 export function HrOaCustomizeFallbackHost() {
+  const [token] = useState<object>(() => ({}));
+  useEffect(() => {
+    registerFallbackHost(token);
+    return () => {
+      unregisterFallbackHost(token);
+    };
+  }, [token]);
+  const isActiveHost = useSyncExternalStore(
+    subscribeFallback,
+    () => activeFallbackHostToken === token,
+  );
   const open = useSyncExternalStore(subscribeFallback, fallbackSnapshot);
   const used = useSyncExternalStore(subscribeFallback, fallbackUsedSnapshot);
-  if (!used) return null;
+  if (!isActiveHost || !used) return null;
   return (
     <ModelGatewayScope>
       <OnboardingModelDialog
