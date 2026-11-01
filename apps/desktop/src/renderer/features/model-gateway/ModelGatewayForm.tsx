@@ -35,7 +35,8 @@
  * 不新增）：
  *   1. §4「有 Cancel 的对话框不带右上角 ×」——参考图 × 与「取消」并存；
  *   2. §4「单行输入框用 9999px 胶囊圆角」——PRD 2026-11-01 是 14px 圆角矩形
- *      （按钮同款处理；圆角族登记见 CHANGES.md §9.4）。
+ *      （按钮同款处理；已登记为 DESIGN.md §5「HRBuddy PRD-family frames」成员
+ *      `hrbuddy-model-dialog-panel` / `hrbuddy-prd-control`，CHANGES.md §9.4 同族）。
  * 弹窗壳复用 ConfirmDialog 的结构（DESIGN.md §4：标题 / 滚动内容区 / 底部按钮 +
  * 共享 `.modal-scrim` / `.modal-panel` 类）；校验 / 错误呈现与遮罩 dirty 抖动
  * （PRD，`shake` 类挂 `.modal-panel`，globals.css）不走 `ConfirmDialog` 组件本体。
@@ -335,7 +336,8 @@ export function ModelGatewayForm({ open, mode, initial, onClose, onSaved }: Mode
         style={{ maxWidth: 'min(460px, 100vw - 32px)' }}
       >
         {/* 标题栏：× 与「取消」并存（偏离登记 1）。
-            面板 22px 圆角按 PRD 2026-11-01 版式（偏离登记：覆盖共享 modal-panel 的 12px）。 */}
+            面板 22px 圆角 = DESIGN.md §5 `hrbuddy-model-dialog-panel`（PRD 2026-11-01
+            版式；2026-11-01 起已登记，覆盖共享 modal-panel 的 12px）。 */}
         <div className="flex items-start justify-between gap-4 px-6 pt-5">
           <h2 className="text-lg font-semibold leading-tight text-[var(--confirm-title)]">
             {mode === 'edit'

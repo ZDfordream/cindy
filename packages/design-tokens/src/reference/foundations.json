@@ -307,6 +307,27 @@
           "unit": "ms"
         }
       },
+      "motion-mascot-float-cycle": {
+        "$type": "duration",
+        "$value": {
+          "value": 3600,
+          "unit": "ms"
+        }
+      },
+      "motion-mascot-blink-cycle": {
+        "$type": "duration",
+        "$value": {
+          "value": 4200,
+          "unit": "ms"
+        }
+      },
+      "motion-error-shake": {
+        "$type": "duration",
+        "$value": {
+          "value": 360,
+          "unit": "ms"
+        }
+      },
       "motion-ease-out": {
         "$type": "cubicBezier",
         "$value": [

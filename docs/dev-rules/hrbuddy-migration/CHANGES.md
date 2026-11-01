@@ -303,6 +303,10 @@ OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新�
 > 适用面：模型设置弹窗（`ModelGatewayForm`）、模型列表（`ModelGatewayList`/`Row`）与其
 > toast / 动效。PRD 交互稿 `hrbuddy_prd/design/model-provider-settings.html` 是这些面的
 > 视觉权威；下表**登记为有意偏离 DESIGN.md §4/§5**，评审不要当 bug 修。
+> **2026-11-01 起圆角族（弹窗 22 / 控件 14）已升入 `DESIGN.md §5`「HRBuddy PRD-family
+> frames」正式注册**（成员 `hrbuddy-model-dialog-panel` / `hrbuddy-prd-control`，与
+> 登录门禁 24/14 同一家族；见 design-decision-log 2026-11-01）——本表其余条目仍按本节
+> 执行，冲突以 DESIGN.md §5 为准。
 > **PRD 2026-11-01 版式覆盖旧登记的「输入框 10px 圆角」（CHANGELOG 条目 7）与
 > 「点遮罩可关」（CHANGELOG 条目 8）两条**；遮罩行为已按 PRD 改为 dirty 抖动不关
 > （clean 可关，Esc/取消/✕ 任何态可关），旧条目仅存历史。

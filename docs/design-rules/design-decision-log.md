@@ -10,6 +10,12 @@
 > 2026-07-25 起 `§15` CINDY 皮肤族的决策史(红色体系重构、caret 改稿、vibrancy
 > 定稿等)已随 §15 保号重构迁入本文件,`DESIGN.md §15` 只保留现行规范。
 
+## 2026-11
+
+- **11-01 登录门禁动效取值登记为语义 token；成功 ✓ 复用 Done 弹出，不另造第二条**——login-onboarding task-3 评审裁决（Ruling 7/8）：S1/S2 吉祥物闲置浮动 3.6s、眨眼 4.2s 与 S2 错误卡片抖动 360ms 是 PRD 逐值指定的时长，属 §14.4 阶梯外取值，须走 `--motion-spinner-cycle` 式语义例外登记而非组件字面量。现行：三值落 foundations 层 token `--motion-mascot-float-cycle` / `--motion-mascot-blink-cycle` / `--motion-error-shake`（`packages/design-tokens` 生成，reduce 全档归零），组件只挂类；浮动/眨眼仍受 FR-WELCOME-01 约束——减弱动效下组件侧根本不挂动效类。同批裁决：S2「登录成功」✓ 的弹出不得自造 keyframes（task-3 首版曾写 240ms + 自造 scale 0.6→1，被评审判「发明第二条 Done 动效」），改挂 registered `status-done-pop`（与 `.status-bar-done` 共享同一条动画规则，时长/曲线只写在注册处）；one semantic, one motion。被取代：task-3 首版 `hr-oa-success-check` 私有 keyframes。落点：`DESIGN.md §14.4`（例外段 + Done 行）、`globals.css`、`packages/design-tokens/src/*`。
+
+- **11-01 HRBuddy PRD 家族圆角与登录门禁按钮高度登记**——login-onboarding task-3 评审裁决（Ruling 7）：简报与 PRD 指定的登录卡 24px、表单控件 14px、模型弹窗 22px 与登录门禁按钮 44px 高是产品原型版式（设计 px 坐标系），保留原型值、不收敛到 §5 阶梯，但必须走登记路线而非代码注释（`ModelGatewayForm` 的 22/14 是未登记欠账，不是授权）。现行：§5 Step 1 新增 registered shape「HRBuddy PRD-family frames」，成员 `hrbuddy-login-card`（24px）/ `hrbuddy-model-dialog-panel`（22px）/ `hrbuddy-prd-control`（14px），并把登录门禁主操作 44px 高（S1 CTA + S2 提交）作为同一家族的高度例外登记（§4 Buttons 加注指回 §5；S1 CTA 半径仍走 Step 2 胶囊档，S3 按钮仍 36px，其余界面不得取 44px）。作用域仅此两块 PRD 表面。落点：`DESIGN.md §4 / §5`、`LoginScreen.tsx` / `WelcomeScreen.tsx` / `ModelGatewayForm.tsx` 注释引证。
+
 ## 2026-10
 
 - **10-26 滚动截图沿用截图流程，不新增独立面板**——用户指出缩小预览／保存面板割裂体验。滚动时保留原选区，在选区外预览拼接结果并提供编辑、保存、取消、完成；完成复制并关闭，编辑回原标注器。预览缩放不得降低导出尺寸。落点：`DESIGN.md §4`、`RegionScreenshotOverlay`、`ScrollCaptureOverlay`。

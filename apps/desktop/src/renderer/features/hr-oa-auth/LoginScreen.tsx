@@ -1,10 +1,11 @@
 /**
  * LoginScreen —— S2 账号密码登录（login-onboarding PRD §6.2 FR-LOGIN-01~06）。
  *
- * 几何按 PRD §6.2：卡片 400px / 圆角 24px（偏离登记：覆盖容器档 12px，同
- * model-gateway 对 model-provider PRD 的 `!rounded-[22px]` 口径）、输入高 44px /
- * 圆角 14px（覆盖单行输入胶囊档）。文字走 DESIGN.md §3 字号字重梯（PRD 标题
- * 22/700 收敛为 20/600，其余逐档对上）；颜色一律语义 token，双模式同源。
+ * 几何按 PRD §6.2：卡片 400px / 圆角 24px、输入高 44px / 圆角 14px、主操作高
+ * 44px——均已登记为 `DESIGN.md §5`「HRBuddy PRD-family frames」成员（
+ * `hrbuddy-login-card` 24px / `hrbuddy-prd-control` 14px，44px 高为同族高度例外，
+ * 见 decision log 2026-11-01）。文字走 DESIGN.md §3 字号字重梯（PRD 标题 22/700
+ * 收敛为 20/600，其余逐档对上）；颜色一律语义 token，双模式同源。
  *
  * 口令只进受控 state 与 `useHrOaAuth().login` 入参：不进日志、不进错误文案、
  * `autoComplete="off"` 阻止写入任何持久自动填充存储。
@@ -25,10 +26,10 @@ import { useHrOaAuth, type OaLoginFailure } from './hrOaAuthStore';
 
 type Phase = 'idle' | 'submitting' | 'success';
 
-/** PRD §6.2 几何：44px 高、14px 圆角；文字 15px 在 DS-8 字号白名单内。 */
+/** PRD §6.2 几何：44px 高、14px 圆角（§5 `hrbuddy-prd-control` + 同族高度例外）；文字 15px 在 DS-8 字号白名单内。 */
 const FIELD_INPUT_CLASS = '!h-11 !rounded-[14px] text-15';
 
-/** PRD `.btn`（S2 操作钮）14px 圆角；S1 胶囊钮保持组件默认全圆角。 */
+/** PRD `.btn`（S2 操作钮）14px 圆角 = §5 `hrbuddy-prd-control`；S1 胶囊钮保持组件默认全圆角。 */
 const CARD_ACTION_CLASS = '!rounded-[14px] px-6';
 
 const ERROR_COPY: Record<OaLoginFailure, string> = {

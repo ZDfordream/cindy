@@ -41,6 +41,9 @@
     --motion-exit: 150ms;
     --motion-spinner-cycle: 1000ms;
     --motion-sidebar-title-marquee-per-viewport: 2400ms;
+    --motion-mascot-float-cycle: 3600ms;
+    --motion-mascot-blink-cycle: 4200ms;
+    --motion-error-shake: 360ms;
     --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
     --motion-ease-move: cubic-bezier(0.4, 0, 0.2, 1);

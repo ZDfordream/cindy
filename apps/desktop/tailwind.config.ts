@@ -129,6 +129,9 @@ const MOTION_CSS = {
   "exit": "var(--motion-exit, 150ms)",
   "spinner-cycle": "var(--motion-spinner-cycle, 1000ms)",
   "sidebar-title-marquee-per-viewport": "var(--motion-sidebar-title-marquee-per-viewport, 2400ms)",
+  "mascot-float-cycle": "var(--motion-mascot-float-cycle, 3600ms)",
+  "mascot-blink-cycle": "var(--motion-mascot-blink-cycle, 4200ms)",
+  "error-shake": "var(--motion-error-shake, 360ms)",
   "ease-out": "var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1))",
   "ease-in": "var(--motion-ease-in, cubic-bezier(0.4, 0, 1, 1))",
   "ease-move": "var(--motion-ease-move, cubic-bezier(0.4, 0, 0.2, 1))"

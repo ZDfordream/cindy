@@ -32,7 +32,8 @@ export function WelcomeScreen(props: { onLogin: () => void }): React.JSX.Element
         {t('hrOa.welcome.title')}
       </h1>
       {/* FR-WELCOME-02：深色全圆角胶囊（palette=confirmation 走 confirm-btn-primary-bg
-          反转实底，两模式同源），高 44px、左右 44px 对齐 PRD pill-login。 */}
+          反转实底，两模式同源），高 44px（§5 HRBuddy PRD-family 高度例外）、左右 44px
+          对齐 PRD pill-login；圆角走 Step 2 胶囊档，不属 family 成员。 */}
       <Button
         ref={loginRef}
         variant="primary"

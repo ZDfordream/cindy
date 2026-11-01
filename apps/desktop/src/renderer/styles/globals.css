@@ -112,6 +112,9 @@
       --motion-exit: 0ms;
       --motion-spinner-cycle: 0ms;
       --motion-sidebar-title-marquee-per-viewport: 0ms;
+      --motion-mascot-float-cycle: 0ms;
+      --motion-mascot-blink-cycle: 0ms;
+      --motion-error-shake: 0ms;
     }
 
     /* 'animate-spin' 是 'animate-spinner' 的子串,一条同时覆盖 Tailwind 的
@@ -998,6 +1001,7 @@ body.resizing-pane [data-ghost-webview] {
   [data-voice-mic-active='true'] [data-voice-mic-bar],
   .status-bar-shimmer,
   .status-bar-done,
+  .hr-oa-success-check,
   .session-status-breathing,
   .session-card-bar::before,
   .session-card--settle,
@@ -1304,6 +1308,12 @@ body.resizing-pane [data-ghost-webview] {
 /* Done: pop bounce, stays orange */
 .status-bar-done {
   color: var(--status-bar-accent);
+}
+/* Done overshoot 的唯一定值落点(§14.4 Done 语义,one semantic one motion):
+   状态栏 Done 与 S2 登录成功 ✓ 共用同一条 registered 动画;时长/曲线只写在这一条,
+   别处只挂类名、不重写取值、不另造第二条 Done 弹出。 */
+.status-bar-done,
+.hr-oa-success-check {
   animation: status-done-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
@@ -2312,25 +2322,24 @@ html[data-wallpaper-active='true'] :is(.layout-divider-v, .layout-divider-h) {
 
   /* HRBuddy 登录门禁 S1/S2(PRD 2026-11-01 login-onboarding):吉祥物闲置浮动/眨眼
      为 infinite 装饰动画,宿主类已登记进 [data-app-hidden] 冻结清单;登录卡片错误
-     抖动与成功 ✓ 弹出是一次性动画,刻意不进冻结清单。减弱动效下组件侧不挂浮动/眨眼
-     类(FR-WELCOME-01),下方 reduce 块统一兜底归零。 */
+     抖动是一次性动画,刻意不进冻结清单。三个时长均走 §14.4 登记的语义 token
+     (--motion-mascot-*-cycle / --motion-error-shake,PRD 逐值登记,reduce 全档归零);
+     成功 ✓ 不在此处定义 —— 复用 Done 语义的 registered status-done-pop(见上方
+     .status-bar-done 共享规则)。减弱动效下组件侧不挂浮动/眨眼类(FR-WELCOME-01)。 */
   .hr-oa-mascot-float {
     transform-box: fill-box;
     transform-origin: center;
-    animation: hr-oa-mascot-float 3.6s ease-in-out infinite;
+    animation: hr-oa-mascot-float var(--motion-mascot-float-cycle) ease-in-out infinite;
   }
   .hr-oa-mascot-blink {
     transform-box: fill-box;
     transform-origin: center;
-    animation: hr-oa-mascot-blink 4.2s ease-in-out infinite;
+    animation: hr-oa-mascot-blink var(--motion-mascot-blink-cycle) ease-in-out infinite;
   }
   .hr-oa-login-card.shake {
-    /* 复用 modal-panel-shake 的 ±6px 双回位移(同 PRD 系列同一形状);时长按
-       PRD §9.3 shake 360ms,曲线走 motion token。 */
-    animation: modal-panel-shake 360ms var(--motion-ease-move);
-  }
-  .hr-oa-success-check {
-    animation: hr-oa-success-check 240ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    /* 复用 modal-panel-shake 的 ±6px 双回位移(同 PRD 系列同一形状);时长走
+       §14.4 登记的 --motion-error-shake(PRD §9.3 shake 360ms),曲线走 motion token。 */
+    animation: modal-panel-shake var(--motion-error-shake) var(--motion-ease-move);
   }
 }
 @keyframes hr-oa-mascot-float {
@@ -2352,19 +2361,10 @@ html[data-wallpaper-active='true'] :is(.layout-divider-v, .layout-divider-h) {
     transform: scaleY(0.1);
   }
 }
-@keyframes hr-oa-success-check {
-  from {
-    transform: scale(0.6);
-  }
-  to {
-    transform: scale(1);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .hr-oa-mascot-float,
   .hr-oa-mascot-blink,
-  .hr-oa-login-card.shake,
-  .hr-oa-success-check {
+  .hr-oa-login-card.shake {
     animation: none;
   }
 }

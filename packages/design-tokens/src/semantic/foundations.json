@@ -161,6 +161,18 @@
         "$type": "duration",
         "$value": "{reference.foundations.motion-sidebar-title-marquee-per-viewport}"
       },
+      "motion-mascot-float-cycle": {
+        "$type": "duration",
+        "$value": "{reference.foundations.motion-mascot-float-cycle}"
+      },
+      "motion-mascot-blink-cycle": {
+        "$type": "duration",
+        "$value": "{reference.foundations.motion-mascot-blink-cycle}"
+      },
+      "motion-error-shake": {
+        "$type": "duration",
+        "$value": "{reference.foundations.motion-error-shake}"
+      },
       "motion-ease-out": {
         "$type": "cubicBezier",
         "$value": "{reference.foundations.motion-ease-out}"
