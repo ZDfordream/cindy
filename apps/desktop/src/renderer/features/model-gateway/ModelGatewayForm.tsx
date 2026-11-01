@@ -357,8 +357,10 @@ export function ModelGatewayForm({
           return;
         }
         if (!probe.ok) {
+          // Finding 3 key 分流：探测失败 = 连接失败条（probeFailed）；落盘失败走
+          // `saveFailed`（保存失败）——磁盘错不得说成「连接失败，请检查接口地址…」。
           setSaveError({
-            label: t('settings.providers.modelDialog.saveFailed'),
+            label: t('settings.providers.modelDialog.probeFailed'),
             detail: probe.detail,
           });
           shakePanel();
@@ -394,8 +396,9 @@ export function ModelGatewayForm({
         label: t('settings.providers.modelDialog.saveFailed'),
         detail: error instanceof Error ? error.message : String(error),
       });
-      // 失败提示条 + 面板抖一下（S3 合同）：输入原样保留，可改后直接重试。
-      shakePanel();
+      // 失败抖动是 S3（probeOnSave）合同：输入原样保留，可改后直接重试。设置面
+      // （无 probeOnSave）沿用旧「只出失败条、不抖」（Ruling 9 评审 Finding 1）。
+      if (probeOnSave) shakePanel();
     } finally {
       busyRef.current = false;
       setSaving(false);
@@ -486,8 +489,10 @@ export function ModelGatewayForm({
                 readOnly={probeOnSave && saving}
                 onChange={(v) => {
                   setBaseUrl(v);
-                  // FR-MODEL-08（Ruling 9 重申）：失败条在任意字段再次输入后消失。
-                  setSaveError(null);
+                  // FR-MODEL-08（Ruling 9 重申）：失败条在任意字段再次输入后消失——
+                  // 仅 probeOnSave（S3）弹窗；设置面保持旧「留到下次保存 / 重开」
+                  // （Ruling 9 评审 Finding 2）。
+                  if (probeOnSave) setSaveError(null);
                 }}
                 onBlur={() => setTouched((prev) => ({ ...prev, baseUrl: true }))}
                 placeholder={t('settings.providers.modelDialog.baseUrlPlaceholder')}
@@ -515,8 +520,8 @@ export function ModelGatewayForm({
                   onChange={(v) => {
                     setApiKey(v);
                     setKeyMissing(false);
-                    // FR-MODEL-08：失败条在任意字段再次输入后消失。
-                    setSaveError(null);
+                    // FR-MODEL-08：失败条在任意字段再次输入后消失（仅 probeOnSave）。
+                    if (probeOnSave) setSaveError(null);
                   }}
                   onBlur={() => setTouched((prev) => ({ ...prev, apiKey: true }))}
                   placeholder={
@@ -548,8 +553,8 @@ export function ModelGatewayForm({
                   readOnly={probeOnSave && saving}
                   onChange={(v) => {
                     setModelId(v);
-                    // FR-MODEL-08：失败条在任意字段再次输入后消失。
-                    setSaveError(null);
+                    // FR-MODEL-08：失败条在任意字段再次输入后消失（仅 probeOnSave）。
+                    if (probeOnSave) setSaveError(null);
                   }}
                   onBlur={() => setTouched((prev) => ({ ...prev, modelId: true }))}
                   placeholder={t('settings.providers.modelDialog.modelIdPlaceholder')}

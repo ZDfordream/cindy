@@ -498,4 +498,37 @@ describe('ModelGatewayForm', () => {
     expect(maker.createCustomProvider).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
   });
+
+  it('test_persist_failure_shows_strip_without_shake_on_settings_surface', async () => {
+    // 回归（Ruling 9 评审 Finding 1）：设置面（无 probeOnSave）写盘失败只出失败条、
+    // **不抖面板**——「失败抖动」是 S3 / probeOnSave 弹窗合同，不得渗进设置 → 模型。
+    maker.createCustomProvider = vi.fn(async () => {
+      throw new Error('disk full');
+    });
+    const { view } = renderForm({ mode: 'create' });
+    await act(async () => {});
+
+    fillFields({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-ok', modelId: 'm1' });
+    clickSave();
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(view.container.querySelector('.modal-panel')!.classList.contains('shake')).toBe(false);
+  });
+
+  it('test_persist_failure_strip_persists_on_input_on_settings_surface', async () => {
+    // 回归（Ruling 9 评审 Finding 2）：设置面失败条留到下次保存 / 重开——「输入即清」
+    // （FR-MODEL-08）只属于 probeOnSave 弹窗，不改设置面的旧收口。
+    maker.createCustomProvider = vi.fn(async () => {
+      throw new Error('disk full');
+    });
+    renderForm({ mode: 'create' });
+    await act(async () => {});
+
+    fillFields({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-ok', modelId: 'm1' });
+    clickSave();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+
+    fillFields({ modelId: 'm2' });
+    expect(screen.getByRole('alert')).toBeTruthy();
+  });
 });

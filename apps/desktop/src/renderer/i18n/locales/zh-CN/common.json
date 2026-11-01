@@ -3432,11 +3432,12 @@
         "modelIdDuplicate": "该模型已添加",
         "addedToast": "已添加 {{model}}",
         "savedToast": "已保存 {{model}}",
-        "saveFailed": "连接失败，请检查接口地址、密钥或模型 ID",
+        "saveFailed": "保存失败，请稍后重试",
         "skip": "跳过，稍后配置",
         "skipHint": "也可以先跳过，稍后在「更多 → 自定义」中配置。",
         "probing": "检测连接中…",
         "saved": "已保存",
+        "probeFailed": "连接失败，请检查接口地址、密钥或模型 ID",
         "probeTimeout": "连接超时，请检查接口地址或网络"
       },
       "custom": {

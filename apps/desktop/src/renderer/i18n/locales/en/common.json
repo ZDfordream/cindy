@@ -3461,11 +3461,12 @@
         "modelIdDuplicate": "This model is already added",
         "addedToast": "Added {{model}}",
         "savedToast": "Saved {{model}}",
-        "saveFailed": "Connection failed. Check the endpoint URL, API key, or model ID.",
+        "saveFailed": "Could not save. Please try again.",
         "skip": "Skip for now",
         "skipHint": "You can also skip now and configure later under More → Custom.",
         "probing": "Checking connection…",
         "saved": "Saved",
+        "probeFailed": "Connection failed. Check the endpoint URL, API key, or model ID.",
         "probeTimeout": "Connection timed out. Check the endpoint URL or your network."
       },
       "custom": {

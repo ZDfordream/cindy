@@ -67,9 +67,12 @@ const SKIP_LABEL = 'settings.providers.modelDialog.skip';
 const SKIP_HINT = 'settings.providers.modelDialog.skipHint';
 const SAVE_FAILED = 'settings.providers.modelDialog.saveFailed';
 const ERR_MODEL_DUPLICATE = 'settings.providers.modelDialog.modelIdDuplicate';
-// Ruling 9 保存结果三态与超时条的文案 key（译文在 5 语 locale JSON 里逐 key 落位）。
+// Ruling 9 保存结果三态、探测失败 / 超时条的文案 key（译文在 5 语 locale JSON 里逐 key
+// 落位）。Finding 3 key 分流：探测失败 = `probeFailed`（连接失败…），落盘失败 =
+// `saveFailed`（保存失败…）——磁盘错不得说成「连接失败」。
 const PROBING_LABEL = 'settings.providers.modelDialog.probing';
 const SAVED_LABEL = 'settings.providers.modelDialog.saved';
+const PROBE_FAILED = 'settings.providers.modelDialog.probeFailed';
 const PROBE_TIMEOUT = 'settings.providers.modelDialog.probeTimeout';
 
 /** 表单与 store 探针共享同一 `ModelGatewayProvider` 实例（重复拦截播种要用到）。 */
@@ -292,8 +295,8 @@ describe('OnboardingModelDialog', () => {
   });
 
   it('test_probe_failure_shows_strip_shakes_keeps_input_and_never_persists', async () => {
-    // Ruling 9 检测失败（OQ-6）：失败条 + 抖动 + 输入保留；**不允许「仍然保存」**——
-    // 探测不过零落库，可改后重试或跳过。
+    // Ruling 9 检测失败（OQ-6）：连接失败条（probeFailed，Finding 3 分键）+ 抖动 +
+    // 输入保留；**不允许「仍然保存」**——探测不过零落库，可改后重试或跳过。
     maker.testProviderConnection = vi.fn(async () => ({ ok: false, code: 'AUTH_INVALID', latencyMs: 0 }));
     const { onSkipped, onSaved, onClose, view } = renderDialog({ origin: 'onboarding' });
     await act(async () => {});
@@ -302,7 +305,7 @@ describe('OnboardingModelDialog', () => {
     clickSave();
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
-    expect(screen.getByRole('alert').textContent).toContain(SAVE_FAILED);
+    expect(screen.getByRole('alert').textContent).toContain(PROBE_FAILED);
     expect(panel(view).classList.contains('shake')).toBe(true);
     // 输入保留：三栏值原样在、可继续改后重试。
     expect((screen.getByLabelText(ENDPOINT_LABEL) as HTMLInputElement).value).toBe('https://gw.example/anthropic');
@@ -352,6 +355,28 @@ describe('OnboardingModelDialog', () => {
 
     fillFields({ modelId: 'm2' });
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('test_probe_ok_then_persist_throws_shows_persist_copy_not_probe_copy', async () => {
+    // Finding 3 key 分流：探测通过后写盘抛错 = 落盘失败条（saveFailed），**不是**
+    // 连接失败条（probeFailed）——磁盘错不得说成「连接失败，请检查接口地址…」。
+    // 同时守 Finding 1 的 probeOnSave 侧：落盘失败在本弹窗仍抖（抖动门 = probeOnSave）。
+    maker.testProviderConnection = vi.fn(async () => ({ ok: true, latencyMs: 5 }));
+    maker.createCustomProvider = vi.fn(async () => {
+      throw new Error('disk full');
+    });
+    const { onSaved, view } = renderDialog({ origin: 'onboarding' });
+    await act(async () => {});
+
+    fillFields({ baseUrl: 'https://gw.example/anthropic', apiKey: 'sk-ok', modelId: 'm1' });
+    clickSave();
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    const strip = screen.getByRole('alert').textContent!;
+    expect(strip).toContain(SAVE_FAILED);
+    expect(strip).not.toContain(PROBE_FAILED);
+    expect(panel(view).classList.contains('shake')).toBe(true);
+    expect(onSaved).not.toHaveBeenCalled();
   });
 
   it('test_save_gate_and_duplicate_model_guard_through_wrapper', async () => {
