@@ -845,6 +845,7 @@ There is one mobile home, as on Desktop (owner decision, 2026-10-24): no separat
 | `hrbuddy-login-card` | The S2 login card shell (`LoginScreen` form card). | 24px, all four corners |
 | `hrbuddy-model-dialog-panel` | The add-model dialog panel (`ModelGatewayForm` `.modal-panel`). | 22px, all four corners |
 | `hrbuddy-prd-control` | Single-line inputs and action buttons on those two surfaces (S2 account/password fields and the submit action; S3 endpoint/key/model fields and the cancel/save actions). Icon-only sub-controls (back, eye, close) keep their ordinary tiers. | 14px, all four corners |
+| `hrbuddy-home-banner` | The S4b unconfigured banner strip (`OnboardingHomeBanner` inner frame, PRD FR-HOME-08). The 「去配置」 action keeps the ordinary pill tier. *(Registered 2026-11-01, login-onboarding task-6; PRD §6.4 prototype `.banner` geometry.)* | 14px, all four corners |
 
 *The same family pins one action height: the login-gate primary actions (S1 welcome CTA pill, S2 submit) take **44px** (`h-11`) — the prototype `pill-login` / `.btn` height — instead of the §4 Buttons 28/32/36 ladder. Height exception only: the S1 CTA otherwise keeps the Step 2 pill tier (9999px), S3 buttons keep their existing ladder height, and no other surface may take 44px. Registered here as one PRD-family geometry; see decision log 2026-11-01.*
 
@@ -1309,6 +1310,20 @@ be reused for enter/exit, hover, resize or other decoration. Under
 omission, FR-WELCOME-01) and all three tokens zero out with the other motion
 tiers. Registered as tokens in the foundations layer rather than as component
 literals; decision log 2026-11-01.
+
+**HRBuddy S4 banner collapse and model-dot flip (registered 2026-11-01):**
+`--motion-home-banner-collapse` = `240ms` and `--motion-home-banner-collapse-delay`
+= `120ms` are the S4b unconfigured banner's collapse window (PRD §9.3 横幅折叠 /
+T5/T8: `grid-template-rows 1fr→0fr` + opacity, 240ms with a 120ms collapse-side
+delay — the `grid-template-rows` is the sole layout-property exception to the
+PRD §9.4 transform/opacity rule) and `--motion-model-dot-flip` = `240ms` is the
+selector status-dot red↔green flip (PRD §9.3 圆点变色). None of the three is an
+interaction-duration tier: the first pair is confined to `OnboardingHomeBanner`'s
+collapse and the flip to `ChatModelMenu`'s trigger dot — they must not be reused
+for enter/exit, hover, resize or other decoration. Under
+`prefers-reduced-motion` all three zero out with the other motion tiers (the
+banner unmounts its content immediately, §9.5 状态瞬时切换). Registered as
+foundations tokens rather than component literals; decision log 2026-11-01.
 
 **Switch feedback (owner-approved 2026-09-16).** The shared Desktop Switch uses the bounded thumb width/height changes registered in §15.17: a one-shot size transition with `--motion-fast` / `--motion-ease-out`, no overshoot, and direct pointer tracking during drag. The track and hit region do not move or grow. This is a functional transient width/height exception; it does not authorize looping layout animation. Reduced motion removes transitions and keeps immediate state feedback.
 

@@ -132,6 +132,9 @@ const MOTION_CSS = {
   "mascot-float-cycle": "var(--motion-mascot-float-cycle, 3600ms)",
   "mascot-blink-cycle": "var(--motion-mascot-blink-cycle, 4200ms)",
   "error-shake": "var(--motion-error-shake, 360ms)",
+  "home-banner-collapse": "var(--motion-home-banner-collapse, 240ms)",
+  "home-banner-collapse-delay": "var(--motion-home-banner-collapse-delay, 120ms)",
+  "model-dot-flip": "var(--motion-model-dot-flip, 240ms)",
   "ease-out": "var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1))",
   "ease-in": "var(--motion-ease-in, cubic-bezier(0.4, 0, 1, 1))",
   "ease-move": "var(--motion-ease-move, cubic-bezier(0.4, 0, 0.2, 1))"

@@ -72,6 +72,9 @@ describe('prefers-reduced-motion 覆盖面(globals.css)', () => {
       '--motion-enter',
       '--motion-exit',
       '--motion-spinner-cycle',
+      '--motion-home-banner-collapse',
+      '--motion-home-banner-collapse-delay',
+      '--motion-model-dot-flip',
     ]) {
       expect(reduceCss, `reduce 块缺少 ${token} 归零`).toMatch(new RegExp(`${token}:\\s*0ms`));
     }

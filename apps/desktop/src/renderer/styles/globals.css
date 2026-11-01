@@ -115,6 +115,9 @@
       --motion-mascot-float-cycle: 0ms;
       --motion-mascot-blink-cycle: 0ms;
       --motion-error-shake: 0ms;
+      --motion-home-banner-collapse: 0ms;
+      --motion-home-banner-collapse-delay: 0ms;
+      --motion-model-dot-flip: 0ms;
     }
 
     /* 'animate-spin' 是 'animate-spinner' 的子串,一条同时覆盖 Tailwind 的

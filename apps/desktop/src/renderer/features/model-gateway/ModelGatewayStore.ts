@@ -41,6 +41,7 @@
 import {
   createContext,
   createElement,
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -498,6 +499,17 @@ const ModelGatewayContext = createContext<ModelGatewayApi | null>(null);
 export function ModelGatewayProvider(props: { children?: ReactNode }): ReactElement {
   const value = useModelGatewayStore();
   return createElement(ModelGatewayContext.Provider, { value }, props.children);
+}
+
+/**
+ * 复用语义的包裹层：已在 `ModelGatewayProvider` 之下则**共用同一 store 实例**，否则
+ * 自建一个。`ChatInput` 自包的那层用它——首页宿主（横幅 / 补配弹窗 / 发送门禁）与
+ * 输入卡 / 模型菜单必须读写同一份条目表，保存成功才能一并翻转（两态、圆点、门禁）。
+ */
+export function ModelGatewayScope(props: { children?: ReactNode }): ReactElement {
+  const existing = useContext(ModelGatewayContext);
+  if (existing) return createElement(Fragment, null, props.children);
+  return createElement(ModelGatewayProvider, null, props.children);
 }
 
 export function useModelGateway(): ModelGatewayApi {

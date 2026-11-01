@@ -4,20 +4,26 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/lib/utils';
-import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
-import { useSignInToCindy } from '@/hooks/useSignInToCindy';
 
-/** 首页零模型单行动卡:未登录走 states.html B,已登录无来源走开通官方服务。 */
+/**
+ * 首页零可用来源单行动卡：提示配置模型，CTA「去配置」直达补配弹窗（S4b 由
+ * `OnboardingHomeBanner` 承担未配置引导，本卡只在其余零来源态出现——见
+ * NewMakerDraftRoute 的挂载条件）。文案自 2026-11-01 起从「登录 HRBuddy」改写为
+ * 配置模型口径（Task 4 deferred minor：旧文案配隐藏 CTA 是死端）；cloud 分支保留
+ * Cindy 官方服务开通口径（藏不删的恢复面）。
+ */
 export function HomeZeroModelAction({
   authMode,
   narrow,
+  onConfigure,
 }: {
   authMode: 'signed-out' | 'local' | 'cloud' | 'hr';
   narrow: boolean;
+  /** 「去配置」：打开添加模型弹窗（补配门禁 openDialog）；未接线时回落设置页。 */
+  onConfigure?: () => void;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const signInToCindy = useSignInToCindy();
   const cloud = authMode === 'cloud';
 
   return (
@@ -36,26 +42,23 @@ export function HomeZeroModelAction({
             {t(cloud ? 'onboarding.homeZeroModel.cloudDesc' : 'onboarding.homeZeroModel.desc')}
           </p>
         </div>
-        {/* 非 cloud 分支的 CTA 通向 Cindy 登录——账号层收起（藏不删）时不再渲染。 */}
-        {(cloud || isCindyAccountUiVisible()) && (
-          <Button
-            variant="cta"
-            size="lg"
-            compact
-            type="button"
-            data-testid="home-zero-model-cta"
-            onClick={() => {
-              if (cloud) {
-                navigate('/settings?tab=providers&connect=xd');
-                return;
-              }
-              void signInToCindy();
-            }}
-            className={cn(narrow && 'self-end')}
-          >
-            {t(cloud ? 'onboarding.homeZeroModel.cloudCta' : 'onboarding.homeZeroModel.cta')}
-          </Button>
-        )}
+        <Button
+          variant="cta"
+          size="lg"
+          compact
+          type="button"
+          data-testid="home-zero-model-cta"
+          onClick={() => {
+            if (cloud) {
+              navigate('/settings?tab=providers&connect=xd');
+              return;
+            }
+            onConfigure?.();
+          }}
+          className={cn(narrow && 'self-end')}
+        >
+          {t(cloud ? 'onboarding.homeZeroModel.cloudCta' : 'onboarding.homeZeroModel.cta')}
+        </Button>
       </div>
       <button
         type="button"

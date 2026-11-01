@@ -12,6 +12,10 @@
  * - 空态（无 enabled 模型）：明确指向「添加模型」（Review Focus #5）
  * - 菜单底部一行弱链「去设置」→ `/settings?tab=providers`
  *
+ * 首页补配门禁（S4b，login-onboarding PRD FR-HOME-06）：门禁面内两态圆点——
+ * 未配置红点 + 「未配置模型」、点击**开添加模型弹窗**（不展开下拉）；已配置绿点
+ * + 模型 ID。不在门禁面（会话）时形态与行为不变。
+ *
  * 点选即切换全局当前模型，作用于**后续消息**（不回溯已发送的）。
  * 颜色全部走语义 token（Light / Dark 同源），无硬编码色。
  */
@@ -25,6 +29,7 @@ import { cn } from '@/lib/utils';
 
 import { useModelGateway } from './ModelGatewayStore';
 import { useCurrentModel } from './currentModelStore';
+import { useHomeGateSurface } from './homeOnboardingGate';
 import type { ModelEntry, ModelStatus } from './types';
 
 /** 状态点颜色走语义 token（与 ModelGatewayRow 同口径）：成功绿 / 三级灰 / 错误红。 */
@@ -41,13 +46,26 @@ function statusText(t: (key: string) => string, status: ModelStatus): string {
   return t('settings.providers.modelGateway.failed');
 }
 
-function StatusDot({ status }: { status: ModelStatus }) {
-  const dot = statusDot(status);
+/**
+ * 圆点两态（PRD FR-HOME-06）：S4b 红点（error-fg）/ S4a 绿点（card-status-done），
+ * 变色 240ms 过渡（§9.3 圆点变色，`--motion-model-dot-flip` 逐值登记，reduce 归零）。
+ * 不在门禁面（会话）时保留逐模型连通状态点（Ruling 11）。
+ */
+function StatusDot({ status, gateState }: { status: ModelStatus; gateState?: 'unconfigured' | 'configured' }) {
+  const dot = gateState === 'unconfigured'
+    ? { glyph: '●', color: 'var(--error-fg)' }
+    : gateState === 'configured'
+      ? { glyph: '●', color: 'var(--card-status-done)' }
+      : statusDot(status);
   return (
     <span
       data-testid="chat-model-status-dot"
+      data-state={gateState ?? 'status'}
       aria-hidden
-      className="w-3 shrink-0 text-center text-13 leading-none"
+      className={cn(
+        'w-3 shrink-0 text-center text-13 leading-none transition-colors',
+        'duration-[var(--motion-model-dot-flip)] ease-[var(--motion-ease-out)]',
+      )}
       style={{ color: dot.color }}
     >
       {dot.glyph}
@@ -63,6 +81,11 @@ export function ChatModelMenu() {
   const navigate = useNavigate();
   const { entries } = useModelGateway();
   const { currentId, setCurrent } = useCurrentModel();
+  // 首页补配门禁（S4b）：红点 + 「未配置模型」、点击开添加模型弹窗而不是下拉。
+  // 不在门禁面（会话）时该值为 null，形态与行为一概不变。
+  const homeGate = useHomeGateSurface();
+  const gateUnconfigured = homeGate?.phase === 'unconfigured';
+  const gateConfigured = homeGate?.phase === 'configured';
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -91,6 +114,8 @@ export function ChatModelMenu() {
   const current: ModelEntry | null = enabled.find((entry) => entry.id === currentId) ?? null;
 
   const toggleOpen = () => {
+    // S4b 门禁（FR-HOME-06）：点选择器打开补配弹窗（不发送、不展开下拉）。
+    if (homeGate?.gate('selector')) return;
     if (open) {
       closeMenu();
       return;
@@ -161,12 +186,19 @@ export function ChatModelMenu() {
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-soft)]',
         )}
       >
-        <StatusDot status={current?.status ?? 'untested'} />
+        <StatusDot
+          status={current?.status ?? 'untested'}
+          gateState={gateUnconfigured ? 'unconfigured' : gateConfigured ? 'configured' : undefined}
+        />
         <span
           data-testid="chat-model-trigger-label"
           className="min-w-0 truncate text-12 font-medium text-[var(--model-trigger-text)]"
         >
-          {current ? current.name : t('newChat.chatModelMenu.placeholder')}
+          {gateUnconfigured
+            ? t('newChat.chatModelMenu.unconfigured')
+            : current
+              ? current.name
+              : t('newChat.chatModelMenu.placeholder')}
         </span>
         <ChevronDown size={12} className="shrink-0 text-[var(--composer-pill-icon)]" aria-hidden />
       </button>

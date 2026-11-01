@@ -127,8 +127,9 @@ import {
   takeComposerSubmitRequest,
 } from '@/lib/composerActionsBus';
 import { resolveComposerModelSelection } from './composerModelSelection';
-import { ModelGatewayProvider } from '@/features/model-gateway/ModelGatewayStore';
+import { ModelGatewayScope } from '@/features/model-gateway/ModelGatewayStore';
 import { useCurrentModelRoute } from '@/features/model-gateway/currentModelStore';
+import { useHomeGateSurface } from '@/features/model-gateway/homeOnboardingGate';
 import { ChatModelMenu } from '@/features/model-gateway/ChatModelMenu';
 import type { SessionRuntimeProfileProjection, SessionRuntimePendingProjection } from '@/lib/ccAgent.types';
 import {
@@ -1247,12 +1248,15 @@ function resolveModelThinkingIntent(input: {
  * 发送路径要读全局当前模型（Ruling 18：`useCurrentModel` / `useCurrentModelRoute`
  * 需要 ModelGatewayProvider 语境），所以 ChatInput 整棵子树都由外层 Provider 包住；
  * 槽位里的 `<ChatModelMenu />` 直接复用这一份（不再自嵌 Provider）。
+ * `ModelGatewayScope`：首页宿主已套 Provider 时**共用同一 store 实例**（横幅 /
+ * 补配弹窗 / 门禁与输入卡读写同一份条目表，保存成功一并翻转两态）；会话等未套的
+ * 面自建一份，行为与原先一致。
  */
 export function ChatInput(props: ChatInputProps) {
   return (
-    <ModelGatewayProvider>
+    <ModelGatewayScope>
       <ChatInputInner {...props} />
-    </ModelGatewayProvider>
+    </ModelGatewayScope>
   );
 }
 
@@ -2235,6 +2239,18 @@ function ChatInputInner({
   const sourceGateActive =
     enforceConnectedSourceGate && !canAttemptBaselineRecovery && !!sendAgentKind;
   const sourceGateLoading = sourceGateActive && (providersLoading || routeLoading);
+
+  // ── 首页补配门禁（S4b / 加载窗口，login-onboarding PRD §6.4）──────────────────
+  // 只有首页门禁面（HomeOnboardingGateProvider）里才有值；会话等其它面保持原行为。
+  // 两态判据 `hydrated && entries.length > 0` 由门禁面统一给出（必须带 hydrated，
+  // 否则复发发送门禁冷启动竞态 785f582125）：
+  //   - unconfigured（S4b）：发送 / 选择器 / 推荐问题 / 去配置打开添加模型弹窗，
+  //     输入保留；Send 不因「零来源」置灰（点击的去处就是补配弹窗）。
+  //   - loading：Send 置灰等待、间接派发（Enter / 语音 / 代发）静默 return，
+  //     绝不弹「当前模型没有可用来源」误导框（Review Focus #5）。
+  const homeGate = useHomeGateSurface();
+  const homeGateUnconfigured = homeGate?.phase === 'unconfigured';
+  const homeGateLoading = homeGate?.phase === 'loading';
 
   // 当前**生效来源 id**(= ModelSelector 高亮的 activeSourceId 同口径):显式选中且仍可连、
   // 且提供当前模型 → 用它;否则只在“提供当前模型”的来源里取原生默认。providerModelMemory
@@ -5516,6 +5532,9 @@ function ChatInputInner({
   const dispatchSend = useCallback(
     async (deliveryMode: MessageDeliveryMode = 'queue') => {
       if (!editor) return;
+      // 首页补配门禁（S4b 开弹窗 / loading 静默等待，含 Enter / 语音 / 代发等间接派发）：
+      // 已被门禁消费即不进发送链——输入保留，绝不弹「当前模型没有可用来源」（Review Focus #5）。
+      if (homeGate?.gate('send')) return;
       if (disabled || sessionModelLoading) return;
       // 间接派发路径（Enter / 语音 / 代发）兜底：门禁数据未就绪（providers 快照 /
       // 网关条目表水合窗口）时静默等待，不许拿空表判「零来源」弹「去连接」误导框，
@@ -6395,6 +6414,7 @@ function ChatInputInner({
       canAttemptBaselineRecovery,
       sourceGateActive,
       sourceGateLoading,
+      homeGate,
       fastMode,
       hasAttachments,
       attachments,
@@ -6522,6 +6542,8 @@ function ChatInputInner({
 
   const handleClickSend = useCallback(
     async (deliveryMode: MessageDeliveryMode = 'queue') => {
+      // 首页补配门禁先行（S4b：点发送打开添加模型弹窗而不是发送，输入保留）。
+      if (homeGate?.gate('send')) return;
       if (queueEditActive) {
         await submitQueueEdit();
         return;
@@ -6561,6 +6583,7 @@ function ChatInputInner({
       dispatchSend,
       editor,
       handleVoiceInputStop,
+      homeGate,
       hasPreparedOrPendingAttachments,
       queueEditActive,
       submitQueueEdit,
@@ -9219,11 +9242,14 @@ function ChatInputInner({
     // 门禁判据未就绪（providers 快照 / 网关条目表水合窗口）：Send 置灰等待，不放行
     // 进「零来源」误判，也不静默用错模型发出（与 sessionModelLoading 同为加载态）。
     sourceGateLoading ||
+    // 首页补配门禁的加载窗口（hydrated === false）：同口径置灰等待（Review Focus #5）。
+    homeGateLoading ||
     waitingForFolders ||
     // 空態:当前 agent 无已连接来源 → Send 禁用(设计 Q7NYAD「send 置灰」),引导用户先去连接来源。
-    (!makeNeedsNoModel && !canAttemptBaselineRecovery && noConnectedSource) ||
+    // S4b 补配门禁面除外：点击发送的去处就是添加模型弹窗，不因「零来源」置灰。
+    (!makeNeedsNoModel && !canAttemptBaselineRecovery && !homeGateUnconfigured && noConnectedSource) ||
     // 会话显式选中的来源已断开 → Send 禁用(trigger 同步显示「已断开」错误态说明原因)。
-    (!makeNeedsNoModel && !canAttemptBaselineRecovery && selectedSourceDisconnected) ||
+    (!makeNeedsNoModel && !canAttemptBaselineRecovery && !homeGateUnconfigured && selectedSourceDisconnected) ||
     // device-link 模型目录仍在读取或真实失败 → 禁止旧快照继续发送；旧端明确
     // unsupported 已由 remoteModelListStatus 归并为 ready，不会误伤兼容回退。
     remoteModelListBlocked ||

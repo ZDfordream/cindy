@@ -328,6 +328,27 @@
           "unit": "ms"
         }
       },
+      "motion-home-banner-collapse": {
+        "$type": "duration",
+        "$value": {
+          "value": 240,
+          "unit": "ms"
+        }
+      },
+      "motion-home-banner-collapse-delay": {
+        "$type": "duration",
+        "$value": {
+          "value": 120,
+          "unit": "ms"
+        }
+      },
+      "motion-model-dot-flip": {
+        "$type": "duration",
+        "$value": {
+          "value": 240,
+          "unit": "ms"
+        }
+      },
       "motion-ease-out": {
         "$type": "cubicBezier",
         "$value": [

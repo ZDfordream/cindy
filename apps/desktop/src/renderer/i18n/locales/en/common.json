@@ -865,7 +865,10 @@
     }
   },
   "regionScreenshot": {
-    "editor": { "fitWidth": "Fit width", "loading": "Loading image…" },
+    "editor": {
+      "fitWidth": "Fit width",
+      "loading": "Loading image…"
+    },
     "moveToolbar": "Move toolbar left or right",
     "hint": "Click to select a window or element, or drag to select an area · Scroll to change scope · Space: full screen · C: copy color · Esc: exit",
     "hintWithLast": "Click to select a window or element, or drag to select an area · Scroll to change scope · Space: full screen · R: last area · C: copy color · Esc: exit",
@@ -7775,7 +7778,6 @@
         "versionContent": "Version content",
         "loadMoreVersions": "Load more versions",
         "notSubmitted": "Not submitted for review",
-        "submitVersion": "Submit {{version}} for review",
         "publishingVersion": "Version for Review · {{version}}",
         "refreshSummary": "Refresh publishing summary",
         "versionConsumedHint": "Once a submission is accepted for review, its version number cannot be reused, even after cancellation or rejection.",
@@ -11357,7 +11359,8 @@
       "triggerAria": "Choose model",
       "placeholder": "Choose model",
       "empty": "No models available yet",
-      "openSettings": "Open Settings"
+      "openSettings": "Open Settings",
+      "unconfigured": "No model configured"
     },
     "modelSelector": {
       "displayPricing": {
@@ -11955,9 +11958,9 @@
   },
   "onboarding": {
     "homeZeroModel": {
-      "title": "Sign in to HRBuddy to continue",
-      "desc": "You don’t have any models yet. Sign in to HRBuddy to use dozens of top-tier models.",
-      "cta": "Sign in to HRBuddy",
+      "title": "Configure a model to start chatting",
+      "desc": "You have no usable model yet. Add one to start chatting.",
+      "cta": "Configure",
       "cloudTitle": "Continue with HRBuddy",
       "cloudDesc": "You don’t have any models yet. Enable the official service to use dozens of top-tier models.",
       "cloudCta": "Get started",
@@ -11985,6 +11988,10 @@
       },
       "detectedLabel": "Detected",
       "oauthSub": "Opens a verification page in your browser — connects automatically"
+    },
+    "homeBanner": {
+      "text": "No model configured yet. Configure one to start chatting.",
+      "action": "Configure"
     }
   },
   "voiceInputOverlay": {
@@ -17975,11 +17982,6 @@
     "groupHint": "When off, all tasks routed through this group use standard speed, including Ultrafast.",
     "pending": "Some computers have not confirmed the setting. Keep them connected and update group computers that do not support this setting.",
     "saveFailed": "The setting may be saved, but some running tasks have not confirmed standard speed. Check the connection and retry."
-  },
-  "attachmentAccessConfirmation": {
-    "title": "Confirm Attachment Access",
-    "message": "HRBuddy cannot read this attachment. Select the original file to continue sending this message. Cancelling keeps your draft.",
-    "button": "Use Original File"
   },
   "hrOa": {
     "session": {

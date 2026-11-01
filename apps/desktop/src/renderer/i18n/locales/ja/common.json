@@ -853,7 +853,10 @@
     }
   },
   "regionScreenshot": {
-    "editor": { "fitWidth": "幅に合わせる", "loading": "画像を読み込み中…" },
+    "editor": {
+      "fitWidth": "幅に合わせる",
+      "loading": "画像を読み込み中…"
+    },
     "moveToolbar": "ツールバーを左右に移動",
     "hint": "クリックでウィンドウや要素を選択、ドラッグで範囲を選択 · スクロールで範囲を切り替え · Space で全画面 · C で色をコピー · Esc で終了",
     "hintWithLast": "クリックでウィンドウや要素を選択、ドラッグで範囲を選択 · スクロールで範囲を切り替え · Space で全画面 · R で前回の範囲 · C で色をコピー · Esc で終了",
@@ -7744,7 +7747,6 @@
         "versionContent": "バージョンの内容",
         "loadMoreVersions": "さらにバージョンを読み込む",
         "notSubmitted": "審査未提出",
-        "submitVersion": "{{version}} を審査に提出",
         "publishingVersion": "審査に提出するバージョン · {{version}}",
         "refreshSummary": "公開内容を再読み込み",
         "versionConsumedHint": "審査への提出が受理されると、そのバージョン番号は再利用できません。取消・差し戻し後も新しい番号が必要です。",
@@ -11322,7 +11324,8 @@
       "triggerAria": "モデルを選択",
       "placeholder": "モデルを選択",
       "empty": "まだ利用できるモデルがありません",
-      "openSettings": "設定を開く"
+      "openSettings": "設定を開く",
+      "unconfigured": "モデル未設定"
     },
     "modelSelector": {
       "displayPricing": {
@@ -11914,9 +11917,9 @@
   },
   "onboarding": {
     "homeZeroModel": {
-      "title": "HRBuddy にログインして続ける",
-      "desc": "モデルがまだありません。HRBuddy にログインすると、数十種類の最先端モデルを使えます。",
-      "cta": "HRBuddy にログイン",
+      "title": "モデルを設定すると会話を開始できます",
+      "desc": "利用可能なモデルがまだありません。追加すると会話を開始できます。",
+      "cta": "設定する",
       "cloudTitle": "HRBuddy で続ける",
       "cloudDesc": "モデルがまだありません。公式サービスを有効にすると、数十種類の最先端モデルを使えます。",
       "cloudCta": "はじめる",
@@ -11944,6 +11947,10 @@
       },
       "detectedLabel": "検出済み",
       "oauthSub": "ブラウザで認証ページが開き、ログイン後に自動接続されます"
+    },
+    "homeBanner": {
+      "text": "まだモデルが設定されていません。設定すると会話を開始できます。",
+      "action": "設定する"
     }
   },
   "voiceInputOverlay": {
@@ -17915,11 +17922,6 @@
     "groupHint": "オフにすると、このグループ経由のすべてのタスクは通常速度になります。Ultrafast も対象です。",
     "pending": "一部のコンピューターが設定を確認していません。接続を維持し、この設定に対応していないグループ内のコンピューターを更新してください。",
     "saveFailed": "設定は保存された可能性がありますが、一部の実行中タスクが通常速度への切り替えを確認していません。接続を確認して再試行してください。"
-  },
-  "attachmentAccessConfirmation": {
-    "title": "添付ファイルへのアクセスを確認",
-    "message": "HRBuddy がこの添付ファイルを読み取れません。元のファイルを選択すると、このメッセージの送信を続行します。キャンセルすると下書きが保持されます。",
-    "button": "元のファイルを使用"
   },
   "hrOa": {
     "session": {

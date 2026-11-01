@@ -173,6 +173,18 @@
         "$type": "duration",
         "$value": "{reference.foundations.motion-error-shake}"
       },
+      "motion-home-banner-collapse": {
+        "$type": "duration",
+        "$value": "{reference.foundations.motion-home-banner-collapse}"
+      },
+      "motion-home-banner-collapse-delay": {
+        "$type": "duration",
+        "$value": "{reference.foundations.motion-home-banner-collapse-delay}"
+      },
+      "motion-model-dot-flip": {
+        "$type": "duration",
+        "$value": "{reference.foundations.motion-model-dot-flip}"
+      },
       "motion-ease-out": {
         "$type": "cubicBezier",
         "$value": "{reference.foundations.motion-ease-out}"

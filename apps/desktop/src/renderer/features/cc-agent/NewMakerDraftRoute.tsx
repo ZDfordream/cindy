@@ -73,6 +73,13 @@ import {
 } from '@/lib/controlledTaskAgentLocation';
 import { useProviderOnboarding } from '@/hooks/useProviderOnboarding';
 import { HomeZeroModelAction } from './HomeZeroModelAction';
+import { ModelGatewayProvider } from '@/features/model-gateway/ModelGatewayStore';
+import {
+  HomeOnboardingGateProvider,
+  applyHomeSuggestion,
+  useHomeGateSurface,
+} from '@/features/model-gateway/homeOnboardingGate';
+import { OnboardingHomeBanner } from '@/features/model-gateway/OnboardingHomeBanner';
 import { resolveDeviceLinkSubmission } from './deviceLinkCreateArgs';
 import { commitRemoteSessionHandoff } from './remoteSessionHandoff';
 import { remoteProjectsStore } from '@/features/device-link/remoteProjectsStore';
@@ -709,7 +716,22 @@ interface DraftTargetRequest {
   };
 }
 
+/**
+ * 首页草稿路由（S4）。外层套 `ModelGatewayProvider` + `HomeOnboardingGateProvider`：
+ * 横幅 / 补配弹窗 / 发送门禁 / 模型菜单共用同一份网关条目表（保存成功一并翻转两态），
+ * 弹窗打开期间门禁面整体 inert（PRD §8.3）。会话等其它面不走这两层，行为不变。
+ */
 export function NewMakerDraftRoute() {
+  return (
+    <ModelGatewayProvider>
+      <HomeOnboardingGateProvider>
+        <NewMakerDraftHome />
+      </HomeOnboardingGateProvider>
+    </ModelGatewayProvider>
+  );
+}
+
+function NewMakerDraftHome() {
   const { t, i18n } = useTranslation();
   const { dataOwnerId, dataOwnerGeneration } = useAuth();
   const draft = useNewMakerDraft();
@@ -1149,6 +1171,11 @@ export function NewMakerDraftRoute() {
     remote: isDeviceLinkDraft || isAgentDeviceDraft || !!effectiveRemoteHostId,
   });
   const showProviderOnboardingCard = providerOnboarding.visible;
+  // S4 两态 + 补配门禁（PRD §6.4）：门禁面在 HomeOnboardingGateProvider 里给出
+  // phase（loading / unconfigured / configured，判据必须带 hydrated）与统一入口
+  // gate()——发送 / 模型选择器 / 推荐问题 / 横幅「去配置」共用它，入口不再各判各的。
+  const homeGate = useHomeGateSurface();
+  const homeGateUnconfigured = homeGate?.phase === 'unconfigured';
   const effectiveExtraDirs = draft.extraDirs;
   const effectiveWritableDirs = draft.writableDirs;
   const effectiveCollab = collab;
@@ -5513,8 +5540,10 @@ export function NewMakerDraftRoute() {
   );
 
   const handleHomeSuggestion = useCallback(
-    (id: HomeSuggestionId) => fillComposerWithSuggestion(t(homeSuggestionPromptKey(id))),
-    [fillComposerWithSuggestion, t],
+    // S4a 填入不自动发送；S4b 填入并开补配弹窗（门禁共用链 applyHomeSuggestion）。
+    (id: HomeSuggestionId) =>
+      applyHomeSuggestion(homeGate, fillComposerWithSuggestion, t(homeSuggestionPromptKey(id))),
+    [fillComposerWithSuggestion, homeGate, t],
   );
 
   const pluginSuggestionFlight = useRef(false);
@@ -5606,8 +5635,9 @@ export function NewMakerDraftRoute() {
         }
         // 填进输入框而不是直接发送;ChatInput 发送时会自己展开 $command。无指令插件发送时
         // 识别不出所用插件,所以选中插件建议并成功填入即记一次最近使用(有指令的插件发送时
-        // 还会再记一次,只刷新时间,不影响排序语义)。
+        // 还会再记一次,只刷新时间,不影响排序语义)。S4b 门禁：填入后开补配弹窗（不发送）。
         if (fillComposerWithSuggestion(pluginSuggestionComposerText(suggestion.prompt, ghost, t, installedGhosts))) {
+          homeGate?.gate('suggestion');
           void window.electronAPI.ghosts.markUsed(installedGhostStoragePart(ghost)).catch(() => undefined);
         }
       } catch {
@@ -5619,6 +5649,7 @@ export function NewMakerDraftRoute() {
     },
     [
       fillComposerWithSuggestion,
+      homeGate,
       i18n.language,
       i18n.resolvedLanguage,
       isDeviceLinkDraft,
@@ -5866,6 +5897,13 @@ export function NewMakerDraftRoute() {
                 className={cn('mb-[15px]', isDraftNarrow && 'order-1')}
               />
 
+              {/* S4b 未配置横幅（PRD FR-HOME-08）：紧贴输入卡上方；「去配置」走补配
+                  门禁（gate('banner')），保存成功后随两态翻转折叠消失（T5/T8）。 */}
+              <OnboardingHomeBanner
+                visible={homeGateUnconfigured}
+                onConfigure={() => homeGate?.gate('banner')}
+              />
+
               <div
                 className={cn('flex w-full flex-col items-start gap-0', isDraftNarrow && 'order-3')}
               >
@@ -6067,16 +6105,18 @@ export function NewMakerDraftRoute() {
                     </span>
                   </div>
                 )}
-                {/* 零可用模型 → states.html B:单行动卡,不铺供应商清单。 */}
-                {showProviderOnboardingCard && (
+                {/* S4b（未配置）由横幅承担未配置引导（PRD §6.4 布局无此卡），推荐问题
+                    两态都在（FR-HOME-09）；旧「零可用模型」单行动卡只在其余零来源态出现，
+                    文案已改写成「配置模型」且 CTA 直达补配弹窗（Task 4 死端卡修复）。
+                    用户 2026-09-06 重申撤掉首页订阅/赠送告知卡（DESIGN.md §1.1），账号与
+                    余额详情继续在设置页查看——别把订阅卡加回来。 */}
+                {showProviderOnboardingCard && !homeGateUnconfigured ? (
                   <HomeZeroModelAction
                     authMode={providerOnboarding.authMode}
                     narrow={isDraftNarrow}
+                    onConfigure={() => homeGate?.openDialog('banner')}
                   />
-                )}
-                {/* 用户 2026-09-06 重申撤掉首页订阅/赠送告知卡，见 DESIGN.md §1.1。
-                    有模型时直接显示建议行；账号与余额详情继续在设置页查看。 */}
-                {!showProviderOnboardingCard && (
+                ) : (
                   <HomeSuggestionList
                     key={`${dataOwnerId}:${isRemoteProjectDraft || isDeviceLinkDraft}:${i18n.resolvedLanguage ?? i18n.language}`}
                     narrow={isDraftNarrow}

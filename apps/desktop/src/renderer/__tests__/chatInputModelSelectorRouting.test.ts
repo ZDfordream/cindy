@@ -330,7 +330,11 @@ describe('ChatInput model source switching wiring', () => {
     // 新调用点锁：模型菜单必须挂在 composer 的模型槽位上（否则「模块写完了但
     // 没有调用点」，用户在聊天里看不到任何模型入口）。
     expect(chatInputSource).toContain('<ChatModelMenu />');
-    expect(chatInputSource).toContain('<ModelGatewayProvider>');
+    // 子树必须在网关 store 语境下：Scope = 已有 Provider（首页宿主）则共用同一
+    // store 实例（横幅 / 补配弹窗 / 门禁与输入卡共见一份条目表），没有才自建。
+    // 失效后果：换成无语境包裹会丢当前模型路由；换回无条件 Provider 会让首页
+    // 保存成功不翻转输入卡两态（两个 store 实例各读各的）。
+    expect(chatInputSource).toContain('<ModelGatewayScope>');
     // 旧「配置模型」（ModelSelector 触发器）不再挂在 composer 上。
     expect(chatInputSource).not.toContain('<ModelSelector');
   });
