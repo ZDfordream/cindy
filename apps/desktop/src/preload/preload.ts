@@ -2260,7 +2260,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.sendSync('auth:has-persisted-session-hint-sync') === true,
   authInitialize: (): Promise<{
     user: unknown;
-    mode: 'signed-out' | 'local' | 'cloud';
+    mode: 'signed-out' | 'local' | 'cloud' | 'hr';
+    hrProfile?: import('../main/hr-oa/profile').PersonProfile | null;
     dataOwnerId: string | null;
     canEnterApp: boolean;
     isAuthenticated: boolean;

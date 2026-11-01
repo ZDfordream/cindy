@@ -57,7 +57,7 @@ export interface UseProviderOnboardingReturn {
   visible: boolean;
   loading: boolean;
   /** 登录三态:cloud 引导连接 Cindy AI;signed-out/local 引导去登录。 */
-  authMode: 'signed-out' | 'local' | 'cloud';
+  authMode: 'signed-out' | 'local' | 'cloud' | 'hr';
   /** Cindy AI 官方供应商(恒在目录中;仅卡片推荐行消费)。 */
   xdProvider: ProviderView | undefined;
   /**

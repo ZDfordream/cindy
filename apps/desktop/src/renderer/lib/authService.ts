@@ -36,7 +36,9 @@ export interface User {
 
 export interface AuthState {
   user: User | null;
-  mode: 'signed-out' | 'local' | 'cloud';
+  mode: 'signed-out' | 'local' | 'cloud' | 'hr';
+  /** HR OA 登录资料投影（登录门禁）：null = 未登录；随 auth:state-change 骑发。 */
+  hrProfile?: import('../../main/hr-oa/profile').PersonProfile | null;
   dataOwnerId: string | null;
   ownerGeneration: number;
   /** Main marks the transient signed-out projection while an owner boundary is pending. */
@@ -80,6 +82,7 @@ export function createAuthService(): AuthService {
     const normalized: AuthState = {
       user: rawState.user as User | null,
       mode: rawState.mode,
+      hrProfile: rawState.hrProfile ?? null,
       dataOwnerId: rawState.dataOwnerId,
       ownerGeneration: rawState.ownerGeneration,
       ownerBoundaryPending: rawState.ownerBoundaryPending === true,
@@ -100,6 +103,7 @@ export function createAuthService(): AuthService {
       return {
         user: raw.user as User | null,
         mode: raw.mode,
+        hrProfile: raw.hrProfile ?? null,
         dataOwnerId: raw.dataOwnerId,
         ownerGeneration: raw.ownerGeneration,
         ownerBoundaryPending: raw.ownerBoundaryPending === true,

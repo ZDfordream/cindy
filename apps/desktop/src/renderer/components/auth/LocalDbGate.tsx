@@ -178,7 +178,14 @@ export function LocalDbGate() {
           setRetryNonce((n) => n + 1);
         }}
         onBackToLogin={() => {
-          const leave = mode === 'local' ? exitLocalMode() : logout();
+          // `hr` 的离开走 hrOa.logout：Cindy 的 logout() 会把 app session commit 回
+          // signed-out，踩掉仍有效的 HR 会话（登录门禁 Task 4 审计）。
+          const leave =
+            mode === 'local'
+              ? exitLocalMode()
+              : mode === 'hr'
+                ? window.electronAPI.hrOa.logout()
+                : logout();
           void leave.then(
             () => navigate('/login', { replace: true }),
             (err) => {

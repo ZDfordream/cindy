@@ -1,5 +1,5 @@
 export type BillingSettingsIdentity = {
-  mode: 'signed-out' | 'local' | 'cloud';
+  mode: 'signed-out' | 'local' | 'cloud' | 'hr';
   membershipKind: 'personal' | 'org' | null;
 };
 

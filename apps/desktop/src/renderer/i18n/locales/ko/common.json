@@ -17916,6 +17916,9 @@
     "button": "원본 파일 사용"
   },
   "hrOa": {
+    "session": {
+      "expired": "로그인이 만료되었습니다. 다시 로그인해 주세요."
+    },
     "welcome": {
       "title": "HRBuddy, 곁에서 도와드릴게요",
       "login": "로그인"

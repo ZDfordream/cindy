@@ -59,6 +59,7 @@ import { invalidateProvidersSnapshot } from '@/lib/providersSnapshotStore';
 import { preloadLocalCatalogSnapshot } from '@/lib/localCatalogSnapshot';
 import { invalidateRemoteCatalogSnapshots } from '@/lib/remoteCatalogSnapshot';
 import { awaitDesktopLoginStateLoad, type DesktopLoginState } from '../../shared/authIpc';
+import type { PersonProfile } from '../../main/hr-oa/profile';
 import { getDataOwnerGeneration, setDataOwnerGeneration } from './dataOwnerGeneration';
 
 /** Keep response metadata attached to the exact screen it describes. */
@@ -84,7 +85,9 @@ function presentLoginResult(result: DesktopLoginActionResult): DesktopLoginState
  */
 export interface AuthContextValue {
   user: User | null;
-  mode: 'signed-out' | 'local' | 'cloud';
+  mode: 'signed-out' | 'local' | 'cloud' | 'hr';
+  /** HR OA 登录资料（登录门禁）：null = 未登录 / 资料未拉到；骑 auth:state-change 投影。 */
+  hrProfile: PersonProfile | null;
   dataOwnerId: string | null;
   /** Failed auth boundaries remount owner-scoped routes so stale generations can rehydrate. */
   dataOwnerRecoveryEpoch: number;
@@ -168,7 +171,8 @@ export function AuthProvider({
   enableSessionExpiredPrompt?: boolean;
 }) {
   const [user, setUser] = useState<User | null>(null);
-  const [mode, setMode] = useState<'signed-out' | 'local' | 'cloud'>('signed-out');
+  const [mode, setMode] = useState<'signed-out' | 'local' | 'cloud' | 'hr'>('signed-out');
+  const [hrProfile, setHrProfile] = useState<PersonProfile | null>(null);
   const [dataOwnerId, setDataOwnerId] = useState<string | null>(null);
   const [dataOwnerRecoveryEpoch, setDataOwnerRecoveryEpoch] = useState(0);
   const [dataOwnerGeneration, setDataOwnerGenerationState] = useState(0);
@@ -380,6 +384,7 @@ export function AuthProvider({
         void bootstrapMemorySettingsFromMain();
       }
       setMode(state.mode);
+      setHrProfile(state.hrProfile ?? null);
       setDataOwnerId(state.dataOwnerId);
       setCanEnterApp(state.canEnterApp);
       setIsAuthenticated(state.isAuthenticated);
@@ -438,6 +443,7 @@ export function AuthProvider({
         setIsCanary(false);
         setCanEnterApp(false);
         setMode('signed-out');
+        setHrProfile(null);
         setDataOwnerId(null);
         publishDataOwnerGeneration(null);
         activeDataOwnerIdRef.current = null;
@@ -498,6 +504,7 @@ export function AuthProvider({
         clearWorkersCache();
         setUser(null);
         setMode('signed-out');
+        setHrProfile(null);
         setDataOwnerId(null);
         activeDataOwnerIdRef.current = null;
         setCanEnterApp(false);
@@ -680,6 +687,7 @@ export function AuthProvider({
     () => ({
       user,
       mode,
+      hrProfile,
       dataOwnerId,
       dataOwnerRecoveryEpoch,
       dataOwnerGeneration,
@@ -712,6 +720,7 @@ export function AuthProvider({
     [
       user,
       mode,
+      hrProfile,
       dataOwnerId,
       dataOwnerRecoveryEpoch,
       dataOwnerGeneration,

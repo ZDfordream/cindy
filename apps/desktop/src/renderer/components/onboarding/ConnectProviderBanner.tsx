@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import type { CSSProperties } from 'react';
 
 import { cn } from '@/lib/utils';
+import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
 import { useProviderOnboarding } from '@/hooks/useProviderOnboarding';
 import { useSignInToCindy } from '@/hooks/useSignInToCindy';
 
@@ -47,15 +48,18 @@ export function ConnectProviderBanner({
       <span className="flex-1 text-xs text-[var(--text-secondary)]">
         {t('onboarding.connectProvider.banner.text')}
       </span>
-      <button
-        type="button"
-        onClick={() => (cloudMode ? navigate('/settings?tab=providers') : void signInToCindy())}
-        className="shrink-0 text-xs font-medium text-[var(--text-primary)] transition-opacity hover:opacity-70"
-      >
-        {cloudMode
-          ? t('onboarding.connectProvider.banner.connectCta')
-          : t('onboarding.connectProvider.banner.loginCta')}
-      </button>
+      {/* 非 cloud 分支的 CTA 通向 Cindy 登录——账号层收起（藏不删）时不再渲染。 */}
+      {(cloudMode || isCindyAccountUiVisible()) && (
+        <button
+          type="button"
+          onClick={() => (cloudMode ? navigate('/settings?tab=providers') : void signInToCindy())}
+          className="shrink-0 text-xs font-medium text-[var(--text-primary)] transition-opacity hover:opacity-70"
+        >
+          {cloudMode
+            ? t('onboarding.connectProvider.banner.connectCta')
+            : t('onboarding.connectProvider.banner.loginCta')}
+        </button>
+      )}
       <button
         type="button"
         onClick={onboarding.dismiss}

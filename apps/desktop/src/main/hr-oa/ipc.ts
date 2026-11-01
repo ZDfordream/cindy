@@ -17,8 +17,17 @@ import { assertTrustedAppRendererEvent } from '../security/trustedAppRenderer.js
 import { requireString } from '../utils/ipcValidate.js';
 import type { HrOaAuthState, HrOaSessionManager } from './sessionManager.js';
 
-export function registerHrOaIpc(deps: { manager: HrOaSessionManager }): void {
+export function registerHrOaIpc(deps: {
+  manager: HrOaSessionManager;
+  /**
+   * 冷启动静默重登（`manager.startup()`）的落定点。handler 在它 settle 前不回包：
+   * 渲染层门禁据 `hrOa:state` 决策（S1 还是主界面），提前回未落定的状态会闪 S1。
+   * 不传则维持即取即回（startup 早于注册的旧时序）。
+   */
+  whenSettled?: Promise<unknown>;
+}): void {
   const { manager } = deps;
+  const settled = deps.whenSettled ?? Promise.resolve();
 
   const project = (state: HrOaAuthState): void => {
     setHrOaProfileProjection(state.status === 'signed-out' ? null : state.profile);
@@ -29,6 +38,7 @@ export function registerHrOaIpc(deps: { manager: HrOaSessionManager }): void {
 
   ipcMain.handle('hrOa:login', async (event, username: unknown, password: unknown) => {
     assertTrustedAppRendererEvent(event);
+    await settled;
     return manager.login(
       requireString(username, 'username'),
       requireString(password, 'password'),
@@ -37,11 +47,13 @@ export function registerHrOaIpc(deps: { manager: HrOaSessionManager }): void {
 
   ipcMain.handle('hrOa:logout', async (event) => {
     assertTrustedAppRendererEvent(event);
+    await settled;
     await manager.logout();
   });
 
-  ipcMain.handle('hrOa:state', (event) => {
+  ipcMain.handle('hrOa:state', async (event) => {
     assertTrustedAppRendererEvent(event);
+    await settled;
     return manager.getState();
   });
 }

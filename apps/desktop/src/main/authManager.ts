@@ -4580,6 +4580,13 @@ export async function initialize(options: AuthInitializeOptions = {}): Promise<A
     await recoverAccountFreeOwnerAtStartup('local', 'cold-start-local-recovery');
     return snapshotAuthState();
   }
+  // HR OA 会话（登录门禁）是已提交的稳定会话（mode==='hr' + 冻结账号键作 dataOwner）。
+  // Cindy 账号平面没有也不需要会话，但**绝不能**落进下方的冷启动 signed-out 收敛——
+  // 那会把 HR 登录态打回 signed-out、把人踢出主界面。与 local 同理：早退返回现状。
+  // 静默重登的落定由 hr-oa 会话管理器负责（bootstrap 在 auth:initialize 前等它落定）。
+  if (getActiveAppSession().mode === 'hr') {
+    return snapshotAuthState();
+  }
   // 进程内已登录快路径:auth 状态是 main 进程全局的,主窗登录后其它 renderer
   // (会话多开副窗 / 右侧栏子窗口)mount 时各自都会调一次 auth:initialize ——
   // 没有这条快路径,每个新窗口都会重跑一整轮网络 refresh(token 轮换 + /me),

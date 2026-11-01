@@ -527,7 +527,7 @@ interface FeishuBotRegistrationStatusPayload {
 /** Auth state pushed from main → renderer via 'auth:state-change'. */
 interface AuthStateChangePayload {
   user: AuthUser | null;
-  mode: 'signed-out' | 'local' | 'cloud';
+  mode: 'signed-out' | 'local' | 'cloud' | 'hr';
   dataOwnerId: string | null;
   ownerGeneration: number;
   /** Main marks the transient signed-out projection while an owner boundary is pending. */
@@ -2165,7 +2165,9 @@ interface ElectronAPI {
   authHasPersistedSessionHintSync: () => boolean;
   authInitialize: () => Promise<{
     user: AuthUser | null;
-    mode: 'signed-out' | 'local' | 'cloud';
+    mode: 'signed-out' | 'local' | 'cloud' | 'hr';
+    /** HR OA 登录资料投影（登录门禁）；旧 main 不带此字段。 */
+    hrProfile?: import('../main/hr-oa/profile').PersonProfile | null;
     dataOwnerId: string | null;
     ownerGeneration: number;
     ownerBoundaryPending?: boolean;

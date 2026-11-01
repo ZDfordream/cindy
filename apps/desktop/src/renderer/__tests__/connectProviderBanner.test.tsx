@@ -3,11 +3,13 @@
 /**
  * ConnectProviderBanner — 会话内零可用模型引导条关键不变量:
  *   1. 与首屏卡片同判定:零已连接来源才渲染;有连接 → null。
- *   2. CTA 按登录态分派:cloud → /settings?tab=providers;local → /login。
+ *   2. CTA 按登录态分派:cloud → /settings?tab=providers;非 cloud 分支通向 Cindy
+ *      登录——HR 登录门禁裁决(2026-11-01)后 SHOW_CINDY_ACCOUNT_UI=false 时**不渲染**
+ *      (藏不删,见 features/hr-oa-auth/legacyVisibility.ts),local/hr 只留横幅与 X。
  *   3. dismiss 与卡片共享同一 key:banner 上点 X,key 写入(两处一起消失)。
  */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -111,13 +113,17 @@ describe('ConnectProviderBanner', () => {
     expect(screen.getByTestId('location').textContent).toBe('/settings?tab=providers');
   });
 
-  it('local 模式 CTA 变登录,落 /login', async () => {
+  it('local 模式不渲染 Cindy 登录 CTA（账号层收起）', () => {
     authState.mode = 'local';
     renderBanner();
 
-    fireEvent.click(screen.getByText('onboarding.connectProvider.banner.loginCta'));
-    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/login'));
-    expect(exitLocalModeMock).toHaveBeenCalledTimes(1);
+    // HR 登录门禁裁决：Cindy 账号层整体藏起（SHOW_CINDY_ACCOUNT_UI=false），
+    // 非 cloud 分支的「登录」入口不再渲染；横幅与 X dismiss 保持可用。
+    expect(screen.queryByText('onboarding.connectProvider.banner.loginCta')).toBeNull();
+    expect(screen.getByTestId('connect-provider-banner')).not.toBeNull();
+    fireEvent.click(screen.getByLabelText('onboarding.connectProvider.banner.dismissAria'));
+    expect(screen.queryByTestId('connect-provider-banner')).toBeNull();
+    expect(exitLocalModeMock).not.toHaveBeenCalled();
   });
 
   it('有已连接来源 → 渲染 null', () => {

@@ -349,7 +349,7 @@ export function toGhostPluginDetail(
  * 所以 key 必须含 owner 身份:换身份即卸载重建。
  */
 export function ghostWebviewOwnerKey(
-  mode: 'signed-out' | 'local' | 'cloud',
+  mode: 'signed-out' | 'local' | 'cloud' | 'hr',
   dataOwnerId: string | null,
 ): string {
   return `${mode}:${dataOwnerId ?? ''}`;

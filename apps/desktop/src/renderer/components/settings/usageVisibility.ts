@@ -7,7 +7,7 @@
  */
 
 export interface UsageSettingsIdentity {
-  mode: 'signed-out' | 'local' | 'cloud';
+  mode: 'signed-out' | 'local' | 'cloud' | 'hr';
 }
 
 export function canAccessUsageSettings(identity: UsageSettingsIdentity): boolean {

@@ -16,7 +16,7 @@ export const STARTUP_GATE_STALL_CHANNEL = 'startup-gate:stalled';
 export const STARTUP_GATE_STALL_AFTER_MS = 20_000;
 
 const LOCAL_DB_GATE_STATUSES = ['pending', 'ready', 'fatal'] as const;
-const AUTH_MODES = ['signed-out', 'local', 'cloud'] as const;
+const AUTH_MODES = ['signed-out', 'local', 'cloud', 'hr'] as const;
 const HANDOFF_PHASES = [
   'boot',
   'settle',

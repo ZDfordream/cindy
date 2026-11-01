@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/lib/utils';
+import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
 import { useSignInToCindy } from '@/hooks/useSignInToCindy';
 
 /** 首页零模型单行动卡:未登录走 states.html B,已登录无来源走开通官方服务。 */
@@ -11,7 +12,7 @@ export function HomeZeroModelAction({
   authMode,
   narrow,
 }: {
-  authMode: 'signed-out' | 'local' | 'cloud';
+  authMode: 'signed-out' | 'local' | 'cloud' | 'hr';
   narrow: boolean;
 }) {
   const { t } = useTranslation();
@@ -35,23 +36,26 @@ export function HomeZeroModelAction({
             {t(cloud ? 'onboarding.homeZeroModel.cloudDesc' : 'onboarding.homeZeroModel.desc')}
           </p>
         </div>
-        <Button
-          variant="cta"
-          size="lg"
-          compact
-          type="button"
-          data-testid="home-zero-model-cta"
-          onClick={() => {
-            if (cloud) {
-              navigate('/settings?tab=providers&connect=xd');
-              return;
-            }
-            void signInToCindy();
-          }}
-          className={cn(narrow && 'self-end')}
-        >
-          {t(cloud ? 'onboarding.homeZeroModel.cloudCta' : 'onboarding.homeZeroModel.cta')}
-        </Button>
+        {/* 非 cloud 分支的 CTA 通向 Cindy 登录——账号层收起（藏不删）时不再渲染。 */}
+        {(cloud || isCindyAccountUiVisible()) && (
+          <Button
+            variant="cta"
+            size="lg"
+            compact
+            type="button"
+            data-testid="home-zero-model-cta"
+            onClick={() => {
+              if (cloud) {
+                navigate('/settings?tab=providers&connect=xd');
+                return;
+              }
+              void signInToCindy();
+            }}
+            className={cn(narrow && 'self-end')}
+          >
+            {t(cloud ? 'onboarding.homeZeroModel.cloudCta' : 'onboarding.homeZeroModel.cta')}
+          </Button>
+        )}
       </div>
       <button
         type="button"

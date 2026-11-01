@@ -47,10 +47,20 @@ afterEach(() => {
 });
 
 describe('HomeZeroModelAction', () => {
-  it('signed-out: login copy and CTA calls sign-in', () => {
+  it('signed-out: 不渲染 Cindy 登录 CTA（账号层收起），保留 own API 链接', () => {
     renderCard('signed-out');
     expect(screen.getByText('onboarding.homeZeroModel.title')).toBeTruthy();
     expect(screen.queryByText('onboarding.connectProvider.title')).toBeNull();
+    // HR 登录门禁裁决：非 cloud 的「登录 HRBuddy」CTA 通向 Cindy 账号层，
+    // SHOW_CINDY_ACCOUNT_UI=false（藏不删）时不再渲染，sign-in 通路整块静默。
+    expect(screen.queryByTestId('home-zero-model-cta')).toBeNull();
+    expect(signInMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('home-zero-model-own-api')).toBeTruthy();
+  });
+
+  it('cloud: opens Cindy AI provider connect, not the provider list', () => {
+    renderCard('cloud');
+    // CTA 的视觉合同（确认色实底）随 CTA 迁到 cloud 分支继续钉住。
     expect(screen.getByTestId('home-zero-model-cta').className).toContain(
       '[--button-face-bg:var(--accent-cta-bg-pure)]',
     );
@@ -58,12 +68,6 @@ describe('HomeZeroModelAction', () => {
       'text-[var(--accent-pure-cta-fg)]',
     );
     expect(screen.getByTestId('home-zero-model-cta').className).not.toContain('send-btn-fg');
-    fireEvent.click(screen.getByTestId('home-zero-model-cta'));
-    expect(signInMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('cloud: opens Cindy AI provider connect, not the provider list', () => {
-    renderCard('cloud');
     fireEvent.click(screen.getByTestId('home-zero-model-cta'));
     expect(signInMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('loc').textContent).toBe('/settings?tab=providers&connect=xd');

@@ -1107,12 +1107,19 @@ import { getAppCapabilities, requireAppCapability } from './appCapabilities.js';
 import {
   activeOwnerScopeKey,
   beginAppSessionBoundary,
+  commitActiveAppSession,
+  commitVolatileAppSession,
   getActiveAppSession,
   getActiveDataOwnerPushStamp,
   isAppSessionBoundaryPending,
   ownerScopedUserDataPath,
   setAppSessionCommitBoundaryHook,
 } from './appSessionState.js';
+import * as hrOaCredentials from './hr-oa/credentialStore.js';
+import { createHrOaSessionTransport, resolveHrOaBaseUrl } from './hr-oa/electronTransport.js';
+import { registerHrOaIpc } from './hr-oa/ipc.js';
+import { createOaClient } from './hr-oa/oaClient.js';
+import { createHrOaSessionManager } from './hr-oa/sessionManager.js';
 import {
   resolveNewMakerMenuCommand,
   type ApplicationMenuCommand,
@@ -2210,6 +2217,44 @@ authManager.setAccountSwitchTeardown(async () => {
 });
 authManager.setAuthSessionTeardown(teardownAuthAccountBoundary);
 authManager.setProjectionRepairTeardown(teardownGhostProjectionBoundary);
+
+// ── HR OA 登录态（HRBuddy 登录门禁）─────────────────────────────────────────
+// HR 会话是外层门禁（renderer 的 HrOaGate）：这里构造 manager → 注册 IPC → 冷启动
+// 静默重登（startup）。时序合同（登录门禁 Task 4）：
+//   1. `hrOa:*` handler 等 startup 落定才回包——门禁据 `hrOa:state` 决策（S1 还是
+//      主界面），提前回未落定的状态会闪 S1；
+//   2. `auth:initialize` 也等同一落定点——否则 Cindy 冷启动的 signed-out 收敛会把
+//      静默重登刚 commit 的 hr 会话打回 signed-out，把人踢出主界面。
+// 两条缺一不可；窗口在落定前保持加载态（HR 门禁 state===null 不判决）。
+const hrOaLog = createLogger('hr-oa');
+const hrOaTransport = createHrOaSessionTransport();
+const hrOaSessionManager = createHrOaSessionManager({
+  client: createOaClient({ baseUrl: resolveHrOaBaseUrl(), transport: hrOaTransport }),
+  credentials: hrOaCredentials,
+  // 与 authManager 的 cloud commit 同口径：共享 userData 的 passive 实例只 commit
+  // 进程态，不写持久 mode（否则会踩掉 primary 实例的 local/cloud 启动意图）。
+  commitSession: (mode, owner) => {
+    if (authManager.isPassiveSharedUserDataInstance()) commitVolatileAppSession(mode, owner);
+    else commitActiveAppSession(mode, owner);
+  },
+});
+// 登出 / 凭证失效后清门户 cookie（设计 §4.2：退出登录清钥匙串凭证、cookie、内存会话）。
+hrOaSessionManager.onDidChange((state) => {
+  if (state.status !== 'signed-out') return;
+  void hrOaTransport.clearCookies().catch((err: unknown) => {
+    hrOaLog.warn('clear OA cookies after signed-out failed (non-fatal)', err);
+  });
+});
+const whenHrOaSessionSettled: Promise<unknown> = app
+  .whenReady()
+  .then(() => hrOaSessionManager.startup())
+  .catch((err: unknown) => {
+    // startup 的失败分流都已落成状态；走到这里是意外（凭证 IO 抛错等）。无论如何
+    // 落定，让门禁能决策——回当前状态兜底，不把窗口永久留在加载态。
+    hrOaLog.error('hr-oa startup failed; continuing with current state', err);
+    return hrOaSessionManager.getState();
+  });
+registerHrOaIpc({ manager: hrOaSessionManager, whenSettled: whenHrOaSessionSettled });
 
 // A launch fence left by the host we just replaced (or by one that crashed
 // mid-relaunch) would otherwise refuse this instance's Subagent launches for as
@@ -6057,6 +6102,10 @@ const registerIpcHandlers = (): (() => Promise<void>) => {
 
   ipcMain.handle('auth:initialize', async () => {
     try {
+      // HR 静默重登必须先落定（登录门禁 Task 4 时序合同）：auth 冷启动的
+      // signed-out 收敛若抢先 commit，会把 hr 会话打回 signed-out。落定后
+      // authManager.initialize() 内部按 mode==='hr' 早退，不碰 HR 会话。
+      await whenHrOaSessionSettled;
       let pendingCompletion: Promise<authManager.AuthState> | null = null;
       const state = await authManager
         .initialize({

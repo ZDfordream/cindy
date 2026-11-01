@@ -17976,6 +17976,9 @@
     "button": "Use Original File"
   },
   "hrOa": {
+    "session": {
+      "expired": "Login expired. Please sign in again."
+    },
     "welcome": {
       "title": "HRBuddy, here to help",
       "login": "Sign In"

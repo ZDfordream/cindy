@@ -94,7 +94,7 @@ export function batchSummary(rows: readonly UpdateAllRow[]): {
  * 账号 A 的「忽略本轮」静默压掉账号 B 的更新横幅。
  */
 export function ignoredRoundStorageKey(
-  mode: 'signed-out' | 'local' | 'cloud',
+  mode: 'signed-out' | 'local' | 'cloud' | 'hr',
   dataOwnerId: string | null,
 ): string {
   return `cindy.pluginUpdates.ignoredRound.${mode}.${dataOwnerId ?? 'anonymous'}`;

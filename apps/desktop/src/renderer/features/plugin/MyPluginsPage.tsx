@@ -7,6 +7,7 @@ import { Tip } from '@/components/ui/tooltip';
 import type { GhostPluginListItem } from './lib/ghostPluginViewModel';
 import type { PluginMarketDetail } from '../../../shared/pluginMarket';
 import { AccountSwitcherDialog } from '@/components/sidebar/AccountSwitcherDialog';
+import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
 import { useSignInToCindy } from '@/hooks/useSignInToCindy';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -1141,13 +1142,16 @@ export function MyPluginsPage({
               <p role="status" className="text-14 leading-6 text-[var(--text-secondary)]">
                 {t(`${copy}.signInRequired`)}
               </p>
-              <Button
-                ref={accountTrigger}
-                variant="secondary"
-                onClick={() => (mode === 'cloud' ? setAccountSwitcherOpen(true) : void signIn())}
-              >
-                {t(mode === 'cloud' ? 'sidebar.accountSwitcher.title' : 'login.signIn')}
-              </Button>
+              {/* Cindy 账号层收起（藏不删）：登录 / 账号切换入口不再渲染。 */}
+              {isCindyAccountUiVisible() && (
+                <Button
+                  ref={accountTrigger}
+                  variant="secondary"
+                  onClick={() => (mode === 'cloud' ? setAccountSwitcherOpen(true) : void signIn())}
+                >
+                  {t(mode === 'cloud' ? 'sidebar.accountSwitcher.title' : 'login.signIn')}
+                </Button>
+              )}
               <AccountSwitcherDialog
                 open={accountSwitcherOpen}
                 onOpenChange={setAccountSwitcherOpen}

@@ -17916,6 +17916,9 @@
     "button": "使用原文件"
   },
   "hrOa": {
+    "session": {
+      "expired": "登录已过期，请重新登录"
+    },
     "welcome": {
       "title": "HRBuddy，我帮你",
       "login": "登录"

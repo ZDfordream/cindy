@@ -123,7 +123,7 @@ let activeOwnerId: string | null = null;
 let activeOwnerGeneration = 0;
 let activeOwnerReadyForWrites = false;
 let activeOwnerMigrationPending = false;
-let activeOwnerMode: 'signed-out' | 'local' | 'cloud' = 'signed-out';
+let activeOwnerMode: 'signed-out' | 'local' | 'cloud' | 'hr' = 'signed-out';
 let mayInitializeDefaults = false;
 interface InitializationState {
   /** Persisted before migration/override writes; scopes records completion independently. */
@@ -632,7 +632,7 @@ export function getModelVisibilityVersion(): number {
 export async function setModelVisibilityOwner(
   ownerId: string | null,
   ownerGeneration: number,
-  mode: 'signed-out' | 'local' | 'cloud',
+  mode: 'signed-out' | 'local' | 'cloud' | 'hr',
 ): Promise<void> {
   if (
     activeOwnerId === ownerId

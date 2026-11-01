@@ -174,7 +174,7 @@ export function orderPluginCatalogItems<TInstalled extends { id: string }>(
 
 /** 浏览可看公开目录；安装只在当前会话真能跑这个插件时露出。 */
 export function canOfferMarketInstall(
-  mode: 'signed-out' | 'local' | 'cloud',
+  mode: 'signed-out' | 'local' | 'cloud' | 'hr',
   ghostId: string,
 ): boolean {
   if (mode === 'signed-out') return false;

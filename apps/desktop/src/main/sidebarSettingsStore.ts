@@ -166,7 +166,9 @@ type SidebarStoreAccessResult = 'blocked' | 'ready' | 'snapshot-changed';
 function sidebarStoreAccessResult(): SidebarStoreAccessResult {
   const session = getActiveAppSession();
   if (!session.dataOwnerId) return 'blocked';
-  if (session.mode !== 'local' && session.mode !== 'cloud') return 'blocked';
+  if (session.mode !== 'local' && session.mode !== 'cloud' && session.mode !== 'hr') {
+    return 'blocked';
+  }
 
   const scopedPathState = scopedSidebarPathState(ownerScopedUserDataPath(SETTINGS_FILE_NAME));
   // The old schema cannot express unpin/unhide tombstones. Once scoped state
@@ -174,7 +176,10 @@ function sidebarStoreAccessResult(): SidebarStoreAccessResult {
   if (scopedPathState === 'regular-file') return 'ready';
   if (scopedPathState === 'blocked') return 'blocked';
 
-  if (session.mode === 'local') return 'ready';
+  // local 与 hr（HR OA）都是没有 pre-scoped 历史快照的会话（hr 账号键是首登冻结的
+  // 新命名空间）：直接 ready，不得走 legacy 认领——认领会把共享 userData 里的旧
+  // 全局文件判给某一个 hr 账号，跨账号污染（登录门禁 Task 4 审计）。
+  if (session.mode === 'local' || session.mode === 'hr') return 'ready';
   return claimLegacySidebarSettingsResult();
 }
 
