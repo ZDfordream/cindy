@@ -3,8 +3,10 @@
  *
  * 会话：`persist:hr-oa` 独立 Electron session 作 cookie jar（设计裁定「cookie jar
  * （Electron session 持久化即可）」）——与应用其它网络通道的 cookie 隔离，但跨启动
- * 持久，支撑「未过期凭证 → 静默重登 → 直接进首页」。登出/凭证失效由接线层调
- * `clearCookies()` 清 jar（设计：退出登录清钥匙串凭证、cookie、内存会话）。
+ * 持久，支撑「未过期凭证 → 静默重登 → 直接进首页」。`clearCookies()` 两个调用方
+ * （P0 账号隔离）：oaClient.login() 提交凭证**前**清 jar（每次登录只按本次凭证判成败，
+ * 真门户在 jar 有存活会话时把错口令也 302 到 `/`）；sessionManager 落 signed-out 前
+ * 清 jar（登出/凭证失效收口，设计：退出登录清钥匙串凭证、cookie、内存会话）。
  *
  * 重定向：`redirect: 'follow'` + `session.webRequest.onBeforeRedirect` 重建跳转链。
  * 不能用 `redirect: 'manual'` 手动跟随：Electron 42 的 `ses.fetch` / `net.fetch` 遇

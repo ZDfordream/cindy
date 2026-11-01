@@ -2,6 +2,9 @@
  * oaClient.ts — HR OA 蓝凌门户登录 / 会话 / 个人资料客户端（main 进程）。
  *
  * 登录序列（不走门户原生的「明文首发、被弹回再加密」双发）：
+ *   0. 清 transport 的 cookie jar（P0 账号隔离，设计 §4.2）——真门户在 jar 有存活
+ *      会话时把错口令的登录 POST 也 302 到 `/`（与成功不可区分），旧会话绝不参与
+ *      本次判定；清不掉就不提交（fail-closed）。
  *   1. GET /resource/js/session.jsp 抓 `getSM2PubKey()` 的公钥 hex（正则同 HRMcp/oa_client.py）；
  *   2. encryptPassword() → `SECURITY_MARKER + 密文 hex` 作为 j_password POST /j_acegi_security_check；
  *   3. 公钥取不到才降级为**恰好一次**明文提交，并留一条不含口令的 warn（不重试明文）。
@@ -50,6 +53,17 @@ export interface OaTransport {
     params?: Record<string, string>;
     form?: Record<string, string>;
   }): Promise<OaResponse>;
+
+  /**
+   * 清空 transport 的 cookie jar（账号隔离，设计 §4.2）。可选：省略视为 no-op
+   * （fake transport 可不实现）。
+   *
+   * login() 在提交凭证**前**会先清 jar：每次登录只按本次凭证判成败。jar 里的旧会话
+   * 会让蓝凌把错口令的登录 POST 也 302 到 `/`（与成功不可区分）——不清 jar 就提交 =
+   * 上一个账号的会话能「判成功」下一个账号的错口令（P0 账号隔离破口，真机 2026-11-01
+   * 实证）。清不掉则**不提交**（fail-closed）。
+   */
+  clearCookies?(): Promise<void> | void;
 }
 
 export interface OaClient {
@@ -158,15 +172,10 @@ export function createOaClient(opts: {
     return baseUrl.replace(/\/+$/, '') + (path.startsWith('/') ? path : '/' + path);
   }
 
-  function request(
-    method: 'GET' | 'POST',
-    path: string,
-    extra?: { params?: Record<string, string>; form?: Record<string, string> },
-  ): Promise<OaResponse> {
-    const call = transport.request({ method, path: absolute(path), ...extra });
+  /** 本端超时哨兵：两个分支都挂着 handler，超时后被放弃的 promise 不会成为 unhandled rejection。 */
+  function guard<T>(call: Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new RequestTimeout()), timeoutMs);
-      // 两个分支都挂着 handler，超时后被放弃的 promise 不会成为 unhandled rejection。
       call.then(
         (res) => {
           clearTimeout(timer);
@@ -178,6 +187,14 @@ export function createOaClient(opts: {
         },
       );
     });
+  }
+
+  function request(
+    method: 'GET' | 'POST',
+    path: string,
+    extra?: { params?: Record<string, string>; form?: Record<string, string> },
+  ): Promise<OaResponse> {
+    return guard(transport.request({ method, path: absolute(path), ...extra }));
   }
 
   async function fetchPubkeyDefault(): Promise<string | null> {
@@ -199,6 +216,11 @@ export function createOaClient(opts: {
   async function login(username: string, password: string): Promise<OaLoginOutcome> {
     remembered = { username, password };
     try {
+      // P0 账号隔离（设计 §4.2）：提交凭证前清空 cookie jar——每次登录只按本次凭证
+      // 判成败。真门户在 jar 有存活会话时把错口令的登录 POST 也 302 到 `/`（与成功
+      // 不可区分），旧会话绝不能参与本次判定。清不掉就不提交（fail-closed → 由下方
+      // catch 归 network_error / timeout）：拿脏 jar 判凭证等于口令校验形同虚设。
+      await guard(Promise.resolve(transport.clearCookies?.()));
       const pubkey = await (opts.fetchPubkey ?? fetchPubkeyDefault)();
       let jPassword = password;
       if (pubkey) {

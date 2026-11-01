@@ -2239,13 +2239,12 @@ const hrOaSessionManager = createHrOaSessionManager({
     if (authManager.isPassiveSharedUserDataInstance()) commitVolatileAppSession(mode, owner);
     else commitActiveAppSession(mode, owner);
   },
-});
-// 登出 / 凭证失效后清门户 cookie（设计 §4.2：退出登录清钥匙串凭证、cookie、内存会话）。
-hrOaSessionManager.onDidChange((state) => {
-  if (state.status !== 'signed-out') return;
-  void hrOaTransport.clearCookies().catch((err: unknown) => {
-    hrOaLog.warn('clear OA cookies after signed-out failed (non-fatal)', err);
-  });
+  // 门户 cookie 收口（设计 §4.2：退出登录清钥匙串凭证、cookie、内存会话；P0 账号隔离）：
+  // sessionManager 落 signed-out（登出/凭证失效/无凭证首启）前会 await 这条回调清
+  // persist:hr-oa 分区的 cookie——清完才落状态。此前这里的 onDidChange fire-and-forget
+  // 接线被 sessionManager 内联收口取代：旁路异步清 cookie 可能迟到落地、误删下一次
+  // 登录种下的新会话。
+  clearCookies: () => hrOaTransport.clearCookies(),
 });
 const whenHrOaSessionSettled: Promise<unknown> = app
   .whenReady()

@@ -14,15 +14,23 @@
  *   「资料失败不阻断登录，键退化用已缓存的冻结键」；VPN 抖动（网络类失败）绝不能清凭证把人锁在
  *   门外；logout 必须 client.resetSession()（OA client 在内存里记着口令做会话恢复，不复位会跨
  *   登出口令泄漏）；集成设计 §4.2（wrong_credentials/locked → 清钥匙串 + toast「登录已过期」；
- *   network_error/timeout → 保留凭证离线只读 + 网络恢复静默重登 + 资料本地缓存）。
+ *   network_error/timeout → 保留凭证离线只读 + 网络恢复静默重登 + 资料本地缓存）。账号隔离
+ *   P0（真机 2026-11-01 实证）：登出/凭证失效只清钥匙串与内存会话、不清门户 cookie jar 时，
+ *   旧会话残留在 persist:hr-oa 分区——下一个账号的错口令会被旧会话「判成功」落进前一个
+ *   账号。修法合同：signed-out 收口必须清门户 cookie（clearCookies 回调），且清完 cookie
+ *   才落状态（迟清会误删下一次登录种下的新会话）。
  * - 现有覆盖缺口：新模块，此前没有 HR 会话生命周期与失败分流覆盖；oaClient.test.ts 只覆盖单次
  *   登录 outcome，不覆盖凭证去留与会话状态。评审 Finding 1/2 前：startup 不报告 signed-out
- *   原因（冷启动失效无法弹 toast）、无资料缓存、无网络恢复重登。
+ *   原因（冷启动失效无法弹 toast）、无资料缓存、无网络恢复重登。账号隔离：此前
+ *   clearCookies 接线挂在 bootstrap 的 onDidChange 上（fire-and-forget），sessionManager
+ *   生命周期本身不清 cookie，也无任何测试钉住这条收口。
  * - 最小失败输入：见表驱动 startup 六行 + 手输新账号 / 冻结键 / 显式失败四类 / logout +
  *   TTL 过期 reason / networkRecovered 三态 / 资料缓存与无口令；凭证层用真实 credentialStore
- *   （内存 secret IO + mkdtemp 映射表），client 全 fake。
+ *   （内存 secret IO + mkdtemp 映射表），client 全 fake。账号隔离见「portal cookie 收口」：
+ *   注入 clearCookies fake，断言登出/凭证类失效调它且先于状态落定（顺序错了 = 清 cookie
+ *   迟到落地会误删下一次登录的新会话）。
  * - tier：unit（无真实网络；client/commitSession 注入 fake，凭证走真实模块 + 假 IO）。
- * - 实测耗时：单文件 ~1.8s 墙钟（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/sessionManager.test.ts）。
+ * - 实测耗时：单文件 ~2.0s 墙钟（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/sessionManager.test.ts）。
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -95,6 +103,7 @@ let testDeps: OaCredentialDeps;
 let clearOaLoginSpy: ReturnType<typeof vi.fn>;
 let credentials: typeof import('../credentialStore.js');
 let commitSession: ReturnType<typeof vi.fn>;
+let clearCookiesSpy: ReturnType<typeof vi.fn>;
 let client: OaClient;
 let clientLogin: OaLoginOutcome;
 let clientProfile: PersonProfile | Error;
@@ -122,6 +131,7 @@ function makeManager() {
     credentials,
     commitSession,
     now: () => clock,
+    clearCookies: clearCookiesSpy,
   });
 }
 
@@ -142,6 +152,7 @@ beforeEach(() => {
   };
   credentials = makeCredentials();
   commitSession = vi.fn();
+  clearCookiesSpy = vi.fn(async () => {});
   clientLogin = { ok: true };
   clientProfile = freshProfile;
   resetSession = vi.fn();
@@ -471,6 +482,58 @@ describe('logout', () => {
     // reason:'logout' = 自愿登出：兄弟窗口据此抑制失效 toast（Finding 4）。
     expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
     expect(commitSession.mock.calls.at(-1)).toEqual(['signed-out']);
+  });
+});
+
+describe('portal cookie 收口（P0 账号隔离，设计 §4.2）', () => {
+  it('logout empties the portal cookie jar before settling signed-out', async () => {
+    // 失效后果：登出不清门户 cookie，A 的会话残留在 persist:hr-oa——B 输错口令会被
+    // 蓝凌按 A 的存活会话 302 到 `/`、被分类「登录成功」落进 A 的账号（真机实证）。
+    // 顺序合同：清 cookie 必须先于状态落定（commitSession 标记）——落定后渲染层可
+    // 立即发起新登录，迟到落地的清 cookie 会误删新会话。
+    const order: string[] = [];
+    clearCookiesSpy = vi.fn(async () => {
+      order.push('clearCookies');
+    });
+    commitSession = vi.fn(() => {
+      order.push('commitSession');
+    });
+    const manager = makeManager();
+    clientProfile = profile({ loginName: 'u1', personId: 'p9' });
+    await manager.login('u1', PASSWORD);
+    order.length = 0; // 只看登出这一次的收口顺序
+
+    await manager.logout();
+
+    expect(clearCookiesSpy).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['clearCookies', 'commitSession']);
+  });
+
+  it('credential-class silent re-login failure clears the portal cookie jar', async () => {
+    // 失效后果：startup 静默重登撞 wrong_credentials 清了钥匙串却不清 cookie 时，
+    // 失效的门户会话继续存活，下一个账号的登录判定被它污染。
+    await seedStoredLogin();
+    clientLogin = { ok: false, kind: 'wrong_credentials' };
+    const manager = makeManager();
+
+    const state = await manager.startup();
+
+    expect(state).toEqual({ status: 'signed-out', reason: 'expired' });
+    expect(clearCookiesSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('TTL-expired startup also clears the portal cookie jar', async () => {
+    // 失效后果：曾有凭证的失效（TTL 过期、密文已由 load 侧清掉）同样不得把旧门户
+    // 会话留在 jar 里跨账号。
+    await seedStoredLogin();
+    clock += OA_LOGIN_TTL_MS;
+    const manager = makeManager();
+
+    const state = await manager.startup();
+
+    expect(state).toEqual({ status: 'signed-out', reason: 'expired' });
+    expect(clearCookiesSpy).toHaveBeenCalledTimes(1);
+    expect(client.login).not.toHaveBeenCalled();
   });
 });
 

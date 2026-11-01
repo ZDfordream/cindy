@@ -13,13 +13,21 @@
  *   恢复；会话失效判据对 3xx+location 与跟随后 200+finalUrl 两种形态都认；Review Focus #4
  *   口令不进日志/异常；真机验收 P0 吞错修复——transport 抛错（redirect:'manual' 的
  *   「Redirect was cancelled」）被静默映射 network_error、零日志，排查无从下手。
+ *   账号隔离 P0（真机 2026-11-01 实证）：login() 不清 cookie jar 时，蓝凌对带着存活
+ *   会话的登录 POST 无视口令直接 302 到 `/`（分类器判成功）——A 的旧会话能「判成功」
+ *   B 的错口令。修法合同：提交凭证**前**清 transport cookie jar，每次登录只按本次
+ *   凭证判成败；清不掉就不提交（fail-closed → network_error）。
  * - 现有覆盖缺口：新模块，此前没有门户登录序列、失败分流与会话恢复覆盖；network_error 映射
- *   此前不落任何日志行，失败不可见。
+ *   此前不落任何日志行，失败不可见。账号隔离（P0）：login() 此前不清 cookie jar 直接提交，
+ *   真门户在 jar 有存活会话时把错口令的登录 POST 也 302 到 `/`（分类器判成功）——A 登出后
+ *   B 输错口令会落进 A 的会话（真机 2026-11-01 实证）。
  * - 最小失败输入：见表驱动场景（SM2 成功 / 凭证错 / 锁定×2 信号 / display:block 成功不误判锁 /
  *   网络错（含脱敏 warn 合同）/ 超时 / 公钥取不到 / 会话失效×2（3xx+location 与跟随后
- *   200+finalUrl 两形态）/ 资料拉取网络错）。
+ *   200+finalUrl 两形态）/ 资料拉取网络错）。账号隔离见 describe「cookie jar 隔离」：
+ *   fake transport 建模真门户 cookie 合同（有存活会话 → 错口令也 302 到 `/`），旧实现
+ *   登录 POST 现场 jar 仍有旧会话、错口令被分类 `{ok:true}`。
  * - tier：unit（transport 全注入 fake，无真实网络；超时用 5ms 短定时器，不做真实长等待）。
- * - 实测耗时：单文件 ~1.4s（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/oaClient.test.ts）。
+ * - 实测耗时：单文件 ~1.8s 墙钟（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/oaClient.test.ts）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -300,5 +308,111 @@ describe('createOaClient().getPersonProfile', () => {
     expect(err).toBeInstanceOf(OaLoginError);
     expect((err as OaLoginError).kind).toBe('network_error');
     expect((err as OaLoginError).message.includes(PASSWORD)).toBe(false);
+  });
+});
+
+/**
+ * fake transport 建模真门户 cookie 合同（真机 2026-11-01 对蓝凌 /j_acegi_security_check
+ * 实测）：jar 里有存活会话时，登录 POST 无视提交的口令直接 302 到 `/`（形态上与成功
+ * 不可区分）；只有 fresh jar 才对错口令弹 /login.jsp?login_error=1。`sessionAlive` 即
+ * jar 状态；`jarAliveAtLoginPost` 记录每次登录 POST 现场的 jar 状态，钉死「清 jar 必须
+ * 发生在提交之前」。
+ */
+function makePortalJarTransport(opts: {
+  initialSessionAlive: boolean;
+  onLoginPost: (jar: { sessionAlive: boolean }) => OaResponse;
+  clearCookies?: () => Promise<void>;
+}): {
+  transport: OaTransport;
+  jar: { sessionAlive: boolean };
+  jarAliveAtLoginPost: boolean[];
+  calls: RequestInput[];
+} {
+  const calls: RequestInput[] = [];
+  const jar = { sessionAlive: opts.initialSessionAlive };
+  const jarAliveAtLoginPost: boolean[] = [];
+  return {
+    calls,
+    jar,
+    jarAliveAtLoginPost,
+    transport: {
+      clearCookies:
+        opts.clearCookies ??
+        (() => {
+          jar.sessionAlive = false;
+          return Promise.resolve();
+        }),
+      request(input) {
+        calls.push(input);
+        if (isSessionJs(input)) return Promise.resolve(sessionJs());
+        if (isLoginPost(input)) {
+          jarAliveAtLoginPost.push(jar.sessionAlive);
+          return Promise.resolve(opts.onLoginPost(jar));
+        }
+        return Promise.reject(new Error(`unexpected ${input.method} ${input.path}`));
+      },
+    },
+  };
+}
+
+describe('createOaClient().login cookie jar 隔离（P0 账号隔离）', () => {
+  it('stale session cookies must not mask a wrong password: login clears the jar before submitting', async () => {
+    // 回归（真机 2026-11-01 实证）：A 的存活会话在 jar 里时，B 的错口令登录 POST 被蓝凌
+    // 302 到 `/`，旧实现（不清 jar）分类成 {ok:true}，B 落进 A 的会话。
+    const { transport, jarAliveAtLoginPost } = makePortalJarTransport({
+      initialSessionAlive: true,
+      onLoginPost: (jar) =>
+        jar.sessionAlive ? redirect('/') : redirect('http://oa.test/login_error'),
+    });
+    const client = createOaClient({ baseUrl: BASE, transport });
+
+    await expect(client.login(USER, 'wrong-password')).resolves.toEqual({
+      ok: false,
+      kind: 'wrong_credentials',
+    });
+    // 提交现场的 jar 必须已是空的（清 jar 发生在 POST 之前，不是之后）。
+    expect(jarAliveAtLoginPost).toEqual([false]);
+  });
+
+  it('a later attempt with wrong credentials is judged on its own, not on the previous session', async () => {
+    // 第一次成功登录建起会话后，紧接着的错口令尝试必须独立判成败——旧实现被上一次的
+    // 会话「判成功」，等于口令校验形同虚设。
+    let loginPosts = 0;
+    const { transport, jarAliveAtLoginPost } = makePortalJarTransport({
+      initialSessionAlive: false,
+      onLoginPost: (jar) => {
+        loginPosts += 1;
+        if (loginPosts === 1) {
+          jar.sessionAlive = true; // 成功登录 Set-Cookie 建会话
+          return redirect('/');
+        }
+        return jar.sessionAlive ? redirect('/') : redirect('http://oa.test/login_error');
+      },
+    });
+    const client = createOaClient({ baseUrl: BASE, transport });
+
+    await expect(client.login(USER, PASSWORD)).resolves.toEqual({ ok: true });
+    await expect(client.login(USER, 'wrong-password')).resolves.toEqual({
+      ok: false,
+      kind: 'wrong_credentials',
+    });
+    expect(jarAliveAtLoginPost).toEqual([false, false]);
+  });
+
+  it('does not submit credentials when the jar cannot be cleared (fail-closed → network_error)', async () => {
+    // 清 jar 失败时不得带着脏 jar 提交凭证：那会复现旧会话掩码错口令的 P0。宁可登录
+    // 失败（network_error），不可假成功。
+    const { transport, calls } = makePortalJarTransport({
+      initialSessionAlive: true,
+      onLoginPost: () => redirect('/'),
+      clearCookies: () => Promise.reject(new Error('clearStorageData exploded')),
+    });
+    const client = createOaClient({ baseUrl: BASE, transport });
+
+    await expect(client.login(USER, PASSWORD)).resolves.toEqual({
+      ok: false,
+      kind: 'network_error',
+    });
+    expect(calls.filter(isLoginPost)).toHaveLength(0);
   });
 });

@@ -24,7 +24,17 @@
  *
  * logout() 必须 `client.resetSession()`：OA client 在内存里记着口令做会话恢复，
  * 不复位会把口令跨登出留在进程里。凭证持久化走 credentialStore（口令不进日志）。
+ *
+ * 账号隔离（设计 §4.2「退出登录清 cookie」，P0 真机 2026-11-01）：凡落 `signed-out`
+ * （登出 / 凭证类失效 / TTL 过期 / 无凭证首启）都必须清门户 cookie jar（deps.clearCookies
+ * 回调），否则旧会话残留在 persist:hr-oa 分区——下一个账号的错口令会被蓝凌按旧会话
+ * 302 到 `/`、「判成功」落进前一个账号。顺序合同：清完 cookie 才落状态——落定后
+ * 渲染层可立即发起新登录，fire-and-forget 迟到落地的清 cookie 会误删新会话。
+ * 与 `client.resetSession()` 的边界：resetSession 清内存里记住的登录凭据（会话恢复用），
+ * clearCookies 清门户会话 cookie（服务端登录态）——两件事都做，不互相替代。
  */
+
+import { createLogger } from '../logger.js';
 
 import type { OaLoginFailure } from './errors.js';
 import type { OaClient } from './oaClient.js';
@@ -64,9 +74,17 @@ export function createHrOaSessionManager(deps: {
   credentials: typeof import('./credentialStore');
   commitSession: (mode: 'hr' | 'signed-out', owner?: string | null) => void;
   now?: () => number;
+  /**
+   * 清门户 cookie jar（设计 §4.2）。可选以保持既有调用签名可用；生产接线
+   * （bootstrap-electron）必须传 `HrOaSessionTransport.clearCookies`——缺省时
+   * signed-out 收口不动作，旧门户会话会跨账号残留（P0 账号隔离）。
+   */
+  clearCookies?: () => Promise<void> | void;
 }): HrOaSessionManager {
   const { client, credentials, commitSession } = deps;
   const now = deps.now ?? Date.now;
+  const clearCookies = deps.clearCookies;
+  const log = createLogger('hr-oa');
   let state: HrOaAuthState = { status: 'signed-out' };
   const listeners = new Set<(s: HrOaAuthState) => void>();
   /** networkRecovered 的单飞闸：多窗口同响 `online` 只跑一轮静默重登。 */
@@ -101,6 +119,40 @@ export function createHrOaSessionManager(deps: {
     return next;
   }
 
+  /** 脱敏（凭证红线）：错误文本里的口令残渣 / 带 query 的完整地址 / 表单字段一律抹掉。 */
+  function scrubErrorText(e: unknown): string {
+    const text = e instanceof Error ? e.message : String(e);
+    return text
+      .replace(/\b([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s?#]*)\?[^#\s]*/g, '$1')
+      .replace(/(?:\b(?:j_username|j_password)=[^&\s]*&?)+/gi, '***');
+  }
+
+  /**
+   * 清门户 cookie（非致命）：收口失败不得拦住登出/凭证清除（本地状态必须落定），
+   * 但原因必须落一条脱敏 warn。
+   */
+  async function clearPortalCookies(): Promise<void> {
+    try {
+      await clearCookies?.();
+    } catch (e) {
+      log.warn(`[hr-oa] clear portal cookies failed (non-fatal): ${scrubErrorText(e)}`);
+    }
+  }
+
+  /**
+   * signed-out 收口（设计 §4.2，账号隔离）：**先清门户 cookie、再落状态**。
+   * 顺序合同：状态落定后渲染层可立即发起下一次登录，迟到落地的清 cookie 会误删
+   * 新登录种下的会话；所以清 cookie 是落定前的同步门，不是落定后的旁路通知。
+   */
+  async function dropToSignedOut(
+    reason: HrOaSignedOutReason | undefined,
+    notify: boolean,
+  ): Promise<HrOaAuthState> {
+    await clearPortalCookies();
+    const next: HrOaAuthState = reason ? { status: 'signed-out', reason } : { status: 'signed-out' };
+    return notify ? notifyOnly(next) : settle(next);
+  }
+
   /**
    * 离线资料来源（设计 §4.2 资料缓存）：登录成功落的本地缓存与本次凭证的冻结键
    * 对得上才用；对不上（缓存串号 / 缺失）宁可 blank，不展示别人 / 空资料以外的东西。
@@ -128,9 +180,10 @@ export function createHrOaSessionManager(deps: {
     if (!outcome.ok) {
       if (outcome.kind === 'wrong_credentials' || outcome.kind === 'locked') {
         // 凭证类失败：被测的正是钥匙串里这份 → 清除并落 signed-out（失效 toast 来源）。
+        // 门户 cookie 一并收口（dropToSignedOut）：凭证没了，旧门户会话不得继续存活。
         await credentials.clearOaLogin();
         client.resetSession();
-        return settle({ status: 'signed-out', reason: 'expired' });
+        return dropToSignedOut('expired', false);
       }
       // 网络类失败：凭证保留，offline home 仍可读（资料走本地缓存）。
       return settle({
@@ -164,12 +217,13 @@ export function createHrOaSessionManager(deps: {
     if (loaded.status === 'none') {
       // 无凭证：保持 signed-out、不 commit——ensureLoaded 的启动归一已经把会话放在
       // signed-out/local，HR 不该在这里踩掉 local。无 reason = 首启，不是失效。
-      return notifyOnly({ status: 'signed-out' });
+      // 仍收口门户 cookie（notify 路径）：凭证不在了，旧门户会话不得跨到登录门后。
+      return dropToSignedOut(undefined, true);
     }
     if (loaded.status === 'expired') {
       // TTL 过期 / 密文损坏：曾有凭证的失效（FR-SESSION-02）→ reason:'expired'，
-      // 渲染层冷启动也弹「登录已过期」；load 侧已顺手清掉密文。
-      return settle({ status: 'signed-out', reason: 'expired' });
+      // 渲染层冷启动也弹「登录已过期」；load 侧已顺手清掉密文。门户 cookie 同口径收口。
+      return dropToSignedOut('expired', false);
     }
     return silentRelogin(loaded.record);
   }
@@ -214,9 +268,10 @@ export function createHrOaSessionManager(deps: {
   async function logout(): Promise<void> {
     await credentials.clearOaLogin();
     // OA client 内存里记着口令做会话恢复——登出必须复位，防口令跨登出滞留。
+    // （resetSession 清内存凭据；门户 cookie 由 dropToSignedOut 清，两件事都做。）
     client.resetSession();
     // reason:'logout' 随状态推送：兄弟窗口（无 voluntary 标记）据此抑制失效 toast。
-    settle({ status: 'signed-out', reason: 'logout' });
+    await dropToSignedOut('logout', false);
   }
 
   async function networkRecovered(): Promise<HrOaAuthState> {
@@ -228,7 +283,7 @@ export function createHrOaSessionManager(deps: {
         if (loaded.status !== 'ok') {
           // 离线期间凭证到期 / 消失（含外部清钥匙串）：曾有会话却回不去 → 按失效处理
           // （FR-SESSION-02 的「凭证过期」分支），不把人无解释地丢回 S1。
-          return settle({ status: 'signed-out', reason: 'expired' });
+          return dropToSignedOut('expired', false);
         }
         return await silentRelogin(loaded.record);
       } finally {
