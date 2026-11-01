@@ -2165,17 +2165,16 @@ function ChatInputInner({
   // 条目不在那台电脑上，远程维持既有链路。网关条目恒为 claude-code runtime
   // （anthropic-messages），发送的 engine 一并钉到 claude-code，避免草稿 Harness 记忆
   // 与路由错配。无可用网关模型时回落原默认链路（localVendorDefaults / session runtime）。
-  const currentModelRoute = useCurrentModelRoute();
+  const { route: currentModelRoute, loading: currentModelRouteLoading } = useCurrentModelRoute();
   // Ruling 20: 全局当前模型只作用于 claude-code 发送路径——网关条目只有 claude-code
   // runtime（协议写死 anthropic-messages），把 codex/pi 等其它引擎的发送换成网关
   // modelId + 自定义 provider 必然跑错引擎或直接失败；非 cc 引擎路由保持原状。
-  const sendRoute =
-    currentModelRoute &&
-    currentModelAgentKind === 'claude-code' &&
-    !deviceLinkDeviceId &&
-    !remoteHostId
-      ? currentModelRoute
-      : null;
+  const gatewayRouteInPlay =
+    currentModelAgentKind === 'claude-code' && !deviceLinkDeviceId && !remoteHostId;
+  const sendRoute = gatewayRouteInPlay && currentModelRoute ? currentModelRoute : null;
+  // route 还卡在条目表水合窗口（loading）时，「解析不出」不是「无模型」——发送必须
+  // 等待，不许把内置默认模型顶替用户配置的网关模型（冷启动竞态回归）。
+  const routeLoading = gatewayRouteInPlay && currentModelRouteLoading;
   const sendModel = sendRoute?.modelId ?? activeModel;
   const sendAgentKind: AgentKind | null = sendRoute ? 'claude-code' : currentModelAgentKind;
   // chatEligibleSourcesForModel(不是裸 sourcesForModel):非聊天模型即便"存在于某个
@@ -2227,6 +2226,15 @@ function ChatInputInner({
     !!runtimeEffective && !composerSelection.pending && !agentSwitchIntent && !pendingRemoteSwitch &&
     activeModel === runtimeEffective.model && currentModelAgentKind === runtimeEffective.agentKind &&
     (activeProviderId ?? null) === (runtimeEffective.providerId ?? null);
+
+  // 零来源门禁的生效范围与判据就绪度。providers 快照或网关条目表（route）任一还在
+  // 水合时，「零来源」只是「还没读到」——门禁不判、Send 置灰等待、间接派发静默 return，
+  // 绝不弹「去连接」误导框（冷启动竞态回归，见 chatInputModelLoading 一组用例）；
+  // 稳态真零来源仍弹。与派生的 noConnectedSource 的 loading 短路同构，只是短路掉
+  // 判定的同时把发送也停在窗口内（不许静默用错模型发出）。
+  const sourceGateActive =
+    enforceConnectedSourceGate && !canAttemptBaselineRecovery && !!sendAgentKind;
+  const sourceGateLoading = sourceGateActive && (providersLoading || routeLoading);
 
   // 当前**生效来源 id**(= ModelSelector 高亮的 activeSourceId 同口径):显式选中且仍可连、
   // 且提供当前模型 → 用它;否则只在“提供当前模型”的来源里取原生默认。providerModelMemory
@@ -5509,6 +5517,10 @@ function ChatInputInner({
     async (deliveryMode: MessageDeliveryMode = 'queue') => {
       if (!editor) return;
       if (disabled || sessionModelLoading) return;
+      // 间接派发路径（Enter / 语音 / 代发）兜底：门禁数据未就绪（providers 快照 /
+      // 网关条目表水合窗口）时静默等待，不许拿空表判「零来源」弹「去连接」误导框，
+      // 也不许用内置默认模型顶替尚未解析出的网关模型（冷启动竞态回归）。
+      if (sourceGateLoading) return;
       if ((folderTransfers.hasPending || waitingForFoldersRef.current) &&
           (!(await waitForFolders()) || editor.isDestroyed)) return;
       // React 的 disabled 状态可能尚未完成下一帧渲染；同步读协调器兜住点击、快捷键、
@@ -5846,9 +5858,11 @@ function ChatInputInner({
         // currentModelAgentKind 解析不出(罕见:capabilities 未就绪)时不拦,交给下游
         // 处理,不误伤。用 chatEligibleSourcesForModel 而非裸 sourcesForModel:
         // 非聊天来源不该被当成"可以发"放行(issue #882 第 3 点,2026-07 review)。
+        // 门禁只在**判据数据就绪**时判定：providers 快照 / 网关条目表任一还在水合时
+        // 「零来源」只是「还没读到」(loading 短路，与派生的 noConnectedSource 同构)，
+        // 弹「去连接」是误导（冷启动竞态回归）。
         if (
-          enforceConnectedSourceGate && !canAttemptBaselineRecovery &&
-          sendAgentKind &&
+          sourceGateActive && !sourceGateLoading &&
           // 旧被控端明确不支持 provider:list 时，控制端没有可检查的来源镜像；
           // 与模型列表一致交给 capabilities + 被控端发送链路做兼容回退。
           !(deviceLinkDeviceId && remoteProviders.unsupported)
@@ -6379,6 +6393,8 @@ function ChatInputInner({
       sendProviderId,
       selectedSourceDisconnected,
       canAttemptBaselineRecovery,
+      sourceGateActive,
+      sourceGateLoading,
       fastMode,
       hasAttachments,
       attachments,
@@ -9199,7 +9215,11 @@ function ChatInputInner({
           (!hasMessage && !hasPreparedOrPendingAttachments),
       )
     : Boolean(
-    disabled || sessionModelLoading || waitingForFolders ||
+    disabled || sessionModelLoading ||
+    // 门禁判据未就绪（providers 快照 / 网关条目表水合窗口）：Send 置灰等待，不放行
+    // 进「零来源」误判，也不静默用错模型发出（与 sessionModelLoading 同为加载态）。
+    sourceGateLoading ||
+    waitingForFolders ||
     // 空態:当前 agent 无已连接来源 → Send 禁用(设计 Q7NYAD「send 置灰」),引导用户先去连接来源。
     (!makeNeedsNoModel && !canAttemptBaselineRecovery && noConnectedSource) ||
     // 会话显式选中的来源已断开 → Send 禁用(trigger 同步显示「已断开」错误态说明原因)。

@@ -119,11 +119,17 @@ describe('CCAgentSessionView 接线不变式', () => {
     expect(chatInputSrc).toContain('const preserveSshCodexRoute = !!sessionId && !!sshCodexHostId &&');
     // 门禁谓词改名 sendAgentKind（Ruling 18：发送引擎随 sendRoute 走，远程时
     // sendRoute 恒 null = 原 currentModelAgentKind）；门禁结构与跳过条件不变。
+    // 2026-11-01 冷启动竞态修复：生效范围三条件收进 sourceGateActive（与旧内联写法
+    // 逐字同义），判据未就绪（providersLoading / routeLoading）时短路不判——加载窗口
+    // 内不得误弹「无来源」、不得静默用错模型发送；跳过条件本身不变。
     expect(chatInputSrc).toMatch(
       /const noConnectedSource =\s*enforceConnectedSourceGate &&\s*!!sendAgentKind/,
     );
     expect(chatInputSrc).toMatch(
-      /if\s*\(\s*enforceConnectedSourceGate\s*&&\s*!canAttemptBaselineRecovery\s*&&\s*sendAgentKind\s*&&[\s\S]*?\)\s*\{/,
+      /const sourceGateActive =\s*enforceConnectedSourceGate && !canAttemptBaselineRecovery && !!sendAgentKind;/,
+    );
+    expect(chatInputSrc).toMatch(
+      /if\s*\(\s*sourceGateActive\s*&&\s*!sourceGateLoading\s*&&[\s\S]*?\)\s*\{/,
     );
   });
   it('断线缓存的远程 session 可查看,但生命周期/元数据写操作必须走统一 gate', () => {

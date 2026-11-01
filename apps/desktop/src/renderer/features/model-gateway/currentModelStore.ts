@@ -95,17 +95,34 @@ export interface CurrentModelRoute {
   modelId: string;
 }
 
+/** 发送路径的当前路由及其解析状态（冷启动水合窗口与稳态必须可区分）。 */
+export interface CurrentModelRouteState {
+  /** 解析成功时的 (providerId, modelId)；无可用模型 / 尚未解析出时为 null。 */
+  route: CurrentModelRoute | null;
+  /**
+   * true = 条目表尚未 hydrate，当前模型还解析不出——这只是「还没读到」，**不是**
+   * 「没有模型」。发送路径在窗口内必须等待：不许回落默认模型、不许判「零来源」。
+   */
+  loading: boolean;
+}
+
 /**
  * 主聊天发送路径消费的当前路由。`currentId` 经 `useCurrentModel` 回落后恒指向
  * 存在且 enabled 的条目；这里把它解析成发送需要的 (providerId, modelId) 对。
- * 无可用模型时返回 null（发送回落调用方原有的默认链路）。
+ * 稳态无可用模型时 route 为 null（发送回落调用方原有的默认链路）；条目表尚未
+ * hydrate、解析不出时 route 为 null **且 loading 为 true**（回归：冷启动水合竞态——
+ * 空 entries 里 find 不到不能当「无模型」，否则 sendModel 落回内置默认模型）。
  */
-export function useCurrentModelRoute(): CurrentModelRoute | null {
+export function useCurrentModelRoute(): CurrentModelRouteState {
   const { currentId } = useCurrentModel();
-  const { entries } = useModelGateway();
+  const { entries, hydrated } = useModelGateway();
   return useMemo(() => {
-    if (currentId === null) return null;
-    const entry = entries.find((candidate) => candidate.id === currentId);
-    return entry ? { providerId: entry.id, modelId: entry.modelId } : null;
-  }, [currentId, entries]);
+    if (currentId !== null) {
+      const entry = entries.find((candidate) => candidate.id === currentId);
+      if (entry) return { route: { providerId: entry.id, modelId: entry.modelId }, loading: false };
+    }
+    // 解析不出：hydrated 前只是「还没读到」（stored id / 首个可用模型都还在路上），
+    // hydrated 后才是真空模型。
+    return { route: null, loading: !hydrated };
+  }, [currentId, entries, hydrated]);
 }

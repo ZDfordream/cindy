@@ -19,7 +19,6 @@ import {
   CURRENT_MODEL_STORAGE_KEY,
   useCurrentModel,
   useCurrentModelRoute,
-  type CurrentModelRoute,
 } from '../currentModelStore';
 import type { ModelGatewayApi } from '../types';
 
@@ -36,21 +35,22 @@ interface MakerMock {
 
 let maker: MakerMock;
 
-/** 探针：暴露发送路径读到的路由（useCurrentModelRoute）+ 当前模型 id + setCurrent。 */
+/** 探针：暴露发送路径读到的路由与加载态（useCurrentModelRoute）+ 当前模型 id + setCurrent。 */
 function renderRouteProbe() {
   let api: ModelGatewayApi | null = null;
   let setCurrent: ((id: string) => void) | null = null;
-  let route: CurrentModelRoute | null = null;
+  let routeState: ReturnType<typeof useCurrentModelRoute> | null = null;
   function Probe() {
     api = useModelGateway();
     const current = useCurrentModel();
     setCurrent = current.setCurrent;
-    route = useCurrentModelRoute();
+    routeState = useCurrentModelRoute();
     return (
       <div>
         <div data-testid="current-id">{current.currentId ?? 'null'}</div>
-        <div data-testid="route-provider">{route?.providerId ?? 'null'}</div>
-        <div data-testid="route-model">{route?.modelId ?? 'null'}</div>
+        <div data-testid="route-provider">{routeState.route?.providerId ?? 'null'}</div>
+        <div data-testid="route-model">{routeState.route?.modelId ?? 'null'}</div>
+        <div data-testid="route-loading">{routeState.loading ? 'true' : 'false'}</div>
       </div>
     );
   }
@@ -62,7 +62,8 @@ function renderRouteProbe() {
   return {
     getApi: () => api!,
     setCurrent: (id: string) => setCurrent!(id),
-    getRoute: () => route,
+    getRoute: () => routeState!.route,
+    getLoading: () => routeState!.loading,
     unmount: () => view.unmount(),
   };
 }
@@ -204,5 +205,38 @@ describe('currentModelStore send route', () => {
     // 落定后仍是用户选的那条（不是按 modelId 排序的第一个 enabled）。
     expect(screen.getByTestId('current-id').textContent).toBe('seed-b');
     expect(window.localStorage.getItem(CURRENT_MODEL_STORAGE_KEY)).toBe('seed-b');
+  });
+
+  // 回归钉（冷启动水合竞态，2026-11-01）：条目表未 hydrate、currentId 解析不出时，
+  // route 的 null 是「还没读到」不是「无模型」——必须显式 loading，发送路径才能在
+  // 窗口内等待，而不是把内置默认模型顶替用户配置的网关模型（chatInputModelLoading
+  // 的 test_send_during_cold_start_hydration… 即本合同的消费者）。
+  it('reports route loading instead of a misleading no-model null during the hydration window', async () => {
+    const deferred = <T,>(): { promise: Promise<T>; resolve: (value: T) => void } => {
+      let resolve!: (value: T) => void;
+      const promise = new Promise<T>((r) => {
+        resolve = r;
+      });
+      return { promise, resolve };
+    };
+    const firstLoad = deferred<{ providers: ProviderView[] }>();
+    maker.listProviders = vi.fn(() => firstLoad.promise);
+    const probe = renderRouteProbe();
+
+    // 用户此前已选中 seed-b（stored currentId 在场、条目表还在路上）。
+    await act(async () => {
+      probe.setCurrent('seed-b');
+    });
+    expect(probe.getRoute()).toBeNull();
+    expect(probe.getLoading()).toBe(true);
+    expect(screen.getByTestId('route-loading').textContent).toBe('true');
+
+    // 水合落定 → 路由解析出 (providerId, modelId)，加载态结束。
+    await act(async () => {
+      firstLoad.resolve({ providers: [gatewayProviderView('seed-a', 'a'), gatewayProviderView('seed-b', 'b')] });
+    });
+    expect(probe.getRoute()).toEqual({ providerId: 'seed-b', modelId: 'b' });
+    expect(probe.getLoading()).toBe(false);
+    expect(screen.getByTestId('route-loading').textContent).toBe('false');
   });
 });

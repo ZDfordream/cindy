@@ -28,6 +28,12 @@ const h = vi.hoisted(() => ({ t: (key: string) => key, confirm: vi.fn(), editor:
   remoteStatus: 'ready' as 'ready' | 'loading' | 'error',
   platform: 'darwin',
   processing: null as 'submitting' | 'refining' | null,
+  // useConnectedSource 的加载态（providersLoading 的本机分支）；冷启动窗口用例置 true。
+  connectedSourceLoading: false,
+  // 网关 store 水合入口（maker:listProviders）。默认即取 gatewayProviders；
+  // 冷启动用例换成手动结算的 deferred 拉宽「未 hydrated」窗口，不真实等待。
+  listGatewayProviders: (): Promise<{ providers: ProviderView[] }> =>
+    Promise.resolve({ providers: [] as ProviderView[] }),
 }));
 vi.mock('react-i18next', async (original) => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: h.t }) }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
@@ -73,7 +79,7 @@ vi.mock('@/voice-input/useVoiceInput', () => ({ useVoiceInput: (editor: Editor |
 } }));
 vi.mock('@/hooks/useProviders', () => ({ useProviders: () => ({ providers: h.localProviders, loading: false }) }));
 vi.mock('@/hooks/useDeviceProviders', () => ({ useDeviceProviders: () => ({ providers: [], loading: false, unsupported: false }) }));
-vi.mock('@/hooks/useConnectedSource', () => ({ useConnectedSource: () => ({ hasConnectedSource: true, loading: false }) }));
+vi.mock('@/hooks/useConnectedSource', () => ({ useConnectedSource: () => ({ hasConnectedSource: true, loading: h.connectedSourceLoading }) }));
 vi.mock('@/hooks/useAvailableAgents', () => ({ useAvailableAgents: () => ({ agents: [], loading: false }) }));
 vi.mock('@/hooks/useAgentCapabilities', async (original) => ({ ...await original<typeof import('@/hooks/useAgentCapabilities')>(), useAgentCapabilities: () => ({ capabilities: null, loading: false }) }));
 
@@ -90,7 +96,7 @@ const noOp = () => {};
 const api: typeof window.electronAPI = new Proxy({} as typeof window.electronAPI, { get: (_obj, key) => {
   if (key === 'setModel') return h.setModel;
   if (key === 'listSync') return () => ({ ghosts: [] });
-  if (key === 'listProviders') return () => Promise.resolve({ providers: h.gatewayProviders });
+  if (key === 'listProviders') return () => h.listGatewayProviders();
   if (key === 'getDataSnapshot') return () => { throw new Error('test bridge unavailable'); };
   if (key === 'setGlobalShortcut') return () => Promise.resolve({ ok: true });
   if (key === 'platform') return h.platform;
@@ -105,7 +111,7 @@ const attachments: ComponentProps<typeof ChatInput>['attachmentState'] = {
   pendingFileMentionsVersion: 0, consumePendingFileMentions: () => [],
   removeFile: noOp, updateFile: noOp, discardFiles: noOp, clearFiles: noOp, restoreFiles: (files) => [...files],
 };
-beforeEach(() => { h.platform = 'darwin'; h.listening = false; h.processing = null; h.stop.mockClear(); h.selectEffort = undefined; window.electronAPI = api; window.localStorage.removeItem('hrbuddy.currentModel'); vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
+beforeEach(() => { h.platform = 'darwin'; h.listening = false; h.processing = null; h.stop.mockClear(); h.selectEffort = undefined; h.connectedSourceLoading = false; h.listGatewayProviders = () => Promise.resolve({ providers: h.gatewayProviders }); window.electronAPI = api; window.localStorage.removeItem('hrbuddy.currentModel'); vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
 afterEach(() => { cleanup(); clearDraft('queue-shortcut'); clearPromptRecommendationSession('queue-shortcut'); h.remoteProviders = []; h.localProviders = []; h.gatewayProviders = []; h.remoteStatus = 'ready'; h.setModel.mockReset(); h.confirm.mockReset(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const props = {
@@ -461,9 +467,9 @@ function gatewayEntryProvider(modelId = 'gw-model-alpha', id = 'gw-entry'): Prov
 
 // 等全局当前模型生效（store hydrate + currentModelStore 回落选中）：模型菜单胶囊
 // 与 sendRoute 读同一份 (currentId, entries)，标签变成网关 modelId 即路由已就绪。
-async function waitForGatewayCurrentModel() {
+async function waitForGatewayCurrentModel(expected = 'gw-model-alpha') {
   await waitFor(() =>
-    expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe('gw-model-alpha'),
+    expect(screen.getByTestId('chat-model-trigger-label').textContent).toBe(expected),
   );
 }
 
@@ -919,4 +925,112 @@ it('keeps save/cancel when editing a queued companion message', async () => {
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'newChat.pendingQueue.editSaveAria' })); });
   expect(onSubmit).toHaveBeenCalledOnce();
   expect(onStartVoiceConversation).not.toHaveBeenCalled();
+});
+
+// ── 冷启动水合竞态回归（2026-11-01）──────────────────────────────────────────
+// 测试价值
+// - 生产入口与可观察结果：真实 ChatInput 发送链（editor + Send / Enter → dispatchSend
+//   → onSend 的 model / opts.providerId，以及 confirmDialog 是否弹 newChat.noProvider）。
+//   配置了网关模型的用户在冷启动水合窗口内点发送：不得弹「无来源」误导框、不得用内置
+//   默认模型顶替发出；水合落定后发送必须用网关模型（gpt-4o + 网关条目 providerId）。
+// - Bug／规则依据：冷启动竞态（见本组头注）——useCurrentModelRoute 在 store 未
+//   hydrated 时用空 entries 解析 currentId 得 null（sendModel 落回内置默认），叠加
+//   零来源门禁未排除加载态（providers:[] 被判「零已连接来源」）弹 newChat.noProvider。
+// - 现有覆盖缺口：本文件原有网关发送用例都等 hydrate 落定后才发送（稳态 happy
+//   path）；没有任何用例覆盖「水合窗口内点发送」，也没有用例钉稳态真零来源仍弹框。
+// - 最小失败输入：stored 当前模型指向网关条目 + listProviders 悬着 + providers 快照
+//   未就绪 → 点发送即复现（旧码 RED：弹框 / Send 未置灰）。
+// - tier：unit（jsdom，真实 store + 组件，deferred listProviders 不真实等待）。
+const coldStartProps = {
+  ...props,
+  // 草稿（无 sessionId）：本机 enforceConnectedSourceGate 生效，与「启动后新对话点发送」同形。
+  sessionId: undefined,
+  deviceLinkDeviceId: null,
+  vendorKey: 'cc' as const,
+  runtimeAgentKind: 'claude-code' as const,
+  hideRuntimeControls: false,
+  // 内置默认模型：旧码 route 解析不出时 sendModel 落回的就是它（发送即用错模型）。
+  initialModel: 'claude-opus-5',
+  initialProviderId: 'xd',
+};
+
+/** 手动结算的 listProviders：拉宽「网关 store 未 hydrated」的冷启动窗口，不真实等待。 */
+function deferredGatewayLoad() {
+  let resolve!: (value: { providers: ProviderView[] }) => void;
+  const promise = new Promise<{ providers: ProviderView[] }>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+it('test_send_during_cold_start_hydration_does_not_show_no_source_dialog', async () => {
+  const gw = gatewayEntryProvider('gpt-4o', 'gw-entry');
+  // ── 阶段 A：热身一轮水合，把全局当前模型持久化成网关条目（= 重启前用户的选择）。
+  h.gatewayProviders = [gw];
+  h.localProviders = [gw];
+  const warm = render(<ChatInput {...coldStartProps} onSend={vi.fn()} />);
+  await waitForGatewayCurrentModel('gpt-4o');
+  await act(async () => {});
+  warm.unmount();
+
+  // ── 阶段 B：冷启动窗口——网关 store 未 hydrated（listProviders 悬着）+ providers
+  // 快照未就绪。此时点发送不得弹「无来源」框，也不得把内置默认模型静默发出去。
+  const pending = deferredGatewayLoad();
+  h.listGatewayProviders = () => pending.promise;
+  h.connectedSourceLoading = true;
+  h.localProviders = [];
+  const onSend = vi.fn().mockResolvedValue(true);
+  render(<ChatInput {...coldStartProps} onSend={onSend} />);
+  await waitFor(() => expect(h.editor).not.toBeNull());
+  await act(async () => { h.editor!.commands.setContent('<p>Send during cold start</p>'); });
+  const send = screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement;
+  await act(async () => { fireEvent.click(send); });
+  // 间接派发路径（Enter）兜底：静默丢弃，绝不弹「去连接」误导框。
+  await act(async () => {
+    fireEvent.keyDown(h.editor!.view.dom, { key: 'Enter', code: 'Enter' });
+  });
+  // 冷启动窗口的两条红线：不弹「无来源」误导框、不把内置默认模型静默发出去。
+  expect(h.confirm).not.toHaveBeenCalled();
+  expect(onSend).not.toHaveBeenCalled();
+  // 加载窗口：Send 置灰等待（「零来源」只是「还没读到」，不是判定结论）。
+  expect(send.disabled).toBe(true);
+  // 草稿仍在输入框，等待窗口结束而不是被误判吞掉。
+  expect(h.editor!.getText()).toBe('Send during cold start');
+
+  // ── 阶段 C：水合落定 → 用配置的网关模型发送（不是内置默认 claude-opus-5）。
+  h.connectedSourceLoading = false;
+  h.localProviders = [gw];
+  await act(async () => { pending.resolve({ providers: h.gatewayProviders }); });
+  await waitForGatewayCurrentModel('gpt-4o');
+  await waitFor(() =>
+    expect((screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement).disabled).toBe(false),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'newChat.sendButton.send' }));
+  });
+  await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+  expect(onSend.mock.calls[0][0]).toBe('Send during cold start');
+  expect(onSend.mock.calls[0][1]).toBe('gpt-4o');
+  expect(onSend.mock.calls[0][6]).toEqual(expect.objectContaining({ providerId: 'gw-entry' }));
+  expect(h.confirm).not.toHaveBeenCalled();
+});
+
+// 对照钉：稳态（已 hydrated）下确实零来源时真门禁保留——仍弹「去连接」。别把门禁修没了：
+// 上一例是「加载态不判」，这一例是「就绪后照判」，两者合成完整门禁语义。
+it('still shows the no-source dialog when the steady state truly has zero connected sources', async () => {
+  h.gatewayProviders = [];
+  h.localProviders = [];
+  const onSend = vi.fn();
+  render(<ChatInput {...coldStartProps} onSend={onSend} />);
+  await waitFor(() => expect(h.editor).not.toBeNull());
+  await act(async () => { h.editor!.commands.setContent('<p>Steady state zero sources</p>'); });
+  // Send 已被 noConnectedSource 置灰；间接派发（Enter）走 handleSend 预检，数据就绪
+  // 时零来源必须弹真门禁。
+  await act(async () => {
+    fireEvent.keyDown(h.editor!.view.dom, { key: 'Enter', code: 'Enter' });
+  });
+  expect(h.confirm).toHaveBeenCalledTimes(1);
+  expect(h.confirm.mock.calls[0][0]).toMatchObject({
+    title: 'newChat.noProvider.title',
+    confirmText: 'newChat.noProvider.connect',
+  });
+  expect(onSend).not.toHaveBeenCalled();
 });
