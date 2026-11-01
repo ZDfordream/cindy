@@ -6,11 +6,32 @@
  * 持久，支撑「未过期凭证 → 静默重登 → 直接进首页」。登出/凭证失效由接线层调
  * `clearCookies()` 清 jar（设计：退出登录清钥匙串凭证、cookie、内存会话）。
  *
- * 重定向：**手动跟随**（bounded）。原因：Electron `Session.fetch` / `net.fetch` 的
- * `Response.url` 是官方文档明示「不正确」的字段，而 oaClient 的会话失效判据
- * （`finalUrl` 含 anonym.jsp / login_error）与锁定判据依赖最终 URL；手动跟随把
- * 每一跳的 URL 攒出来，`finalUrl` 精确，`location` 头也原样保留（oaClient 合同
- * 接受「不跟跳、暴露 3xx + location」的 transport，两种判据形态都覆盖）。
+ * 重定向：`redirect: 'follow'` + `session.webRequest.onBeforeRedirect` 重建跳转链。
+ * 不能用 `redirect: 'manual'` 手动跟随：Electron 42 的 `ses.fetch` / `net.fetch` 遇
+ * 3xx 在 manual（及 error）策略下**直接 throw**（实测「Redirect was cancelled」），
+ * 而登录 POST 必 302——手动跟随实现因此每登录必炸、被 oaClient 归为 network_error
+ * （真机验收 P0「网络异常」）。也不能拿 `Response.url` 当终点：官方文档明示该字段
+ * 「不正确」（实测为空串）；`Response.redirected` 同样不可靠（真机 42.11.12 实测
+ * 跟随后仍为 false），别拿它当「发生过跳转但没抓到 hop」的兜底判据。改为让 fetch
+ * 自动跟随，用 webRequest 观察每一跳 3xx，
+ * 重建 `finalUrl`（末跳落点）与 `headers.location`（末跳 3xx 的 Location 原值），
+ * `status`/`body` 取最终响应——oaClient 的 OaResponse 合同（isLoginErrorBounce /
+ * isAnonymBounce 对 location 与 finalUrl 的两套判据）原样成立。
+ *
+ * 跳转归属（webRequest 是 session 级**单监听** API，`ses.fetch` 又不暴露 request id）：
+ *   - 本 transport 把请求 **FIFO 串行**（promise 队列），每条请求在自己的窗口里
+ *     install / remove `onBeforeRedirect`，窗口绝不重叠、监听器用完即拆，不在共享
+ *     session 上留全局监听；
+ *   - 窗口内只收「从本请求 URL 链式串起来」的 hop（`details.url` 命中当前期望落点
+ *     才收，URL 两侧都过 WHATWG 归一），同 session 其它流量的 3xx 串不进来。
+ *   失效模式（不依赖调用方默默串行）：
+ *     (1) 并发调用被 FIFO 排队而非并行——若并行捕获，同 URL 并发请求会把成功/失败
+ *         弹回记反（把成功登录判成凭证错会误清钥匙串），比排队更糟；
+ *     (2) 一条卡死的 fetch（黑洞路由）会占住队列直到 Chromium 判死连接，后续 OA 请求
+ *         排队、在上层表现为 timeout——可接受：上层 10s 超时仍按时给用户回音，且
+ *         跳串归属的代价更大；上层超时放弃的请求仍会跑完自身链路（结果被丢弃）；
+ *     (3) 同窗口内若有其它代码经 persist:hr-oa 发**同 URL 链**的请求，其 hop 也可能
+ *         被收进本请求的链（该 session 专用于本 transport，实际不存在这种流量）。
  *
  * 口令边界：transport 不解析、不记录任何请求体/响应体；表单只经 URLSearchParams
  * 进 body，错误文本由上层 oaClient scrub。
@@ -40,13 +61,52 @@ export interface HrOaSessionTransport extends OaTransport {
   clearCookies(): Promise<void>;
 }
 
+/** 一跳 3xx：Location 原值（回填 headers.location）与解析后的落点（finalUrl / 链式关联）。 */
+interface RedirectHop {
+  location: string;
+  target: string;
+}
+
+function normalizeUrl(url: string): string {
+  try {
+    return new URL(url).href;
+  } catch {
+    return url;
+  }
+}
+
+function absoluteUrl(location: string, base: string): string {
+  try {
+    return new URL(location, base).href;
+  } catch {
+    return location;
+  }
+}
+
+/** 3xx 响应的 Location 原值（相对/绝对都照收），取不到时退回解析后的落点。 */
+function hopLocation(details: Electron.OnBeforeRedirectListenerDetails): string {
+  const headers = details.responseHeaders;
+  if (headers) {
+    for (const [key, values] of Object.entries(headers)) {
+      if (key.toLowerCase() === 'location' && values.length > 0) return values[0];
+    }
+  }
+  return details.redirectURL;
+}
+
 export function createHrOaSessionTransport(): HrOaSessionTransport {
   // 惰性取 session：模块可能在 app ready 前被 import，fromPartition 推迟到首发请求。
   function jar(): Electron.Session {
     return session.fromPartition(PARTITION);
   }
 
-  async function request(input: {
+  /**
+   * FIFO 串行闸：webRequest 单监听 + 按请求装拆监听器 ⇒ 监听窗口不得重叠。
+   * 单条请求失败不毒化队列（后继请求照跑）。
+   */
+  let queue: Promise<void> = Promise.resolve();
+
+  async function perform(input: {
     method: 'GET' | 'POST';
     path: string;
     params?: Record<string, string>;
@@ -54,40 +114,68 @@ export function createHrOaSessionTransport(): HrOaSessionTransport {
   }): Promise<OaResponse> {
     const target =
       input.path + (input.params ? `?${new URLSearchParams(input.params).toString()}` : '');
-    let method = input.method;
-    let body = input.form ? new URLSearchParams(input.form).toString() : undefined;
-    let currentUrl = target;
+    const body = input.form ? new URLSearchParams(input.form).toString() : undefined;
+    const ses = jar();
+    const hops: RedirectHop[] = [];
+    let expected = normalizeUrl(target);
 
-    for (let hop = 0; hop < MAX_REDIRECT_HOPS; hop += 1) {
-      const init: RequestInit & { redirect: 'manual' } = {
-        method,
-        redirect: 'manual',
-        headers: body !== undefined ? { 'content-type': 'application/x-www-form-urlencoded' } : undefined,
+    const onBeforeRedirect = (details: Electron.OnBeforeRedirectListenerDetails): void => {
+      // 链式归属：首跳命中本请求 URL、后继命中上一跳落点才收；无关流量直接丢。
+      if (normalizeUrl(details.url) !== expected) return;
+      const hopTarget = absoluteUrl(details.redirectURL, details.url);
+      hops.push({ location: hopLocation(details), target: hopTarget });
+      expected = hopTarget;
+    };
+    ses.webRequest.onBeforeRedirect(onBeforeRedirect);
+    let res: Response;
+    try {
+      res = await ses.fetch(target, {
+        method: input.method,
+        redirect: 'follow',
+        headers:
+          body !== undefined ? { 'content-type': 'application/x-www-form-urlencoded' } : undefined,
         body,
-      };
-      const res = await jar().fetch(currentUrl, init);
-      const headers: Record<string, string> = {};
-      res.headers.forEach((value, key) => {
-        headers[key.toLowerCase()] = value;
       });
-      const location = headers['location'];
-      if (res.status >= 300 && res.status < 400 && location) {
-        // 浏览器同款语义：301/302/303 跟随后转 GET；307/308 保持方法与体。
-        if (res.status !== 307 && res.status !== 308) {
-          method = 'GET';
-          body = undefined;
-        }
-        currentUrl = new URL(location, currentUrl).toString();
-        continue;
-      }
-      return {
-        status: res.status,
-        headers,
-        body: await res.text(),
-        finalUrl: currentUrl,
-      };
+    } finally {
+      // 用完即拆：webRequest 只有一个槽位，绝不在共享 session 上留全局监听器。
+      ses.webRequest.onBeforeRedirect(null);
     }
-    throw new Error(`OA request exceeded ${MAX_REDIRECT_HOPS} redirects`);
+
+    // 与旧手动循环同一条保护线：10 跳 3xx 就拒绝，不静默吞长链。
+    if (hops.length >= MAX_REDIRECT_HOPS) {
+      throw new Error(`OA request exceeded ${MAX_REDIRECT_HOPS} redirects`);
+    }
+
+    const headers: Record<string, string> = {};
+    res.headers.forEach((value, key) => {
+      headers[key.toLowerCase()] = value;
+    });
+    // OaResponse 合同：headers.location 只来自**末跳** 3xx（isLoginErrorBounce /
+    // isAnonymBounce 判据），无跳转时不带 location——与「不跟跳、暴露 3xx+location」
+    // 的 transport 形态对齐（那时 3xx 之外的响应同样没有 location 可看）。
+    const lastHop = hops.length > 0 ? hops[hops.length - 1] : undefined;
+    if (lastHop) headers.location = lastHop.location;
+    else delete headers.location;
+    return {
+      status: res.status,
+      headers,
+      body: await res.text(),
+      finalUrl: lastHop ? lastHop.target : target,
+    };
+  }
+
+  function request(input: {
+    method: 'GET' | 'POST';
+    path: string;
+    params?: Record<string, string>;
+    form?: Record<string, string>;
+  }): Promise<OaResponse> {
+    const run = queue.then(() => perform(input));
+    queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   return {

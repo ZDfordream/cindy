@@ -15,7 +15,9 @@
  *     会话未恢复——不新增失败种类）。
  *
  * 安全红线：口令明文只进 transport 的 j_password（且仅 SM2 降级那一次是明文），
- * 任何异常/日志文本经 scrub 后绝不含明文。
+ * 任何异常/日志文本经 scrub（日志行走 scrubForLog：口令 / 明文账号 / 带 query 的
+ * 完整接口地址 / 表单体一并抹掉）后绝不含明文；login() 把 transport 抛错归入
+ * outcome 时必须留下恰好一条脱敏 warn，失败不可再被静默吞掉。
  */
 
 import { createLogger } from '../logger.js';
@@ -84,6 +86,23 @@ class RequestTimeout extends Error {
 
 function scrub(text: string, secret: string | undefined): string {
   return secret ? String(text).split(secret).join('***') : String(text);
+}
+
+/**
+ * 日志/异常文本脱敏（凭证红线）：口令明文 → `***`、完整接口地址剥掉 query、登录表单
+ * 字段残值（j_username= / j_password= 连着的字段串）整段 → `***`。口令、明文账号、带
+ * query 的完整接口地址、表单体绝不进日志/埋点/崩溃上报；正文也从不整体落日志，本函数
+ * 只处理错误文本里可能粘上的零散残渣。
+ */
+function scrubForLog(text: string, secret: string | undefined): string {
+  const withoutSecret = scrub(text, secret);
+  // 完整接口地址（带 query）→ 只留 scheme://host/path。
+  const withoutQuery = withoutSecret.replace(
+    /\b([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s?#]*)\?[^#\s]*/g,
+    '$1',
+  );
+  // 登录表单字段串（含 j_username= / j_password= 的连续字段）整段抹掉，不留字段名。
+  return withoutQuery.replace(/(?:\b(?:j_username|j_password)=[^&\s]*&?)+/gi, '***');
 }
 
 function errorText(e: unknown): string {
@@ -191,7 +210,14 @@ export function createOaClient(opts: {
       return classifyLoginResponse(await postCredentials(username, jPassword));
     } catch (e) {
       // 公开入口不抛：失败一律归入 outcome（含加密失败这类意外 → network_error，保住凭证）。
-      return { ok: false, kind: failureKindOf(e) };
+      // 但原因必须留下**恰好一条**脱敏 warn：此前把 transport 抛错静默映射 network_error
+      // 零日志（真机 P0「Redirect was cancelled」因此无从排查）。文本经 scrubForLog——
+      // 口令、明文账号、带 query 的完整接口地址、表单体都不进日志。
+      const kind = failureKindOf(e);
+      log.warn(
+        `[hr-oa] login request failed (${kind}): ${scrubForLog(errorText(e), remembered?.password)}`,
+      );
+      return { ok: false, kind };
     }
   }
 
@@ -220,7 +246,7 @@ export function createOaClient(opts: {
       if (e instanceof OaLoginError) throw e;
       throw new OaLoginError(
         failureKindOf(e),
-        'failed to fetch person profile: ' + scrub(errorText(e), remembered?.password),
+        'failed to fetch person profile: ' + scrubForLog(errorText(e), remembered?.password),
       );
     }
     return parsePersonProfile(res.body);

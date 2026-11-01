@@ -4,18 +4,22 @@
  *   network_error / timeout）、SM2 成功路径 j_password 只带标记密文（从不发明文）、公钥取不到时
  *   恰好一次明文降级 + 一条不含口令的 warn；getPersonProfile() 的资料拉取与 anonym.jsp 会话失效
  *   恢复（自动重登重试一次，再失效抛会话语义错误）；所有抛错与日志文本不含口令明文。
+ *   transport 抛错映射 network_error 时必须留下**恰好一条脱敏 warn**（无口令、无明文账号、
+ *   无带 query 的完整接口地址）。
  * - Bug／规则依据：计划 Task 1 Step 5 场景矩阵；Ruling 6 锁定映射只在 login_error 弹回内判
  *   （成功判据优先，防 "display:block" 等子串把成功翻成 locked 误清凭证），判据 = location/query
  *   或 body 命中 /\block(ed)?\b/i（不发明其它锁定信号）；Ruling 2 公钥取不到只降级一次明文、
  *   不重试；Ruling 3/4 会话恢复失败复用 network_error（不新增失败种类）并在消息里注明会话未
  *   恢复；会话失效判据对 3xx+location 与跟随后 200+finalUrl 两种形态都认；Review Focus #4
- *   口令不进日志/异常。
- * - 现有覆盖缺口：新模块，此前没有门户登录序列、失败分流与会话恢复覆盖。
+ *   口令不进日志/异常；真机验收 P0 吞错修复——transport 抛错（redirect:'manual' 的
+ *   「Redirect was cancelled」）被静默映射 network_error、零日志，排查无从下手。
+ * - 现有覆盖缺口：新模块，此前没有门户登录序列、失败分流与会话恢复覆盖；network_error 映射
+ *   此前不落任何日志行，失败不可见。
  * - 最小失败输入：见表驱动场景（SM2 成功 / 凭证错 / 锁定×2 信号 / display:block 成功不误判锁 /
- *   网络错 / 超时 / 公钥取不到 / 会话失效×2（3xx+location 与跟随后 200+finalUrl 两形态）/
- *   资料拉取网络错）。
+ *   网络错（含脱敏 warn 合同）/ 超时 / 公钥取不到 / 会话失效×2（3xx+location 与跟随后
+ *   200+finalUrl 两形态）/ 资料拉取网络错）。
  * - tier：unit（transport 全注入 fake，无真实网络；超时用 5ms 短定时器，不做真实长等待）。
- * - 实测耗时：单文件 ~0.7s（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/oaClient.test.ts）。
+ * - 实测耗时：单文件 ~1.4s（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/oaClient.test.ts）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -159,14 +163,26 @@ describe('createOaClient().login', () => {
     await expect(client.login(USER, PASSWORD)).resolves.toEqual({ ok: true });
   });
 
-  it('transport rejection maps to network_error', async () => {
+  it('transport rejection maps to network_error and leaves exactly one scrubbed warn', async () => {
     const { transport } = makeTransport((input) => {
       if (isSessionJs(input)) return sessionJs();
-      throw new TypeError('fetch failed');
+      // 模拟把请求细节带进错误文本的传输层（真机 P0 的「Redirect was cancelled」被静默吞掉）。
+      throw new TypeError(
+        `fetch blew up on ${BASE}/j_acegi_security_check?j_password=${PASSWORD}&j_username=${USER}`,
+      );
     });
     const client = createOaClient({ baseUrl: BASE, transport });
 
     await expect(client.login(USER, PASSWORD)).resolves.toEqual({ ok: false, kind: 'network_error' });
+
+    // 吞错修复（真机 P0 排查受阻的 deferred minor）：失败必须留下恰好一条 warn，且
+    // 口令 / 明文账号 / 带 query 的完整接口地址都不进日志（凭证红线）。
+    expect(logWarn).toHaveBeenCalledTimes(1);
+    const line = logWarn.mock.calls.flat().map(String).join(' ');
+    expect(line.includes(PASSWORD)).toBe(false);
+    expect(line.includes(USER)).toBe(false);
+    expect(line.includes('j_password=')).toBe(false);
+    expect(line).toContain('network_error');
   });
 
   it('hung transport maps to timeout', async () => {
