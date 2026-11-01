@@ -1667,7 +1667,7 @@
       "agentIsland": "Agent Island",
       "import": "Session Import",
       "connections": "Third-Party Platforms",
-      "providers": "Providers",
+      "providers": "Models",
       "remoteControl": "Remote Connection",
       "tina": "Tina",
       "remote": "Remote machines",
@@ -1707,7 +1707,7 @@
       "compatMode": "Tips",
       "voiceInput": "Voice input",
       "import": "Session Import",
-      "providers": "Providers",
+      "providers": "Models",
       "remote": "Remote machines",
       "devices": "Device Link",
       "feishuBot": "FeiShu Bot",
@@ -3264,7 +3264,7 @@
         "catalog": "The model list could not be updated. Reload the models to try again.",
         "retry": "Reload Models"
       },
-      "title": "Providers",
+      "title": "Models",
       "subtitle": "The source used when picking a model. Each source offers its own models and billing, switchable per session.",
       "import": {
         "title": "Import provider",

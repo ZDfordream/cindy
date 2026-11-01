@@ -1638,7 +1638,7 @@
       "agentIsland": "Agent Island",
       "import": "セッションインポート",
       "connections": "サードパーティ連携",
-      "providers": "プロバイダー",
+      "providers": "モデル",
       "remoteControl": "リモート接続",
       "tina": "Tina",
       "remote": "リモートマシン",
@@ -1678,7 +1678,7 @@
       "compatMode": "ヒント",
       "voiceInput": "音声入力",
       "import": "セッションインポート",
-      "providers": "プロバイダー",
+      "providers": "モデル",
       "remote": "リモートマシン",
       "devices": "デバイス連携",
       "feishuBot": "Feishu ボット",
@@ -3235,7 +3235,7 @@
         "catalog": "モデル一覧を更新できません。モデルを再読み込みして再試行してください。",
         "retry": "モデルを再読み込み"
       },
-      "title": "モデルプロバイダー",
+      "title": "モデル",
       "subtitle": "モデルを選ぶときのソースです。各ソースは対応するモデルと課金方式を提供し、セッションごとに切り替えられます。",
       "import": {
         "title": "プロバイダーをインポート",

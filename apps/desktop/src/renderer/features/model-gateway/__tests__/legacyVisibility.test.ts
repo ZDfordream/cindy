@@ -31,8 +31,9 @@ describe('legacyVisibility — 旧多供应商 UI 单一恢复点', () => {
     // getter 必须与常量同源——若出现第二个开关，或 getter 里夹带别的条件，
     // 「改一处即整块恢复」不再成立，恢复会漏块或藏不干净。
     // 失效后果：恢复旧功能时要人肉找多个开关，违背单一恢复点裁决。
-    // 翻转到 true 后整块回归的生产证据见 providersSectionAssetModule.test.tsx
-    // 「flipping the single flag restores the legacy block」。
+    // 注：PRD 2026-11-01 平铺后 provider 轨整卡不再挂载（ProvidersSection
+    // `PROVIDER_TRACK_RENDERED`）——翻本 flag 不再有可见效果，恢复需先重新接线
+    // provider 轨；flag 本身仍是轨内旧详情块的单一可见性判据。
     expect(SHOW_LEGACY_PROVIDER_UI).toBe(false);
     expect(isLegacyProviderUiVisible()).toBe(SHOW_LEGACY_PROVIDER_UI);
   });

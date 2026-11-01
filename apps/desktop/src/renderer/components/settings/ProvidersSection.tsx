@@ -6,9 +6,16 @@ import { useCodexRateLimitReset } from '@/hooks/useCodexRateLimitReset';
 import { CodexResetCredits } from '../status/CodexResetCredits';
 import { providerWeeklyQuotaSource } from '../new-chat/useProviderWeeklyQuota';
 /**
- * ProvidersSection —— 设置 → 模型供应商页(2026-07 重构:双栏管理)。
+ * ProvidersSection —— 设置 → 「模型」页（PRD model-provider-settings 2026-11-01 整页平铺）。
  *
- * 布局:一张卡片内左右双栏 ——
+ * 页面构成（PRD）：页头标题「模型」+ 平铺模型列表（`ModelGatewayList`：「模型 (n)」
+ * 顶栏 + 右上「+ 添加模型」+ 列表/空态）。原「供应商列表 + 详情」大卡片整体移除：
+ * 左栏供应商列表、底部「＋ 添加模型」、页头描述句与「输入分享链接…」都不再挂载；
+ * provider 轨（含登录引导 / 分享详情 / 远程详情 / 旧详情）结构性隐藏在
+ * `PROVIDER_TRACK_RENDERED` 后，逻辑代码留原地（恢复需重新接线）。
+ * 另留：`?shareProvider=` 深链进入的「分享 {供应商}」管理子页（`shareManagePage`）。
+ *
+ * 原双栏布局（2026-07，仅存于未挂载的 provider 轨内）：
  *   - 左栏:可拖动排序的扁平供应商列表;除 Cindy AI 外,供应商只在
  *     「已连接 / 已添加」后出现;底部「＋ 添加供应商」打开三步向导。未连接的内置
  *     渠道不再常驻占行 —— 入口在向导目录里,另有「检测建议」组:本机装了
@@ -121,7 +128,8 @@ import { SortableList } from '@/components/sidebar/SortableList';
 import { ProviderShareEntryButton } from '@/features/provider-share/ProviderShareEntryButton';
 import { useLocalProviderGroupsState } from '@/features/provider-group/useLocalProviderGroups';
 import { ProviderShareManagePage } from '@/features/provider-share/ProviderShareManagePage';
-import { ProviderSharePasteButton } from '@/features/provider-share/ProviderSharePasteDialog';
+// ProviderSharePasteButton（「输入分享链接…」受邀贴链入口）已随 PRD 2026-11-01 平铺
+// 从页头移除；组件本体留在 provider-share（受邀入口另择安身处是挂账），不在此挂载。
 import { ModelGatewayList } from '@/features/model-gateway/ModelGatewayList';
 import { ModelGatewayForm } from '@/features/model-gateway/ModelGatewayForm';
 import { isLegacyProviderUiVisible } from '@/features/model-gateway/legacyVisibility';
@@ -2440,6 +2448,13 @@ function SuggestionRow({
 // Section
 // ---------------------------------------------------------------------------
 
+/**
+ * PRD 2026-11-01 整页平铺，provider 轨不再挂载；恢复需重新接线。
+ * 结构性隐藏（「藏」不删，口径同 SHOW_LEGACY_PROVIDER_UI）：false = 左栏供应商列表 +
+ * 右栏登录/分享/远程/旧详情整卡不渲染，页面只剩上方平铺模型列表。代码留原地。
+ */
+const PROVIDER_TRACK_RENDERED = false;
+
 export function ProvidersSection() {
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
@@ -3144,30 +3159,33 @@ export function ProvidersSection() {
     <ModelGatewayProvider>
     <div className="flex h-full min-h-0 flex-col gap-[14px]">
       {shareManagePage ?? (<>
-      <div className="flex shrink-0 items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
-          <h2
-            className="text-16 font-medium leading-[1.2]"
-            style={{ color: 'var(--settings-section-title)' }}
-          >
-            {t('settings.providers.title')}
-          </h2>
-          <p className="text-13 leading-[1.5]" style={{ color: 'var(--settings-section-desc)' }}>
-            {t('settings.providers.subtitle')}
-          </p>
-        </div>
-        {/* 收到别人的供应商分享链接时从这里输入(加入网页唤起 Cindy 失败时也指引到这里)。 */}
-        <ProviderSharePasteButton />
+      {/* PRD 2026-11-01 整页平铺：页头只留标题「模型」。描述句与右上「输入分享链接…」
+          （供应商分享的受邀贴链入口）随 provider 轨一并移除；受邀入口另择安身处是挂账。 */}
+      <h2
+        className="shrink-0 text-16 font-medium leading-[1.2]"
+        style={{ color: 'var(--settings-section-title)' }}
+      >
+        {t('settings.providers.title')}
+      </h2>
+
+      {catalogError && <LocalModelCatalogNotice failure={catalogError} onRetry={refetch} />}
+
+      {/* 平铺模型列表（PRD 2026-11-01）：本页唯一主体，「模型 (n)」+ 「+ 添加模型」
+          都在 ModelGatewayList 顶栏。高度吃掉父容器剩余空间（不按视口猜），列表内部
+          滚动贴窗口底（SettingsView 对 providers 分区是 overflow-hidden 一档）。 */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <ModelGatewayList
+          onAdd={() => setGatewayOpen(true)}
+          onEdit={(entry) => setGatewayEdit(entry)}
+        />
       </div>
 
-      {/* 先取数据再渲染卡片(规则 7:首帧即终态高度,不出现连接态翻转的跳变帧)。
-          高度**吃掉父容器的剩余空间**,不按视口算:写死 560px 会在大窗口下截断列表,
-          而 calc(100vh-14rem) 是在猜「标题栏 + 设置页 chrome + section 标题」有多高 ——
-          猜多了下方空一条(叠上外层 pb-32 就是那 128px),猜少了则溢出。设置页右栏本身
-          已是 h-full min-h-0 的 flex 列(providers 与 import / ghosts 同属内部滚动一档),
-          所以这里 flex-1 就是真实可用高度。min-h-0 允许小窗口收缩,左右栏各自内部滚动。 */}
-      {catalogError && <LocalModelCatalogNotice failure={catalogError} onRetry={refetch} />}
-      {!loading && (
+      {/* PRD 2026-11-01 整页平铺，provider 轨不再挂载；恢复需重新接线。
+          整卡（左栏供应商列表 + 右栏登录/分享/远程/旧详情）结构性隐藏，「藏」口径与
+          SHOW_LEGACY_PROVIDER_UI 一致：share / remote / signin / 旧详情等生产代码留
+          原地不删，只是不渲染。这不是第二个恢复开关——恢复要把挂点接回布局，不是翻
+          布尔（模型列表已移到上方平铺主体，接回时需决定它的挂点）。 */}
+      {PROVIDER_TRACK_RENDERED && (
         <div
           className="flex min-h-0 flex-1 overflow-hidden rounded-xl border"
           style={{
@@ -3298,14 +3316,7 @@ export function ProvidersSection() {
             }
             className="flex min-h-0 min-w-0 flex-1 flex-col"
           >
-
-            {/* 新表单模型列表：右栏顶部常驻（含登录引导面），旧详情块原样保留在下方。 */}
-            <div className="shrink-0 px-5 pt-4">
-              <ModelGatewayList
-                onAdd={() => setGatewayOpen(true)}
-                onEdit={(entry) => setGatewayEdit(entry)}
-              />
-            </div>
+            {/* 模型列表已移到平铺主体（PRD 2026-11-01）；provider 轨恢复接线时再定它的挂点。 */}
 
             {selectedShare ? (
               <ProviderShareReceivedDetail share={selectedShare} />

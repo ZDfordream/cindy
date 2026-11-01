@@ -235,6 +235,14 @@ i18n 五语 locale、以及配套测试期望。
 - **视觉偏离登记（2026-11-01 PRD 版式，模型设置面）统一见 §9.4**：列表卡 16 /
   弹窗 22·14 / primary 深色填充等，覆盖旧「10px 圆角 / 遮罩可关」条目；本分节与
   需求 6 的弹窗 + 列表几何一律以 §9.4 表为准。
+- **页面构成按 PRD 2026-11-01 平铺化（provider 轨/分享入口移除，代码保留）**：
+  设置「模型」页只剩页头标题 + 平铺模型列表（`ModelGatewayList` 顶栏「模型 (n)」+
+  「+ 添加模型」）；内容区左列供应商列表与其底部「+ 添加模型」、页头描述句、
+  右上「输入分享链接…」均不再挂载。provider 轨（左栏 + 登录/分享/远程/旧详情整卡）
+  结构性隐藏在 `PROVIDER_TRACK_RENDERED` 后（**藏不删**，口径同 `SHOW_LEGACY_PROVIDER_UI`；
+  恢复需重新接线，不是翻布尔）。导航「模型供应商」→「模型」（tab id 与
+  `#/settings?tab=providers` 深链不变）；孤儿 i18n key（`settings.providers.subtitle` /
+  `addProvider` 等）不删，留给收口扫。
 
 ⚠️ **已知限制（2026-10-31 模型网关 v1 取代本条入口后带入，Ruling 21）**：多窗口同时编辑模型条目时，启停/连通状态元数据与 `~/.hrbuddy/models.json` 镜像按整份快照 last-writer-wins 互相覆盖、全局当前模型各窗口各持一份（重开开关/重测/重选即可恢复，凭证与配置本体不丢）；多实例同步挂跟进，本轮不做。
 
@@ -284,6 +292,8 @@ Anthropic 兼容端点，需换成它的 OpenAI 兼容端点才能继续用。
 
 - i18n 五语新增 `settings.providers.modelDialog.*`（19 key × 5 语）
 - 测试 6 个文件 / 234 用例通过；design-inventory 与颜色门禁全绿
+- **页面构成按 PRD 2026-11-01 平铺化（provider 轨/分享入口移除，代码保留）**——见
+  §8.3 同名条目（本节的弹窗 + 列表是平铺页仅存的交互面；弹窗化设置不受影响）
 
 **同步提示**：`AddGatewayDialog` 已删，上游若扩展它的能力不要恢复；`AddModelDialog` 的
 OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新增协议分支而不是回退需求 4。
@@ -350,7 +360,7 @@ OpenAI-only 约束来自需求 6，若日后要支持 Anthropic 网关，需新�
 ### 10.2 挂账跟进（合并前已分流：以下为 defer 项，按需立项）
 
 - **错误路径加固**：`ModelGatewayStore` load 失败会 brick（loadRef 永久 rejected）；列表行 retest/delete/toggle 无 catch，keychain IPC 失败成 unhandled rejection → 统一补 `.catch` + 失败可重试。
-- **搜索索引一行收口**：`ProvidersSection.settings-search.ts` 的 `addProvider` title 仍为「添加供应商」，与按钮新文案「添加模型」漂移（最终 fix wave 的 F2 只授权改按钮）。
+- **搜索索引一行收口**：`ProvidersSection.settings-search.ts` 的 `addProvider` title 仍为「添加供应商」，与按钮新文案「添加模型」漂移（最终 fix wave 的 F2 只授权改按钮）。PRD 2026-11-01 平铺后该按钮连同左栏一并移除，此条目成孤儿锚点（点击经 fallbackTargetId 仍落到本页）——收口时随孤儿 key 一并处置。
 - **chatInputModelLoading.test.tsx 8 条 Task 6 遗留失败**：仍断言已下线的 ModelSelector/空槽，需按 ChatModelMenu 重写后清零（改前改后同名单，与本轮 fix 无关）。
 - **a11y**：ChatModelMenu 无 disabled/in-flight 态、面板打开不移焦点、roving focus 缺失。
 - **可观测性**：`toMirrorRow` 静默丢行不留 warn；`mirrorRowFromEntry` 类型与 main 侧重复可挪 shared/；`status.detail` 落盘已过脱敏+512 截断，将来透传响应体时再加清洗。
@@ -386,4 +396,7 @@ PRD `/Users/zhudong/hrworkspace/hrbuddy_prd/design/model-provider-settings.html`
 - **store 层 URL 校验纵深**：R27/28 的 userinfo/解析闸现在只在 Form；`add`/`update` 是公开 API，后来者绕过 Form 仍可写坏 baseUrl 进镜像——建议把校验收进 store。
 - **小扫尾打包**：状态文字 `truncate`+title（ja/ko 长文案换行）、标题计数 `hydrated` 前闪 (0)、存量 16 个零引用 `modelDialog.*` 孤儿 key、store `done` 直调双保险钉。
 - **保存在途 Esc 口径**：「任何状态可关」= 非保存在途（busyRef 门闩有意），已写 Form 头注。
+- **受邀者贴分享链接入口需另择安身处（如远程与分享页）**：PRD 平铺移除页头
+  「输入分享链接…」后，受邀贴链入口暂无挂载点（`ProviderSharePasteButton` 组件本体
+  留在 provider-share 未删）。
 - （存量，见条目 16 附记）姊妹 worker 配置 `process.env` 内联 `{}` bug。

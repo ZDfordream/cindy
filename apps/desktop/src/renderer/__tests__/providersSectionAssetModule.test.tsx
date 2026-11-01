@@ -25,10 +25,18 @@
  * | 凭据同步失败:故障说明 + 重试,且不显示「已连接」 | 裁剪 | 故障条与「···」菜单都在隐藏区 |
  * | 凭据管理三项与脱敏 key 都在「···」菜单里 | 裁剪 | 「···」菜单在隐藏的身份行内 |
  *
+ * 【PRD 2026-11-01 整页平铺】设置页只剩标题 + 平铺模型列表，provider 轨（左栏供应商
+ * 列表 + 右栏登录/分享/远程/旧详情整卡）结构性隐藏、不再挂载（ProvidersSection 的
+ * `PROVIDER_TRACK_RENDERED`）。据此再处置：
+ *
+ * | 原用例 | 处置 | 依据 |
+ * | --- | --- | --- |
+ * | hides the legacy identity and asset block by default | 改写 | 断言面换成平铺页构成：设置页无资产模块/身份行渲染入口，模型列表在 |
+ * | flipping the single flag restores the legacy block | 裁剪 | 整卡已不挂载，翻 `SHOW_LEGACY_PROVIDER_UI` 不再有可观察效果；owner 注释口径「恢复需重新接线」（非翻开关）。模块契约仍由 legacyVisibility.test.ts 钉住 |
+ *
  * 保留：顶部 `ProviderAccountUsageModule` 直连用例（PR #7031 dashboard URL 契约）
  * 不经过 ProvidersSection、不受可见性开关影响，是资产模块组件自身的对外契约，
- * 恢复开关后仍需成立，故留（逐条判定，非一刀切）。新增两例验生产可达的可见性
- * 契约本身：默认藏、单开关整块回。
+ * provider 轨恢复后仍需成立，故留（逐条判定，非一刀切）。
  */
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -301,33 +309,32 @@ it.each(['ready', 'unavailable'])('uses the queried dashboard in the settings ca
   expect(window.electronAPI.openExternal).toHaveBeenCalledExactlyOnceWith(dashboardUrl);
 });
 
-// 原「ProvidersSection — Cindy AI 账户资产模块」describe 的逐条处置见文件头登记表；
-// 下面两例是 Task 7 后该文件在生产可达面的职责：默认藏、单开关整块回。
-describe('ProvidersSection — 旧详情块可见性（单一恢复点）', () => {
-  it('hides the legacy identity and asset block by default', async () => {
+// 原「ProvidersSection — Cindy AI 账户资产模块」describe 的逐条处置见文件头登记表。
+describe('ProvidersSection — 旧详情块可见性', () => {
+  // 测试价值
+  // - 生产入口与可观察结果：真实 ProvidersSection 渲染（设置「模型」页）；用户可观察 =
+  //   页面上没有任何旧详情面（身份行 / 账户资产模块 / 详情滚动区），只有平铺模型列表
+  //   （「模型」顶栏 + 「添加模型」入口）。
+  // - Bug／规则依据：PRD model-provider-settings 2026-11-01「供应商列表 + 详情大卡片
+  //   整体移除，改为平铺的模型列表」；owner 2026-11-01 裁决 provider 轨结构性隐藏。
+  // - 现有覆盖缺口：旧「默认藏」用例还断言左栏行仍在；平铺后左栏整列消失，需要按新
+  //   构成钉住「资产模块在设置页无渲染入口」。
+  // - 最小失败输入：挂载设置「模型」页，若资产模块/身份行又出现在页面上即失败。
+  // - tier：unit（jsdom 渲染生产组件；IPC 打桩）。
+  it('hides the legacy identity and asset block on the flat model page', async () => {
     legacyFlag.visible = false;
     renderSection();
 
-    // 左栏的 Cindy AI 行还在（列表在左栏，不属于被收的旧详情块）。
-    await screen.findAllByText('settings.providers.xd.title');
-    // 右栏只剩模型网关列表：身份行、账户资产模块都不渲染。
-    expect(screen.queryByTestId('provider-detail-identity')).toBeNull();
-    expect(screen.queryByTestId('cindy-ai-asset-module')).toBeNull();
-    expect(screen.queryByTestId('provider-detail-scroll')).toBeNull();
-    expect(screen.getByText('settings.providers.modelGateway.title')).toBeTruthy();
-    // F2 起左栏「添加」按钮与列表「添加模型」同文案（同一 ModelGatewayForm 入口），
-    // getByText 会命中多处，按至少一处收口。
+    // 平铺页构成：标题 + 模型列表顶栏（含「添加模型」入口）。
+    await screen.findByText('settings.providers.modelGateway.title');
     expect(
       screen.getAllByText('settings.providers.modelGateway.add').length,
     ).toBeGreaterThanOrEqual(1);
-  });
-
-  it('flipping the single flag restores the legacy block', async () => {
-    // 翻转唯一恢复点 → 整块回归（身份行 + 账户资产模块）。
-    legacyFlag.visible = true;
-    renderSection();
-
-    await screen.findByTestId('provider-detail-identity');
-    await screen.findByTestId('cindy-ai-asset-module');
+    // 旧详情面（身份行 / 账户资产 / 详情滚动区）无渲染入口；左栏供应商行（Cindy AI）
+    // 随 provider 轨一并消失——页面只剩模型列表。
+    expect(screen.queryByTestId('provider-detail-identity')).toBeNull();
+    expect(screen.queryByTestId('cindy-ai-asset-module')).toBeNull();
+    expect(screen.queryByTestId('provider-detail-scroll')).toBeNull();
+    expect(screen.queryByText('settings.providers.xd.title')).toBeNull();
   });
 });

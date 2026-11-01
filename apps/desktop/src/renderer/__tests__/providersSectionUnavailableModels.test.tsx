@@ -1,19 +1,30 @@
 // @vitest-environment jsdom
 
 /**
- * ProvidersSection(双栏重构)关键不变量:
- *   1. 首个可见供应商默认选中;未连接的内置渠道不再常驻占行。
- *   2. 左栏可见项顺序持久化（首记录、方向键排序、权威快照去乐观、换 owner 重记）。
+ * ProvidersSection — 设置「模型」页构成（PRD model-provider-settings 2026-11-01 平铺）:
+ *   1. 页面只有平铺模型列表：标题 + 「模型 (n)」顶栏 + 「添加模型」入口 + 列表/空态；
+ *      无 provider 行、无「输入分享链接…」、无页头描述句。
+ *   2. 模型行 / 添加 / 编辑 / 删除 / 开关行为经本页入口保持可观察。
+ *   3. 目录拉取失败的恢复条（quota 等）照旧可重试；进入页面的自动刷新调度照旧。
  *
- * 【Task 7 处置】旧多供应商详情块（含 UnifiedModelList 的模型开关与「获取模型列表」
- * 刷新入口）已整体藏进 SHOW_LEGACY_PROVIDER_UI（owner「藏起来以后再说」）。原双栏
- * 管理用例里断言该块的（语音/模型清单/刷新/可见性开关等）按工程约定 §3.2 裁剪，
- * 逐条依据见各处就地注释；完整断言见 git history，恢复开关即可找回。
- * 【Ruling 19】本机 CLI 建议行（打开旧完整表单 ProviderConnectionDialog 的活口）同收
- * 该开关：默认不渲染；翻 flag 后入口与表单一并回来（见文末两例）。
+ * 【Task 7 处置】旧多供应商详情块已整体藏进 SHOW_LEGACY_PROVIDER_UI；断言该块的
+ * 语音/模型清单/刷新/可见性开关等用例已裁剪（git history 可找回）。
+ *
+ * 【PRD 2026-11-01 整页平铺处置】provider 轨结构性隐藏、不再挂载（ProvidersSection
+ * `PROVIDER_TRACK_RENDERED`）。凡断言 provider 轨可见性的用例逐条处置：
+ *
+ * | 原用例 | 处置 | 依据 |
+ * | --- | --- | --- |
+ * | 首个可见供应商默认选中;未连接内置渠道不占行;旧详情块默认隐藏 | 改写 | 选中/占行在左栏（轨内）；保留自动刷新调度 + 「无 provider 行」 |
+ * | hides the local-CLI suggestion row (and the legacy form entry) by default | 改写 | 建议行在左栏（轨内）；保留「旧表单无活口」（无建议行、无表单弹层） |
+ * | flipping the single flag restores the suggestion row and the legacy form together | 裁剪 | 整卡不挂载，翻 flag 无可见效果；恢复需重新接线（owner 注释口径） |
+ * | 首次记录可见项，并用方向键提交新的可见顺序 | 裁剪 | 拖拽/方向键排序在左栏行（轨内）；挂载首记录 IPC 仍留组件内（仅簿记，无可见面） |
+ * | 已有顺序快照挂载时不自动回写 | 裁剪 | 同上（排序可见面在轨内） |
+ * | 写入结束后的同目录权威快照会结束乐观排序 | 裁剪 | 同上 |
+ * | 切换数据 owner 后会按新 owner 重新记录可见项 | 裁剪 | 同上 |
  */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,7 +39,6 @@ const {
   confirmSpy,
   authState,
   providerSnapshotState,
-  wizardSpy,
 } = vi.hoisted(() => ({
   refreshBuiltinModelsSpy: vi.fn(async () => ({ ok: true, providerId: 'xd' as const })),
   requestAutoRefreshSpy: vi.fn(async () => ({ ok: true as const })),
@@ -46,7 +56,6 @@ const {
     loading: false,
     error: null as { reason: 'storage-quota' } | null,
   },
-  wizardSpy: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -167,14 +176,16 @@ vi.mock('@/components/ui/confirm-dialog-provider', () => ({
 }));
 
 vi.mock('@/lib/toast', () => ({
-  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn(), dismiss: vi.fn(), dismissAll: vi.fn() },
 }));
 
 vi.mock('@/lib/customProviders', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/customProviders')>(),
-  deleteCustomProvider: vi.fn(),
+  createCustomProvider: vi.fn(async () => ({ ok: true })),
+  // store 的 remove 卸载 flush 会对 delete/update 结果链 .catch——桩必须返回 Promise。
+  deleteCustomProvider: vi.fn(async () => ({ ok: true })),
   readCustomProviderKey: vi.fn(async () => null),
-  updateCustomProvider: vi.fn(),
+  updateCustomProvider: vi.fn(async () => ({ ok: true })),
 }));
 
 vi.mock('@/lib/providerModels', () => ({
@@ -197,8 +208,19 @@ vi.mock('@/components/settings/ProviderConnectionDialog', () => ({
   ProviderConnectionDialog: () => React.createElement('div', { 'data-testid': 'custom-provider-dialog-stub' }),
 }));
 
-// 可控的单一恢复点替身（Ruling 19）：建议行/旧表单入口与右栏旧详情块同读
-// isLegacyProviderUiVisible()；翻转它验证「入口与表单一并回来」。
+// 「添加 / 编辑模型」弹窗（ModelGatewayForm）：常驻挂载、open 显隐；桩只在打开时渲染。
+const gatewayFormSpy = vi.hoisted(() => vi.fn());
+vi.mock('@/features/model-gateway/ModelGatewayForm', () => ({
+  ModelGatewayForm: (props: { open?: boolean; mode?: string; initial?: { modelId?: string } }) => {
+    if (!props.open) return null;
+    gatewayFormSpy(props);
+    return React.createElement('div', { 'data-testid': 'gateway-form-stub' });
+  },
+}));
+
+// legacyVisibility 替身：provider 轨不挂载后它对本页渲染不再有可见效果（恢复需重新
+// 接线）；模块契约（单一恢复点）由 legacyVisibility.test.ts 钉住，这里保留替身以免
+// 测试意外依赖真实常量。
 const legacyFlag = vi.hoisted(() => ({ visible: false }));
 vi.mock('@/features/model-gateway/legacyVisibility', () => ({
   SHOW_LEGACY_PROVIDER_UI: false,
@@ -214,6 +236,34 @@ import { ProvidersSection } from '@/components/settings/ProvidersSection';
 type ScanResult = { detections: unknown[] };
 let scanResult: ScanResult;
 
+/** ModelGatewayStore 的条目清单（挂载即读 listProviders）；测试经它灌网关条目。 */
+let gatewayRows: unknown[];
+
+/** 灌一条网关条目（custom provider + `catalogPresetId: 'hrbuddy-gateway'` 标记）。 */
+function seedGatewayRow(modelId: string) {
+  gatewayRows.push({
+    id: `gw-${modelId}`,
+    name: modelId,
+    source: 'user',
+    agents: ['claude-code'],
+    auth: { method: 'apiKey' },
+    routing: {},
+    models: {
+      'claude-code': [
+        {
+          id: modelId,
+          name: modelId,
+          catalogPresetId: 'hrbuddy-gateway',
+          contextWindow: 200_000,
+          efforts: [],
+          defaultEffort: null,
+        },
+      ],
+    },
+    connected: true,
+  });
+}
+
 beforeEach(() => {
   legacyFlag.visible = false;
   authState.dataOwnerId = 'owner-1';
@@ -226,6 +276,8 @@ beforeEach(() => {
   providerSnapshotState.error = null;
   providerSnapshotState.order = ['anthropic', 'xd', 'custom'];
   scanResult = { detections: [] };
+  gatewayRows = [];
+  gatewayFormSpy.mockReset();
   confirmSpy.mockReset().mockResolvedValue(false);
   vi.mocked(updateCustomProvider).mockResolvedValue({ ok: true });
   (window as unknown as { electronAPI: unknown }).electronAPI = {
@@ -235,9 +287,11 @@ beforeEach(() => {
       requestProviderModelsAutoRefresh: requestAutoRefreshSpy,
       setProviderOrder: setProviderOrderSpy,
       onProviderOAuthProgress: vi.fn(() => () => {}),
-      // ModelGatewayProvider(右栏模型列表)挂载即读条目清单。
-      listProviders: vi.fn(async () => ({ providers: [] })),
+      // ModelGatewayProvider（平铺模型列表）挂载即读条目清单。
+      listProviders: vi.fn(async () => ({ providers: gatewayRows })),
+      exportHrbuddyModels: vi.fn(async () => undefined),
     },
+    safeStorageRead: vi.fn(async () => 'sk-test'),
   };
 });
 
@@ -246,15 +300,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('ProvidersSection — 双栏管理', () => {
-  // （原 miniMaxConfig / selectSpeechProvider 语音夹具随下方用例一并裁剪；git history 可找回。）
-  // 以下语音/模型清单用例（manual refresh handles %s speech / Server-only speech /
-  // respects current Registry audio / unconfirmed proxy-oauth-disabled-route /
-  // moves manual speech additions / empty speech connection suspend-resume /
-  // does not supplement a reference across runtimes / speech out of native subscription /
-  // discovery fails HTTP %s / confirms speech refresh Host changes）——裁剪：断言经
-  // 隐藏的 UnifiedModelList（含「获取模型列表」刷新入口）触发，默认生产面不可达
-  // （工程约定 §3.2「测试须验生产可达行为」）。完整断言见 git history。
+describe('ProvidersSection — 「模型」页构成', () => {
+  // （原 miniMaxConfig / selectSpeechProvider 语音夹具随语音用例一并裁剪；git history 可找回。）
+  // 语音/模型清单用例（manual refresh handles %s speech 等）——裁剪：断言经隐藏的
+  // UnifiedModelList（含「获取模型列表」刷新入口）触发，默认生产面不可达（§3.2）。
   it('keeps a recovery action accessible when the first complete catalog could not be published', async () => {
     providerSnapshotState.loading = true;
     providerSnapshotState.error = { reason: 'storage-quota' };
@@ -265,37 +314,88 @@ describe('ProvidersSection — 双栏管理', () => {
       fireEvent.click(screen.getByRole('button', { name: 'settings.providers.catalogRecovery.retry' }));
     });
     expect(refetchProvidersSpy).toHaveBeenCalledOnce();
-    expect(screen.queryByRole('switch', { name: 'Custom model' })).toBeNull();
   });
 
-  // 「%s can refresh models using its saved %s connection / dims GPT Image 2 without
-  // a ready image channel / keeps selections but blocks toggles when a connected
-  // source becomes unavailable」——裁剪：模型刷新与可见性开关在隐藏的
-  // UnifiedModelList 里，默认面不可达（§3.2）；完整断言见 git history。
-  // Task 7 改写：详情头折行布局与「零模型仍可手动刷新」都在隐藏的旧详情块里（§3.2 裁去，
-  // 见 git history）。生产可达部分保留：自动刷新调度、左栏品牌行、未连接内置渠道不占行。
-  it('首个可见供应商默认选中;未连接内置渠道不占行;旧详情块默认隐藏', async () => {
-    // ProvidersSection 内部消费 useSearchParams(深链定位),测试需要 Router 上下文。
-    render(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
-    expect(requestAutoRefreshSpy).toHaveBeenCalledWith('providers-open');
+  // 测试价值
+  // - 生产入口与可观察结果：真实 ProvidersSection 渲染；用户在设置「模型」页可观察到
+  //   标题、平铺模型列表顶栏（「模型 (n)」+ 「添加模型」）与列表/空态；**不**能观察到
+  //   provider 行、页头描述句、「输入分享链接…」贴链入口。
+  // - Bug／规则依据：PRD model-provider-settings 2026-11-01「原『供应商列表 + 详情』
+  //   大卡片整体移除，改为平铺的模型列表」（owner 对照截图裁决的结构差异）。
+  // - 现有覆盖缺口：providersSection* 旧用例都以左栏存在为前提，没有一条钉住平铺构成。
+  // - 最小失败输入：挂载本页；provider 轨任一面（左栏行 / 描述句 / 贴链按钮）复活即失败。
+  // - tier：unit（jsdom 渲染生产组件；IPC 打桩）。
+  it('页面只有平铺模型列表：无 provider 行、无贴链入口、无描述句', async () => {
+    seedGatewayRow('gw-model-alpha'); // 网关条目对照面（useProviders 目录另有普通 Anthropic）
+    render(<MemoryRouter><ProvidersSection /></MemoryRouter>);
 
-    // 左栏保留品牌翻译。
+    // 标题与模型列表顶栏（「模型 (n)」+「添加模型」）在。
+    await screen.findByText('settings.providers.title');
+    expect(screen.getByText('settings.providers.modelGateway.title')).toBeTruthy();
     expect(
-      (await screen.findAllByText('settings.providers.xd.title')).length,
+      screen.getAllByText('settings.providers.modelGateway.add').length,
     ).toBeGreaterThanOrEqual(1);
-    // 未连接的 Anthropic 不出现在左栏(无检测建议时整页不出现)。
-    expect(screen.queryByText('Anthropic')).toBeNull();
-    // 旧详情块（身份头 + 模型工具行/刷新入口）默认不渲染。
-    expect(screen.queryByTestId('provider-detail-identity')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'settings.providers.models.refreshBuiltinAria' })).toBeNull();
+    // 网关条目以模型行出现。
+    const rows = await screen.findAllByTestId('model-gateway-row');
+    expect(rows[0].textContent).toContain('gw-model-alpha');
+    // 页面没有：页头描述句、「输入分享链接…」贴链入口、任何 provider 行。
+    expect(screen.queryByText('settings.providers.subtitle')).toBeNull();
+    expect(screen.queryByText('providerShare.received.enterLink')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Anthropic/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /gw-model-alpha/ })).toBeNull();
   });
 
-  // 「同一事件循环内连续点击刷新只启动一个请求 / 内置刷新失败按错误码区分文案」——
-  // 裁剪：「获取模型列表」刷新入口在隐藏的 UnifiedModelList 里，默认面不可达（§3.2）。
-  // Ruling 19：旧表单藏了不能留活口——建议行（及其打开的 ProviderConnectionDialog，
-  // 含供应商预设/多协议/「获取模型列表」）与右栏旧详情块同收 SHOW_LEGACY_PROVIDER_UI。
-  it('hides the local-CLI suggestion row (and the legacy form entry) by default', async () => {
-    legacyFlag.visible = false;
+  // 测试价值
+  // - 生产入口与可观察结果：真实 ProvidersSection + ModelGatewayList 入口；用户可观察 =
+  //   「添加模型」打开添加弹窗、行「编辑」打开同一弹窗回填、行开关只翻启用、删除即
+  //   从列表消失（撤销窗口契约见 model-gateway 套件）。
+  // - Bug／规则依据：PRD 2026-11-01 平铺页的全部交互面就是这张列表（行/添加/编辑/
+  //   删除/开关）；provider 轨下线后本页入口只剩它，行为退化=用户完全没法改模型。
+  // - 现有覆盖缺口：providersSection* 旧用例从不经过本页入口验这五个行为
+  //   （model-gateway 套件测的是组件直挂，不是设置页入口）。
+  // - 最小失败输入：一条网关条目 + 点添加/编辑/开关/删除。
+  // - tier：unit（jsdom 渲染生产组件；IPC 打桩）。
+  it('模型行 / 添加 / 编辑 / 删除 / 开关经本页入口可观察', async () => {
+    seedGatewayRow('gw-alpha');
+    render(<MemoryRouter><ProvidersSection /></MemoryRouter>);
+
+    // 模型行在。
+    const row = (await screen.findAllByTestId('model-gateway-row'))[0]!;
+    expect(row.textContent).toContain('gw-alpha');
+
+    // 添加 → 打开「添加模型」弹窗（create）。
+    fireEvent.click(screen.getAllByText('settings.providers.modelGateway.add')[0]!);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByTestId('gateway-form-stub')).toBeTruthy();
+    expect(gatewayFormSpy).toHaveBeenLastCalledWith(expect.objectContaining({ open: true, mode: 'create' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    // 编辑 → 同一弹窗回填该条目。
+    fireEvent.click(within(row).getByText('settings.providers.modelGateway.edit'));
+    await act(async () => { await Promise.resolve(); });
+    expect(gatewayFormSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      open: true,
+      mode: 'edit',
+      initial: expect.objectContaining({ modelId: 'gw-alpha' }),
+    }));
+
+    // 开关 → 只翻启用，行仍在（配置不丢；细粒度契约见 model-gateway 套件）。
+    const toggle = within(row).getByRole('switch');
+    fireEvent.click(toggle);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('false');
+    expect(screen.getAllByTestId('model-gateway-row')).toHaveLength(1);
+
+    // 删除 → 行立即从列表消失（5s 撤销窗口契约见 model-gateway 套件）。
+    fireEvent.click(within(row).getByText('settings.providers.modelGateway.delete'));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByTestId('model-gateway-row')).toBeNull();
+  });
+
+  // Ruling 19 沿革：旧表单藏了不能留活口——建议行（及其打开的 ProviderConnectionDialog）
+  // 在 provider 轨内，平铺页整体无入口；翻 SHOW_LEGACY_PROVIDER_UI 也接不回来（恢复需
+  // 重新接线，owner 注释口径）。此处钉「无建议行 + 无旧表单弹层」。
+  it('本机 CLI 建议行与旧完整表单在平铺页无活口', async () => {
     scanResult = {
       detections: [
         { cli: 'claude-cli', providerId: 'anthropic', installed: true, loggedIn: true },
@@ -304,150 +404,16 @@ describe('ProvidersSection — 双栏管理', () => {
     };
     render(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
 
-    // 建议组与建议行都不渲染，旧表单无从打开（入口不可达）。
     await act(async () => { await Promise.resolve(); });
     expect(screen.queryByText('settings.providers.detect.groupLabel')).toBeNull();
     expect(screen.queryByText('settings.providers.detect.action')).toBeNull();
     expect(screen.queryByTestId('custom-provider-dialog-stub')).toBeNull();
+    expect(gatewayFormSpy).not.toHaveBeenCalled();
   });
 
-  it('flipping the single flag restores the suggestion row and the legacy form together', async () => {
-    legacyFlag.visible = true;
-    scanResult = {
-      detections: [
-        { cli: 'claude-cli', providerId: 'anthropic', installed: true, loggedIn: true },
-        { cli: 'codex-cli', providerId: 'openai', installed: false, loggedIn: false },
-      ],
-    };
-    render(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
-
-    // 建议组标签 + Anthropic 建议行(codex 未安装不出现)。
-    expect(await screen.findByText('settings.providers.detect.groupLabel')).not.toBeNull();
-    const action = screen.getByText('settings.providers.detect.action');
-    fireEvent.click(action.closest('button')!);
-
-    // 点击建议行打开旧完整表单(2026-10-29 需求 6 的 ProviderConnectionDialog)。
-    expect(screen.getByTestId('custom-provider-dialog-stub')).not.toBeNull();
-  });
-
-  it('首次记录可见项，并用方向键提交新的可见顺序', async () => {
-    providerSnapshotState.order = ['anthropic', 'xd'];
-    const view = render(
-      React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)),
-    );
-
-    const handles = await screen.findAllByRole('button', {
-      name: 'settings.providers.order.handle',
-    });
-    expect(setProviderOrderSpy).toHaveBeenCalledWith('owner-1', 1, ['custom']);
-    await act(async () => {
-      fireEvent.keyDown(handles[0]!, { key: 'ArrowDown' });
-      await Promise.resolve();
-    });
-    // Renderer 只提交左栏顺序；Main 负责保留曾出现但当前隐藏的供应商槽位。
-    expect(setProviderOrderSpy).toHaveBeenLastCalledWith('owner-1', 1, ['custom', 'xd']);
-    const selectedRows = screen
-      .getAllByRole('button')
-      .filter((button) => button.getAttribute('aria-current') === 'true');
-    expect(selectedRows).toHaveLength(1);
-    expect(selectedRows[0]?.textContent).toContain('settings.providers.xd.title');
-    expect(screen.queryByRole('button', { name: 'settings.providers.order.reset' })).toBeNull();
-
-    // Main 对未观察隐藏项的权威结果会把它放到末尾。pending 只比较左栏可见顺序，
-    // 收到该快照后应清除；后续 Main 顺序变化不得再被旧乐观状态覆盖。
-    await act(async () => {
-      providerSnapshotState.order = ['custom', 'xd', 'anthropic'];
-      view.rerender(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
-      await Promise.resolve();
-    });
-    await act(async () => {
-      providerSnapshotState.order = ['xd', 'custom', 'anthropic'];
-      view.rerender(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
-      await Promise.resolve();
-    });
-    const providerRows = screen
-      .getAllByRole('button')
-      .filter((button) => button.hasAttribute('aria-current'));
-    expect(providerRows[0]?.textContent).toContain('settings.providers.xd.title');
-    expect(providerRows[1]?.textContent).toContain('Custom');
-  });
-
-  it('已有顺序快照挂载时不自动回写，避免旧窗口覆盖显式排序', async () => {
-    providerSnapshotState.order = ['anthropic', 'custom', 'xd'];
-    render(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
-
-    await screen.findAllByRole('button', {
-      name: 'settings.providers.order.handle',
-    });
-    expect(setProviderOrderSpy).not.toHaveBeenCalled();
-  });
-
-  it('写入结束后的同目录权威快照会结束乐观排序，以另一窗口的后写结果为准', async () => {
-    let resolveOrderWrite!: (value: { ok: true }) => void;
-    const orderWrite = new Promise<{ ok: true }>((resolve) => {
-      resolveOrderWrite = resolve;
-    });
-    setProviderOrderSpy.mockReturnValueOnce(orderWrite);
-    const view = render(
-      React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)),
-    );
-
-    const handles = await screen.findAllByRole('button', {
-      name: 'settings.providers.order.handle',
-    });
-    fireEvent.keyDown(handles[0]!, { key: 'ArrowDown' });
-    let providerRows = screen
-      .getAllByRole('button')
-      .filter((button) => button.hasAttribute('aria-current'));
-    expect(providerRows[0]?.textContent).toContain('Custom');
-    expect(providerRows[1]?.textContent).toContain('settings.providers.xd.title');
-
-    await act(async () => {
-      resolveOrderWrite({ ok: true });
-      await orderWrite;
-      await Promise.resolve();
-    });
-    expect(refetchProvidersSpy).toHaveBeenCalledOnce();
-
-    // B 窗口后写成为 Main 最终顺序；目录成员没变，但新快照必须结束 A 的 pending。
-    await act(async () => {
-      providerSnapshotState.order = ['anthropic', 'xd', 'custom'];
-      view.rerender(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
-      await Promise.resolve();
-    });
-    providerRows = screen
-      .getAllByRole('button')
-      .filter((button) => button.hasAttribute('aria-current'));
-    expect(providerRows[0]?.textContent).toContain('settings.providers.xd.title');
-    expect(providerRows[1]?.textContent).toContain('Custom');
-  });
-
-  it('切换数据 owner 后会按新 owner 重新记录可见项', async () => {
-    providerSnapshotState.order = ['anthropic', 'xd'];
-    const view = render(
-      React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)),
-    );
-    await waitFor(() => {
-      expect(setProviderOrderSpy).toHaveBeenCalledWith('owner-1', 1, ['custom']);
-    });
-    setProviderOrderSpy.mockClear();
-
-    await act(async () => {
-      authState.dataOwnerId = 'owner-2';
-      view.rerender(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
-      await Promise.resolve();
-    });
-    expect(setProviderOrderSpy).not.toHaveBeenCalled();
-
-    await act(async () => {
-      providerSnapshotState.dataOwnerId = 'owner-2';
-      providerSnapshotState.ownerGeneration = 2;
-      providerSnapshotState.order = ['xd'];
-      view.rerender(React.createElement(MemoryRouter, null, React.createElement(ProvidersSection)));
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(setProviderOrderSpy).toHaveBeenCalledWith('owner-2', 2, ['custom']);
-    });
-  });
+  // 「首次记录可见项，并用方向键提交新的可见顺序 / 已有顺序快照挂载时不自动回写 /
+  // 写入结束后的同目录权威快照会结束乐观排序 / 切换数据 owner 后会按新 owner 重新
+  // 记录可见项」——裁剪：拖拽/方向键排序与顺序可见面都在左栏（provider 轨不挂载，
+  // 平铺页没有排序交互）。挂载时的首记录 IPC 仍留在组件里（仅簿记，供模型选择器
+  // 分组消费），但无可观察面，按 §3.2 不再立用例。完整断言见 git history。
 });

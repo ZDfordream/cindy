@@ -1638,7 +1638,7 @@
       "agentIsland": "靈動島",
       "import": "任務匯入",
       "connections": "第三方平臺",
-      "providers": "模型供應商",
+      "providers": "模型",
       "remoteControl": "遠端連線",
       "tina": "Tina",
       "remote": "遠端機器",
@@ -1678,7 +1678,7 @@
       "compatMode": "小技巧",
       "voiceInput": "語音輸入",
       "import": "任務匯入",
-      "providers": "模型供應商",
+      "providers": "模型",
       "remote": "遠端機器",
       "devices": "裝置互聯",
       "feishuBot": "飛書機器人",
@@ -3235,7 +3235,7 @@
         "catalog": "模型清單暫時無法更新，請重新載入模型。",
         "retry": "重新載入模型"
       },
-      "title": "模型供應商",
+      "title": "模型",
       "subtitle": "選擇模型時的來源。每個來源提供它支援的模型與計費方式，可按任務分別切換。",
       "import": {
         "title": "匯入模型供應商",

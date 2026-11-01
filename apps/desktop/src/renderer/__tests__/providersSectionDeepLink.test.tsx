@@ -1,21 +1,39 @@
 // @vitest-environment jsdom
 
 /**
- * ProvidersSection — 深链定位(?connect / ?wizard)关键不变量:
- *   1. connect=<内置未占行渠道> → 向导以 builtin entry 直达授权步;URL 参数消费后被清除。
- *   2. connect=<左栏占行供应商>(如已连接的 anthropic)→ 直接选中,不开向导。
- *   3. connect=<目录外 id> → 视为 preset id,向导以 preset entry 打开。
- *   4. wizard=1 → 向导目录第一步(entry undefined)。
+ * ProvidersSection — 深链定位(?tab / ?connect / ?wizard / ?receivedShare)关键不变量:
+ *   1. `#/settings?tab=providers`（聊天下拉「去设置」等入口的深链）仍打开本页，
+ *      且平铺模型列表可见（路由 / tab id 不随改名变化）。
+ *   2. connect=<内置未占行渠道> → 打开「添加模型」弹窗;URL 参数消费后被清除。
+ *   3. connect=<目录内已占行供应商> → **不**打开弹窗（占行判定照旧），参数清除。
+ *   4. connect=<目录外 id> → 「添加模型」弹窗打开（旧 preset 直达已移除）。
+ *   5. wizard=1 → 「添加模型」弹窗打开;参数清除。
+ *   6. receivedShare=<shareId> 的参数生命周期（消费清除 / 名单空时保留）不随平铺改变。
  *
- * 【Task 7 处置】旧多供应商详情块（身份/断开/「···」菜单、账户资产、允许被远程调用、
- * 预设/多协议/获取模型列表入口）已整体藏进 SHOW_LEGACY_PROVIDER_UI（owner「藏起来
- * 以后再说」）。断言该块的用例按工程约定 §3.2「测试须验生产可达行为」裁剪或改写，
- * 逐条依据见各处就地注释（被裁用例的完整断言见 git history，恢复开关即可找回）。
- * 保留的用例都只依赖：左栏行（含 aria-current 选中态）、网关表单深链、登录引导面、
- * 分享来的供应商详情——这些不在本次收起范围内。
+ * 【Task 7 处置】旧多供应商详情块已整体藏进 SHOW_LEGACY_PROVIDER_UI（owner「藏起来
+ * 以后再说」）；断言该块的用例已按 §3.2 裁剪（见 git history）。
+ *
+ * 【PRD 2026-11-01 整页平铺处置】provider 轨（左栏供应商列表 + 右栏登录/分享/远程/
+ * 旧详情整卡）结构性隐藏、不再挂载。凡断言 provider 轨可见性的用例逐条处置如下
+ * （被裁用例的完整断言见 git history；恢复需重新接线 provider 轨，见 ProvidersSection
+ * `PROVIDER_TRACK_RENDERED` 注释）：
+ *
+ * | 原用例 | 处置 | 依据 |
+ * | --- | --- | --- |
+ * | does not rediscover a deleted local Codex provider into the settings list | 裁剪 | 断言面是左栏列表行；左栏不挂载，扫描建议行同在轨内 |
+ * | keeps a native Codex account without models visible (connected=%s) | 裁剪 | 左栏占行 + 详情头断言，均在轨内 |
+ * | shows the saved name in the sidebar for %s | 裁剪 | 左栏行显示保存名，轨内 |
+ * | keeps gateway entries out of the left rail… | 改写 | 左栏半边失效；保留「网关条目只在模型列表出现」，另钉「页面无 provider 行」 |
+ * | renames an account when its sidebar row is double-clicked | 裁剪 | 双击重命名挂在左栏行 |
+ * | does not offer double-click rename for Cindy AI | 裁剪 | 同上 |
+ * | ChatGPT 系统共享登录失效时左栏行显示失效态 | 裁剪 | 失效态标签挂在左栏行 |
+ * | connect=<左栏占行供应商> → 直接选中 | 改写 | 「选中」无可见面；只保留「不开弹窗 + 参数清除」 |
+ * | 目录无 xd → Cindy 登录引导行 + CTA | 裁剪 | 登录引导面（左栏行 + 右栏）在轨内 |
+ * | receivedShare → 选中那条分享来的供应商（详情出现） | 改写 | 详情在轨内；只保留参数消费清除，另断言详情不再渲染 |
+ * | 名单暂时为空期间用户改选了别的供应商 → 放弃跳转 | 裁剪 | 「改选」交互在左栏行，平铺页无选中面 |
  */
 
-import { cleanup, fireEvent, act, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, act, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -142,6 +160,7 @@ vi.mock('@/features/model-gateway/ModelGatewayForm', () => ({
 
 
 import { ProvidersSection } from '@/components/settings/ProvidersSection';
+import { SettingsView } from '@/components/settings/SettingsView';
 import { useProviderSubscriptionCard } from '@/components/settings/useProviderSubscriptionCard';
 import { resetProviderShareStoreForTests } from '@/features/provider-share/providerShareStore';
 
@@ -152,6 +171,56 @@ vi.mock('@/components/settings/useProviderSubscriptionCard', () => ({
 vi.mock('@/components/settings/LlamaCppProviderDetail', () => ({ LlamaCppProviderDetail: () => null }));
 
 vi.mock('@/components/settings/OllamaProviderDetail', () => ({ OllamaProviderDetail: () => null }));
+
+// SettingsView 路由壳的同级分区全部换空壳（深链 #/settings?tab=providers 的真实入口），
+// 只留真实 ProvidersSection——验证 tab 参数 → 「模型」页的路由映射本身。
+const { ShellStub } = vi.hoisted(() => ({ ShellStub: () => null }));
+vi.mock('@/components/settings/SettingsSidebarNav', () => ({ SettingsSidebarNav: ShellStub }));
+vi.mock('@/components/settings/UserProfileCard', () => ({ UserProfileCard: ShellStub }));
+vi.mock('@/components/settings/VoiceInputSection', () => ({ VoiceInputSection: ShellStub }));
+vi.mock('@/components/settings/AppearanceSection', () => ({ AppearanceSection: ShellStub }));
+vi.mock('@/components/settings/SubagentModelSection', () => ({ SubagentModelSection: ShellStub }));
+vi.mock('@/components/settings/AuxiliaryModelSection', () => ({ AuxiliaryModelSection: ShellStub }));
+vi.mock('@/components/settings/VisionBridgeSection', () => ({ VisionBridgeSection: ShellStub }));
+vi.mock('@/components/settings/McpServersSection', () => ({ McpServersSection: ShellStub }));
+vi.mock('@/components/settings/RemoteControlSection', () => ({ RemoteControlSection: ShellStub }));
+vi.mock('@/components/settings/LocalAgentSection', () => ({ LocalAgentSection: ShellStub }));
+vi.mock('@/features/device-link/SharedTaskDialog', () => ({ SharedTaskDialog: ShellStub }));
+vi.mock('@/components/settings/NotificationSection', () => ({ NotificationSection: ShellStub }));
+vi.mock('@/components/settings/WindowBehaviorSection', () => ({ WindowBehaviorSection: ShellStub }));
+vi.mock('@/components/settings/ComposerSendShortcutSection', () => ({ ComposerSendShortcutSection: ShellStub }));
+vi.mock('@/components/settings/KeyboardShortcutsSection', () => ({ KeyboardShortcutsSection: ShellStub }));
+vi.mock('@/components/settings/AgentIslandSection', () => ({ AgentIslandSection: ShellStub }));
+vi.mock('@/components/settings/LanguageSection', () => ({ LanguageSection: ShellStub }));
+vi.mock('@/components/settings/LogoutSection', () => ({ LogoutSection: ShellStub }));
+vi.mock('@/components/settings/ImBotSection', () => ({
+  ImBotSection: ShellStub,
+  isImBotSettingsGroup: (value: unknown) => value === 'cindy' || value === 'personal',
+}));
+vi.mock('@/components/settings/AboutSection', () => ({ AboutSection: ShellStub }));
+vi.mock('@/components/settings/WorktreeRecycleCard', () => ({ WorktreeRecycleCard: ShellStub }));
+vi.mock('@/components/settings/StorageManagementCard', () => ({ StorageManagementCard: ShellStub }));
+vi.mock('@/components/settings/UserPromptSection', () => ({ UserPromptSection: ShellStub }));
+vi.mock('@/components/settings/MemorySection', () => ({ MemorySection: ShellStub }));
+vi.mock('@/components/settings/TerminalShellSection', () => ({ TerminalShellSection: ShellStub }));
+vi.mock('@/components/settings/LinkOpenSection', () => ({ LinkOpenSection: ShellStub }));
+vi.mock('@/components/settings/StreamFadeSection', () => ({ StreamFadeSection: ShellStub }));
+vi.mock('@/components/settings/TipsSection', () => ({ TipsSection: ShellStub }));
+vi.mock('@/components/settings/ExperimentalSection', () => ({ ExperimentalSection: ShellStub }));
+vi.mock('@/components/settings/GitSafetySection', () => ({ GitSafetySection: ShellStub }));
+vi.mock('@/components/settings/SessionImportSection', () => ({ SessionImportSection: ShellStub }));
+vi.mock('@/components/settings/HelpSection', () => ({ HelpSection: ShellStub }));
+vi.mock('@/components/settings/HelpAssistantPanel', () => ({ HelpAssistantPanel: ShellStub }));
+vi.mock('@/components/settings/AgentResourceSection', () => ({ AgentResourceSection: ShellStub }));
+vi.mock('@/components/settings/PiPackagesSection', () => ({ PiPackagesSection: ShellStub }));
+vi.mock('@/components/settings/CollaborationSection', () => ({ CollaborationSection: ShellStub }));
+vi.mock('@/components/settings/BuiltinToolsSection', () => ({ BuiltinToolsSection: ShellStub }));
+vi.mock('@/components/settings/contacts/ContactsSection', () => ({ ContactsSection: ShellStub }));
+vi.mock('@/components/settings/ComputerUseSection', () => ({ ComputerUseSection: ShellStub }));
+vi.mock('@/components/settings/SettingsCatalogPanel', () => ({ SettingsCatalogPanel: ShellStub }));
+vi.mock('@/components/settings/usage/UsageHistorySection', () => ({ UsageHistorySection: ShellStub }));
+vi.mock('@/features/billing/BillingPage', () => ({ BillingSettingsSection: ShellStub }));
+vi.mock('@/features/bots/BotsGlobalSettingsSection', () => ({ BotsGlobalSettingsSection: ShellStub }));
 
 function makeProvider(id: string, over?: Partial<ProviderView>): ProviderView {
   return {
@@ -191,6 +260,8 @@ function renderAt(search: string) {
 }
 
 beforeEach(() => {
+  // jsdom 无 Element.scrollTo（SettingsView 切 tab 回顶用它）；与 SettingsViewEscape 同法补空实现。
+  Element.prototype.scrollTo = () => {};
   vi.mocked(useProviderSubscriptionCard).mockReset().mockReturnValue(null);
   confirmSpy.mockReset().mockResolvedValue(true);
   codexAuthState.state = { kind: 'unauthenticated' };
@@ -231,67 +302,51 @@ afterEach(() => {
 });
 
 describe('ProvidersSection — 深链定位', () => {
-  it('does not rediscover a deleted local Codex provider into the settings list', async () => {
-    providersState.providers.push(makeProvider('openai', {
-      name: 'Deleted local account', removed: true, imageModels: [{ id: 'image', name: 'Image' }],
-    }));
-    vi.mocked(window.electronAPI.maker.scanLocalCli).mockResolvedValue({ detections: [{
-      cli: 'codex-cli', providerId: 'openai', installed: true, loggedIn: true, sharedWithCindy: false,
-    }] });
-    renderAt('?tab=providers');
-    await waitFor(() => expect(window.electronAPI.maker.scanLocalCli).toHaveBeenCalled());
-    expect(screen.queryByText('Deleted local account')).toBeNull();
+  // 测试价值
+  // - 生产入口与可观察结果：`#/settings?tab=providers`（聊天下拉「去设置」等入口的
+  //   深链）经**真实 SettingsView 路由壳**（同级分区打桩）落到设置「模型」页，
+  //   页面标题与平铺模型列表可见。
+  // - Bug／规则依据：PRD 2026-11-01 改名（导航「模型供应商」→「模型」）只动展示名，
+  //   路由 / tab id 必须保持 `providers`——改坏 isSettingsTab / activeTab 映射或
+  //   panel 挂点会让所有「去设置」深链落空（owner delta 3 的硬性要求）。
+  // - 现有覆盖缺口：providersSection* 此前只直接渲染 ProvidersSection，从未验过
+  //   tab 参数 → 本页的路由映射。
+  // - 最小失败输入：以 `/settings?tab=providers` 挂真实 SettingsView；路由落错 tab
+  //   或 panel 不渲染本页即失败。
+  // - tier：unit（jsdom；同级分区空壳，只带真实 ProvidersSection；IPC 打桩）。
+  it('深链 #/settings?tab=providers 仍打开本页且模型列表可见', async () => {
+    render(
+      <MemoryRouter initialEntries={['/settings?tab=providers']}>
+        <Routes>
+          <Route path="/settings" element={<SettingsView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // tab id 未改：?tab=providers 仍路由到本页 panel。
+    await waitFor(() =>
+      expect(document.getElementById('settings-panel-providers')).not.toBeNull(),
+    );
+    // 页面构成：标题 + 平铺模型列表。
+    expect(screen.getByText('settings.providers.title')).toBeTruthy();
+    expect(screen.getByText('settings.providers.modelGateway.title')).toBeTruthy();
   });
 
-  // Task 7 改写：生产可达部分是「无模型的原生 Codex 账号仍占左栏一行」（曾有账号从
-  // 列表消失的回归）。原断言顺带验详情头的「断开/授权」主操作，按钮在隐藏的旧详情块
-  // 里，默认面不可达（工程约定 §3.2），改为断言详情头不渲染。
-  it.each([true, false])(
-    'keeps a native Codex account without models visible (connected=%s)',
-    async (connected) => {
-      providersState.providers = [
-        makeProvider('openai-account', {
-          name: 'OpenAI Work',
-          source: 'user',
-          agents: ['codex'],
-          auth: { method: 'oauth', native: 'codex' },
-          models: { codex: [] },
-          connected,
-        }),
-      ];
-      renderAt('?tab=providers&connect=openai-account');
-      expect(await screen.findByRole('button', { name: /OpenAI Work/ })).toBeTruthy();
-      expect(screen.queryByTestId('gateway-stub')).toBeNull();
-      expect(screen.queryByTestId('provider-detail-identity')).toBeNull();
-    },
-  );
-
-  // 「uses the same local header and empty model treatment for llama.cpp」——裁剪：
-  // 断言全部落在隐藏的 LocalRuntimeHeader / LlamaCppProviderDetail（旧详情块），
-  // 默认面不可达（工程约定 §3.2）；完整断言见 git history。
-
-  // Task 7 改写：详情头已藏，生产可达面只剩左栏行显示保存名；顺带断言详情头不渲染。
-  it.each(['anthropic', 'xai', 'cindy-local-ollama', 'cindy-local-llamacpp'])('shows the saved name in the sidebar (detail header hidden) for %s', async (id) => {
-    providersState.providers = [makeProvider(id, {
-      name: 'My renamed provider', connected: true,
-      source: id.startsWith('cindy-local-') ? 'user' : 'builtin',
-    })];
-    renderAt(`?tab=providers&connect=${id}`);
-    expect((await screen.findAllByText('My renamed provider')).length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryByTestId('provider-detail-identity')).toBeNull();
-  });
+  // 「does not rediscover a deleted local Codex provider into the settings list /
+  // keeps a native Codex account without models visible / shows the saved name in
+  // the sidebar for %s」——裁剪：断言面全部是左栏列表行（轨内），平铺页无 provider
+  // 行（见文件头处置表）。完整断言见 git history。
 
   // 测试价值
   // - 生产入口与可观察结果：真实 ProvidersSection 渲染；网关条目（custom provider 带
-  //   `catalogPresetId: 'hrbuddy-gateway'` 标记）不得出现在左栏行里，但仍出现在右栏
-  //   模型列表（ModelGatewayList → model-gateway-row）。
-  // - Bug／规则依据：最终全分支 review F1——网关条目即 custom provider，曾整行落进
-  //   左栏；点它旧详情门后为 null，只剩高亮、右栏无任何变化（点击无响应）。
-  // - 现有覆盖缺口：providersSection* 只验过左栏普通行 / 深链，从未断言网关条目行
-  //   的归属（右栏列表才是网关条目唯一入口）。
+  //   `catalogPresetId: 'hrbuddy-gateway'` 标记）出现在平铺模型列表
+  //   （ModelGatewayList → model-gateway-row），页面不渲染任何 provider 行。
+  // - Bug／规则依据：PRD 2026-11-01「供应商列表 + 详情大卡片整体移除」——网关条目
+  //   的唯一入口是模型列表；回归 = provider 行复活（含点它无响应的旧问题）。
+  // - 现有覆盖缺口：providersSection* 只验过左栏行归属，平铺后需钉「无 provider 行」。
   // - 最小失败输入：providers 目录里一条带网关标记的 user 条目 + 一条普通内置行。
   // - tier：unit（jsdom 渲染生产组件，无网络 / 真实计时）。
-  it('keeps gateway entries out of the left rail while the right model list still lists them', async () => {
+  it('keeps gateway entries in the flat model list and renders no provider rows', async () => {
     providersState.providers = [
       makeProvider('anthropic', { name: 'Anthropic', connected: true }),
       makeProvider('gw-entry', {
@@ -315,104 +370,19 @@ describe('ProvidersSection — 深链定位', () => {
     ];
     renderAt('?tab=providers');
 
-    // 对照行：普通供应商照常占左栏。
-    expect(await screen.findByRole('button', { name: /Anthropic/ })).toBeTruthy();
-    // 网关条目行不得进左栏（点它右栏无任何变化）。
-    expect(screen.queryByRole('button', { name: /gw-model-alpha/ })).toBeNull();
-    // 右栏模型列表仍是网关条目的入口。
+    // 模型列表仍是网关条目唯一入口。
     const rows = await screen.findAllByTestId('model-gateway-row');
     expect(rows).toHaveLength(1);
     expect(rows[0].textContent).toContain('gw-model-alpha');
+    // 页面没有任何 provider 行（旧左栏的普通行 / 网关行都不再渲染）。
+    expect(screen.queryByRole('button', { name: /Anthropic/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /gw-model-alpha/ })).toBeNull();
   });
 
-  // 「keeps identity outside the shared model scroll area for %s」——裁剪：断言全部
-  // 落在隐藏的旧详情块（provider-detail-scroll / 模型工具条布局），默认面不可达（§3.2）。
-  // 「shows usage windows without a details disclosure across %s changes」——裁剪：
-  // provider-usage-module 在隐藏的 DetailHeader 内（同上）。
-  // 「added OpenAI shares status and moves rename/delete into the single menu」——裁剪：
-  // 「···」菜单契约在隐藏的身份行内（同上）。完整断言见 git history。
-
-  it('renames an account when its sidebar row is double-clicked', async () => {
-    providersState.providers = [
-      makeProvider('openai-work', {
-        name: 'Work account',
-        source: 'user',
-        agents: ['codex'],
-        connected: true,
-        auth: { method: 'oauth', native: 'codex' },
-        models: { codex: [] },
-      }),
-    ];
-    renderAt('?tab=providers');
-
-    fireEvent.doubleClick(await screen.findByRole('button', { name: /Work account/ }));
-
-    await waitFor(() => expect(confirmSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'settings.providers.pill.rename' }),
-    ));
-    await waitFor(() => expect(window.electronAPI.maker.setProviderPresentation).toHaveBeenCalledWith(
-      {
-        providerId: 'openai-work',
-        action: 'rename',
-        name: 'Work account',
-        dataOwnerId: 'owner',
-        ownerGeneration: 1,
-      },
-    ));
-  });
-
-  it('does not offer double-click rename for Cindy AI', async () => {
-    providersState.providers = [makeProvider('xd', {
-      name: 'Cindy AI',
-      auth: { method: 'managed' } as ProviderView['auth'],
-      agents: ['claude-code', 'codex'],
-      models: { 'claude-code': [], codex: [] },
-    })];
-    renderAt('?tab=providers');
-
-    fireEvent.doubleClick(
-      await screen.findByRole('button', { name: 'settings.providers.xd.title' }),
-    );
-
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(window.electronAPI.maker.setProviderPresentation).not.toHaveBeenCalled();
-  });
-
-  // 以下用例（API key presence / replacement-key inputs / device-code authorization /
-  // OpenAI recovery / cancelled login / Dev 只读断开 / OpenAI deletion 顺序 /
-  // busy disconnect 确认 / unsupported builtin 动作面 / generic builtin OAuth bridge /
-  // invalidated OpenAI auth 锁模型开关）——裁剪：断言全部落在隐藏的旧详情块
-  // （DetailHeader 动作、「···」菜单、UnifiedModelList），默认生产面不可达
-  // （工程约定 §3.2「测试须验生产可达行为」）。它们保护的 OAuth/凭证时序契约仍在
-  // 代码里，随 SHOW_LEGACY_PROVIDER_UI 恢复即可原样找回（git history）。
-  // Task 7 改写：生产可达部分是左栏行呈现失效态（标签 + 失败色）。原断言还点了详情头
-  // 的恢复入口（chatgptAuthRecovery.openApp），入口在隐藏的旧详情块里，按 §3.2 裁去
-  // （恢复入口断言见 git history）。
-  it('ChatGPT 系统共享登录失效时左栏行显示失效态', async () => {
-    codexAuthState.state = {
-      kind: 'reconnect-required',
-      reason: 'token_revoked',
-      credentialScope: 'system-shared',
-    };
-    codexAuthState.reconnectCredentialScope = 'system-shared';
-    providersState.providers = [
-      makeProvider('openai', {
-        name: 'OpenAI',
-        agents: ['codex', 'claude-code'],
-        connected: false,
-        models: { codex: [], 'claude-code': [] },
-      }),
-    ];
-    renderAt('?tab=providers&connect=openai');
-
-    const openAiListRow = await screen.findByRole('button', { name: /OpenAI/ });
-    expect(openAiListRow.textContent).toContain('settings.providers.openai.reconnectRequired');
-    expect((openAiListRow.lastElementChild as HTMLElement).style.backgroundColor).toBe(
-      'var(--remote-status-failed)',
-    );
-    // 恢复入口在隐藏的详情头里（见上方裁剪说明）。
-    expect(screen.queryByTestId('provider-detail-identity')).toBeNull();
-  });
+  // 「renames an account when its sidebar row is double-clicked / ChatGPT 系统共享
+  // 登录失效时左栏行显示失效态」——裁剪：断言面是左栏行（轨内），平铺页无入口
+  // （§3.2 + 文件头处置表）。完整断言见 git history。
+  // 其余旧详情块用例（API key / device-code / OpenAI recovery…）同前轮裁剪说明。
 
   // 「ChatGPT 非共享失效凭证通过浏览器重新登录 / 主动断开后仍使用本机账号连接 /
   // 系统共享打开 App 后保留恢复入口」——裁剪：恢复入口按钮在隐藏的详情头里，
@@ -425,7 +395,9 @@ describe('ProvidersSection — 深链定位', () => {
     await waitFor(() => expect(screen.getByTestId('search').textContent).toBe('?tab=providers'));
   });
 
-  it('connect=<左栏占行供应商> → 直接选中,不开向导', async () => {
+  // PRD 平铺改写：「直接选中」在平铺页没有可见面（provider 轨不挂载）；占行判定的
+  // 可观察结果只剩「不打开添加模型弹窗 + 参数清除」。
+  it('connect=<目录内已占行供应商> → 不打开添加模型弹窗;参数消费后清除', async () => {
     providersState.providers = [
       makeProvider('anthropic', { name: 'Anthropic', connected: true }),
       makeProvider('xd', {
@@ -437,12 +409,8 @@ describe('ProvidersSection — 深链定位', () => {
     ];
     renderAt('?tab=providers&connect=anthropic');
 
-    // Task 7 改写：详情头已藏，「选中」改由左栏行的 aria-current 观测。向导不打开。
-    await waitFor(() => {
-      const row = screen.getByRole('button', { name: /Anthropic/ });
-      expect(row.getAttribute('aria-current')).toBeTruthy();
-    });
-    expect(screen.queryByTestId('provider-detail-identity')).toBeNull();
+    // 页面仍是平铺模型列表（挂载即终态），弹窗不开。
+    await screen.findByText('settings.providers.modelGateway.title');
     expect(screen.queryByTestId('gateway-stub')).toBeNull();
     await waitFor(() => expect(screen.getByTestId('search').textContent).toBe('?tab=providers'));
   });
@@ -457,29 +425,9 @@ describe('ProvidersSection — 深链定位', () => {
     expect(wizardSpy).toHaveBeenCalledWith(true);
   });
 
-  it('目录无 xd(无账号会话)→ 左栏置顶 Cindy 登录引导行,connect=xd 落到该行,CTA 跳 /login', async () => {
-    const { fireEvent } = await import('@testing-library/react');
-    providersState.providers = [makeProvider('anthropic', { name: 'Anthropic' })];
-    render(
-      <MemoryRouter initialEntries={['/settings?tab=providers&connect=xd']}>
-        <Routes>
-          <Route path="/settings" element={<ProvidersSection />} />
-          <Route path="/login" element={<div data-testid="login-page" />} />
-        </Routes>
-      </MemoryRouter>,
-    );
-
-    // 引导行 + 右栏登录引导(connect=xd 深链选中;列表为空时它也是默认选中)。
-    expect(await screen.findByText('settings.providers.xdSignin.badge')).not.toBeNull();
-    await waitFor(() =>
-      expect(screen.getByText('settings.providers.xdSignin.desc')).not.toBeNull(),
-    );
-    expect(screen.queryByTestId('gateway-stub')).toBeNull();
-
-    fireEvent.click(screen.getByText('settings.providers.xdSignin.cta'));
-    // local 模式:先 exitLocalMode 再进 /login(直跳会被 GuestRoute 弹回)。
-    await waitFor(() => expect(screen.getByTestId('login-page')).not.toBeNull());
-  });
+  // 「目录无 xd(无账号会话)→ 左栏置顶 Cindy 登录引导行,connect=xd 落到该行,CTA 跳
+  // /login」——裁剪：登录引导行与引导面都在 provider 轨内（PRD 平铺不挂载）。
+  // 完整断言见 git history。
 
   it('wizard=1 → 打开添加模型弹窗;参数清除', async () => {
     renderAt('?tab=providers&wizard=1');
@@ -535,12 +483,17 @@ describe('ProvidersSection — 分享来的供应商深链', () => {
 
   afterEach(() => resetProviderShareStoreForTests());
 
-  it('receivedShare=<shareId> → 选中那条分享来的供应商；参数消费后清除', async () => {
+  // PRD 平铺改写：分享详情面在 provider 轨内（不再渲染）；deep-link 的可观察契约
+  // 收窄为参数生命周期（消费清除 / 名单空时保留）。选中态不再有可见面。
+  it('receivedShare=<shareId> → 参数消费后清除（分享详情随 provider 轨不再渲染）', async () => {
     stubReceived([share]);
     renderAt('?tab=providers&receivedShare=share-1');
 
-    await screen.findByTestId('provider-share-received-detail');
+    await waitFor(() => expect(window.electronAPI.providerShare.command).toHaveBeenCalledWith({ action: 'received' }));
     await waitFor(() => expect(screen.getByTestId('search').textContent).toBe('?tab=providers'));
+    // 页面停在平铺模型列表；分享详情（轨内）不渲染。
+    await screen.findByText('settings.providers.modelGateway.title');
+    expect(screen.queryByTestId('provider-share-received-detail')).toBeNull();
   });
 
   it('这条分享已不在列表里 → 只停在供应商页，参数同样清除', async () => {
@@ -551,7 +504,7 @@ describe('ProvidersSection — 分享来的供应商深链', () => {
     expect(screen.queryByTestId('provider-share-received-detail')).toBeNull();
   });
 
-  it('名单暂时为空(断线、换账号) → 保留参数，名单回来后再选中', async () => {
+  it('名单暂时为空(断线、换账号) → 保留参数，名单回来后再消费', async () => {
     const push = stubReceived([]);
     renderAt('?tab=providers&receivedShare=share-1');
 
@@ -561,30 +514,10 @@ describe('ProvidersSection — 分享来的供应商深链', () => {
     expect(screen.queryByTestId('provider-share-received-detail')).toBeNull();
 
     push([share]);
-    await screen.findByTestId('provider-share-received-detail');
     await waitFor(() => expect(screen.getByTestId('search').textContent).toBe('?tab=providers'));
-  });
-
-  it('名单暂时为空期间用户改选了别的供应商 → 放弃跳转，名单回来后不切走右栏', async () => {
-    providersState.providers = [makeProvider('anthropic', { name: 'Anthropic', connected: true })];
-    const push = stubReceived([]);
-    renderAt('?tab=providers&receivedShare=share-1');
-
-    await waitFor(() => expect(window.electronAPI.providerShare.command).toHaveBeenCalledWith({ action: 'received' }));
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-    fireEvent.click(await screen.findByRole('button', { name: /^Anthropic/ }));
-    await waitFor(() => expect(screen.getByTestId('search').textContent).toBe('?tab=providers'));
-
-    push([share]);
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
     expect(screen.queryByTestId('provider-share-received-detail')).toBeNull();
-    // Task 7 改写：详情头已藏，「右栏仍留在用户选中的供应商上」改由左栏行的
-    // aria-current 观测（原断言看 provider-detail-identity）。分享名单回来后左栏
-    // 多出一条同名分享行，按 aria-current 精确找用户选中的那条。
-    expect(
-      screen
-        .getAllByRole('button', { name: /^Anthropic/ })
-        .filter((row) => row.getAttribute('aria-current') === 'true'),
-    ).toHaveLength(1);
   });
+
+  // 「名单暂时为空期间用户改选了别的供应商 → 放弃跳转」——裁剪：「改选」交互在
+  // 左栏行（轨内），平铺页没有选中面可移动。完整断言见 git history。
 });

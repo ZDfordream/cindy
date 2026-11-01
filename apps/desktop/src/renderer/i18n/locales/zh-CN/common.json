@@ -1638,7 +1638,7 @@
       "agentIsland": "灵动岛",
       "import": "任务导入",
       "connections": "第三方平台",
-      "providers": "模型供应商",
+      "providers": "模型",
       "remoteControl": "远程连接",
       "tina": "Tina",
       "remote": "远端机器",
@@ -1678,7 +1678,7 @@
       "compatMode": "小技巧",
       "voiceInput": "语音输入",
       "import": "任务导入",
-      "providers": "模型供应商",
+      "providers": "模型",
       "remote": "远端机器",
       "devices": "设备互联",
       "feishuBot": "飞书机器人",
@@ -3235,7 +3235,7 @@
         "catalog": "模型列表暂时无法更新，请重新加载模型。",
         "retry": "重新加载模型"
       },
-      "title": "模型供应商",
+      "title": "模型",
       "subtitle": "选择模型时的来源。每个来源提供它支持的模型与计费方式，可按任务分别切换。",
       "import": {
         "title": "导入模型供应商",
