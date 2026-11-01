@@ -49,6 +49,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/i18n';
 import { getToastSnapshot } from '@/lib/toast';
 import { HrOaGate } from '../HrOaGate';
+import { __testing as hrOaStoreTesting } from '../hrOaAuthStore';
 import { SHOW_CINDY_ACCOUNT_UI } from '../legacyVisibility';
 
 const bridge = vi.hoisted(() => ({
@@ -114,6 +115,19 @@ function renderGate() {
   );
 }
 
+/**
+ * 模拟 `OwnerScopedRouter` 的 ownerKey 重挂载：每次 hr 落定（登录 commit 账号键 /
+ * 登出 commit null）都会改 `dataOwnerId` → RouterProvider 换 key → 整棵路由树
+ * （含门禁）重建。gateKey 变化即重挂载。
+ */
+function KeyedGate({ gateKey }: { gateKey: number }) {
+  return (
+    <HrOaGate key={gateKey}>
+      <div data-testid="children-marker">main-app</div>
+    </HrOaGate>
+  );
+}
+
 const childrenMarker = () => screen.queryByTestId('children-marker');
 const welcomeTitle = () => screen.queryByText('HRBuddy，我帮你');
 const accountField = () => screen.getByLabelText('账号') as HTMLInputElement;
@@ -135,6 +149,7 @@ async function pushAuthStateChange(): Promise<void> {
 
 beforeEach(async () => {
   await i18n.changeLanguage('zh-CN');
+  hrOaStoreTesting.resetHrOaGateMemory();
   bridge.login.mockReset();
   bridge.logout.mockReset();
   bridge.getState.mockReset();
@@ -231,14 +246,81 @@ describe('HrOaGate 门禁收口（G1 / FR-WELCOME-03）', () => {
     await act(async () => {});
     expect(childrenMarker()).toBeTruthy();
 
+    const toastsBefore = getToastSnapshot();
     bridge.getState.mockResolvedValue({ status: 'signed-out' });
     await pushAuthStateChange();
 
     expect(welcomeTitle()).toBeTruthy();
     expect(childrenMarker()).toBeNull();
-    expect(
-      getToastSnapshot().some((item) => item.message === '登录已过期，请重新登录'),
-    ).toBe(true);
+    const newToasts = getToastSnapshot().filter((item) => !toastsBefore.includes(item));
+    expect(newToasts.some((item) => item.message === '登录已过期，请重新登录')).toBe(true);
+  });
+
+  it('登录态失效 toast 跨 ownerKey 重挂载仍弹出（FR-SESSION-02 回归）', async () => {
+    bridge.getState.mockResolvedValue(SIGNED_IN);
+    const { rerender } = render(<KeyedGate gateKey={1} />);
+    await act(async () => {});
+    expect(childrenMarker()).toBeTruthy();
+
+    const toastsBefore = getToastSnapshot();
+    // 生产时序：auth:state-change 推送同时触发 hrOa:state 重拉与 AuthContext 的
+    // dataOwnerId 更新（ownerKey 变）→ RouterProvider 整树重挂载。旧门禁实例在
+    // 重拉回包**之前**被卸载（cancelled 丢弃），失效落差必须由模块级记忆接手。
+    let settleNext!: (state: unknown) => void;
+    bridge.getState.mockReturnValue(new Promise((resolve) => (settleNext = resolve)));
+    await act(async () => {
+      for (const listener of bridge.listeners) listener({});
+      await Promise.resolve();
+    });
+    rerender(<KeyedGate gateKey={2} />);
+    await act(async () => {
+      settleNext({ status: 'signed-out' });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(welcomeTitle()).toBeTruthy();
+    expect(childrenMarker()).toBeNull();
+    const newToasts = getToastSnapshot().filter((item) => !toastsBefore.includes(item));
+    expect(newToasts.some((item) => item.message === '登录已过期，请重新登录')).toBe(true);
+  });
+
+  it('显式登录的「登录成功」拍跨 ownerKey 重挂载不被吞（FR-LOGIN-04 回归）', async () => {
+    vi.useFakeTimers();
+    bridge.getState.mockResolvedValue({ status: 'signed-out' });
+    const { rerender } = render(<KeyedGate gateKey={1} />);
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
+    fireEvent.change(accountField(), { target: { value: 'alice' } });
+    fireEvent.change(passwordField(), { target: { value: 'pw' } });
+    let resolveLogin!: (value: unknown) => void;
+    bridge.login.mockReturnValue(new Promise((resolve) => (resolveLogin = resolve)));
+    fireEvent.click(submitButton());
+
+    // 生产时序：manager.settle 的投影推送早于 hrOa:login 的 invoke 回包；推送携带
+    // 新 dataOwnerId → ownerKey 重挂载把 S2（含 500ms 成功拍 timer）整棵卸载。
+    await act(async () => {
+      bridge.getState.mockResolvedValue(SIGNED_IN);
+      await fireAuthStateChange();
+      await Promise.resolve();
+    });
+    rerender(<KeyedGate gateKey={2} />);
+    await act(async () => {
+      resolveLogin(SIGNED_IN);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // 拍仍在：不得进 children；成功面（FR-LOGIN-04）在重挂载后续上。
+    expect(childrenMarker()).toBeNull();
+    expect(screen.getByRole('button', { name: '登录成功' })).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(childrenMarker()).toBeTruthy();
+    expect(welcomeTitle()).toBeNull();
   });
 
   it('offline（静默重登网络类失败）同样放行：离线首页可读，不锁在门外', async () => {

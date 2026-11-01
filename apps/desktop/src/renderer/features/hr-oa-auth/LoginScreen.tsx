@@ -22,7 +22,12 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 
 import { Mascot } from './Mascot';
-import { useHrOaAuth, type OaLoginFailure } from './hrOaAuthStore';
+import {
+  hrOaSuccessBeatRemainingMs,
+  subscribeHrOaGateMemory,
+  useHrOaAuth,
+  type OaLoginFailure,
+} from './hrOaAuthStore';
 
 type Phase = 'idle' | 'submitting' | 'success';
 
@@ -48,7 +53,12 @@ export function LoginScreen(props: { onBack: () => void; onSuccess: () => void }
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const [phase, setPhase] = useState<Phase>('idle');
+  // 「登录成功」拍可能跨 ownerKey 重挂载（OwnerScopedRouter 换 key 重建路由树，
+  // 见 HrOaGate 重挂载合同）：挂载时拍未结束就直接进成功面；拍稍后才开始（回包
+  // 晚于重挂载）则经订阅补进。组件 state 过不了重挂载，拍本身在 hrOaAuthStore 模块级。
+  const [phase, setPhase] = useState<Phase>(() =>
+    hrOaSuccessBeatRemainingMs() > 0 ? 'success' : 'idle',
+  );
   const [error, setError] = useState<OaLoginFailure | null>(null);
 
   const accountRef = useRef<HTMLInputElement>(null);
@@ -69,6 +79,15 @@ export function LoginScreen(props: { onBack: () => void; onSuccess: () => void }
     return () => {
       if (successTimerRef.current !== null) window.clearTimeout(successTimerRef.current);
     };
+  }, []);
+
+  // 续拍订阅：重挂载落在「登录在途」（拍尚未开始）时，拍开始的瞬间补进成功面。
+  useEffect(() => {
+    return subscribeHrOaGateMemory(() => {
+      if (hrOaSuccessBeatRemainingMs() > 0) {
+        setPhase((current) => (current === 'idle' ? 'success' : current));
+      }
+    });
   }, []);
 
   const clearError = (): void => {

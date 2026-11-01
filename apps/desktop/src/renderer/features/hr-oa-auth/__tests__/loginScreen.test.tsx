@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import i18n from '@/i18n';
 import { LoginScreen } from '../LoginScreen';
+import { __testing as hrOaStoreTesting } from '../hrOaAuthStore';
 
 const bridge = vi.hoisted(() => ({
   login: vi.fn(),
@@ -72,6 +73,9 @@ const alertRow = () => screen.getByRole('alert');
 
 beforeEach(async () => {
   await i18n.changeLanguage('zh-CN');
+  // 门禁记忆是模块级的（跨 ownerKey 重挂载存活，见 hrOaAuthStore）：用例间必须
+  // 清零，否则上一例成功登录的「登录成功」拍会把下一例的首屏带进成功面。
+  hrOaStoreTesting.resetHrOaGateMemory();
   bridge.login.mockReset();
   bridge.logout.mockReset();
   bridge.getState.mockReset();
