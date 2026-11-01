@@ -1055,7 +1055,11 @@ describe('mobileRealtimeAsrProvider', () => {
       reason: 'Received bad response code from server: 403.',
     });
 
-    await expect(started).rejects.toThrow('Cindy 语音服务的登录已失效或没有权限，请确认登录状态后重试（状态码 403）。');
+    // 断言生产同款 i18n 输出（`mobileRealtimeAsrProvider.ts` 用同一 key 渲染），
+    // 而不是把 {{appName}} 写死——写死会随品牌改名再次挂掉（此前 Cindy→HRBuddy 遗留）。
+    await expect(started).rejects.toThrow(
+      i18n.t('composer.voice.sessionExpiredOrForbidden', { status: 403 }),
+    );
   });
 
   it('redacts the synced voice key from Volcengine websocket errors', async () => {
