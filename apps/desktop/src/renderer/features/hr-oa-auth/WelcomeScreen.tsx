@@ -25,7 +25,9 @@ export function WelcomeScreen(props: { onLogin: () => void }): React.JSX.Element
   }, []);
 
   return (
-    <div className="flex min-h-full flex-col items-center justify-center gap-6 bg-[var(--surface)] px-4">
+    // hr-oa-screen-enter：S1 入场淡入（T2/T9/T10「欢迎页淡入」；时长走登记
+    // --motion-enter token，reduce 下归零瞬时）。挂载即动画，跨转场重挂载同款。
+    <div className="hr-oa-screen-enter flex min-h-full flex-col items-center justify-center gap-6 bg-[var(--surface)] px-4">
       <Mascot variant="hero" />
       {/* PRD hero 标题 28px/600（= DS-8 标题档 28 + 字重梯 600，逐档对齐）。 */}
       <h1 className="text-center text-28 font-semibold leading-normal tracking-[0.5px] text-[var(--text-primary)]">

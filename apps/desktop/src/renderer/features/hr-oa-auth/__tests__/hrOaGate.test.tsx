@@ -6,7 +6,8 @@
  *   断言用户可观察的门禁合同：未登录任何路由只出 S1 且不渲染 children（含深链/副窗同
  *   根挂载）、S1↔S2 往返、显式登录成功**停留成功拍后**才进 children、静默重登落定前
  *   不判决（加载期不出 S1 防闪现、落定 signed-in 直接进 children）、登录态失效推送回
- *   S1 + toast「登录已过期，请重新登录」、`XDT_UI_MOCK`（`uiMockData`）旁路直出
+ *   S1 + toast「登录已过期，请重新登录」（T10：toast 在 T9 转场锁 600ms **结束后**弹，
+ *   Task 7 改钉——此前是立即弹）、`XDT_UI_MOCK`（`uiMockData`）旁路直出
  *   children、以及 `SHOW_CINDY_ACCOUNT_UI === false` 时门禁面无任何 Cindy 账号入口
  *   （LoginPage 标记 / 账号切换 / local 免登录 / SSO）。
  * - Bug／规则依据：login-onboarding PRD G1（未登录只有 S1/S2）/ FR-WELCOME-03 /
@@ -240,7 +241,8 @@ describe('HrOaGate 门禁收口（G1 / FR-WELCOME-03）', () => {
     expect(welcomeTitle()).toBeNull();
   });
 
-  it('登录态失效推送 → 回 S1 + toast「登录已过期，请重新登录」', async () => {
+  it('登录态失效推送 → 回 S1；toast「登录已过期」在 T9 转场锁结束后弹', async () => {
+    vi.useFakeTimers();
     bridge.getState.mockResolvedValue(SIGNED_IN);
     renderGate();
     await act(async () => {});
@@ -252,11 +254,20 @@ describe('HrOaGate 门禁收口（G1 / FR-WELCOME-03）', () => {
 
     expect(welcomeTitle()).toBeTruthy();
     expect(childrenMarker()).toBeNull();
-    const newToasts = getToastSnapshot().filter((item) => !toastsBefore.includes(item));
+    // FR-SESSION-02 / T10：toast 卡在 T9 转场锁（600ms）末（Task 7 改钉——此前是
+    // 立即弹）。
+    let newToasts = getToastSnapshot().filter((item) => !toastsBefore.includes(item));
+    expect(newToasts.some((item) => item.message === '登录已过期，请重新登录')).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    newToasts = getToastSnapshot().filter((item) => !toastsBefore.includes(item));
     expect(newToasts.some((item) => item.message === '登录已过期，请重新登录')).toBe(true);
   });
 
   it('登录态失效 toast 跨 ownerKey 重挂载仍弹出（FR-SESSION-02 回归）', async () => {
+    vi.useFakeTimers();
     bridge.getState.mockResolvedValue(SIGNED_IN);
     const { rerender } = render(<KeyedGate gateKey={1} />);
     await act(async () => {});
@@ -281,6 +292,10 @@ describe('HrOaGate 门禁收口（G1 / FR-WELCOME-03）', () => {
 
     expect(welcomeTitle()).toBeTruthy();
     expect(childrenMarker()).toBeNull();
+    // toast 定时器同样不得被重挂载清掉（hrOaAuthStore 记忆合同的另一半）。
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
     const newToasts = getToastSnapshot().filter((item) => !toastsBefore.includes(item));
     expect(newToasts.some((item) => item.message === '登录已过期，请重新登录')).toBe(true);
   });

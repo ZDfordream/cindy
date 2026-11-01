@@ -33,6 +33,7 @@ import { toast } from '@/lib/toast';
 import {
   consumeHrOaExpiryNotice,
   getHrOaGateMemorySnapshot,
+  hrOaLeaveLockRemainingMs,
   subscribeHrOaGateMemory,
   useHrOaAuth,
 } from './hrOaAuthStore';
@@ -47,12 +48,21 @@ export function HrOaGate(props: { children: ReactNode }): React.JSX.Element | nu
   const [flow, setFlow] = useState<'welcome' | 'login'>('welcome');
   const memory = useSyncExternalStore(subscribeHrOaGateMemory, getHrOaGateMemorySnapshot);
 
-  // 登录态失效通知（模块级，跨 ownerKey 重挂载存活）：消费一次弹一次。
+  // 登录态失效通知（模块级，跨 ownerKey 重挂载存活）：消费一次弹一次。FR-SESSION-02 /
+  // T10：toast 卡在 T9 转场锁**结束**后弹（锁 = 落差起 600ms，PRD §9.2）。定时器
+  // **不留 cleanup**——弹出必须跨 ownerKey 重挂载存活（模块级记忆的同一条合同；旧实例
+  // 卸载清掉 timer = toast 被吞，正是记忆层要防的那类回归）。
   useEffect(() => {
     if (!consumeHrOaExpiryNotice()) return;
     setFlow('welcome');
-    toast.error(t('hrOa.session.expired'));
-  });
+    const delay = hrOaLeaveLockRemainingMs();
+    if (delay <= 0) {
+      toast.error(t('hrOa.session.expired'));
+      return;
+    }
+    window.setTimeout(() => toast.error(t('hrOa.session.expired')), delay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：toast 不得随卸载取消
+  }, [memory.expiryNoticeSeq, t]);
 
   // mock 评审通道与 Cindy 账号层恢复开关：门禁整体让位（children 直出）。
   if (window.electronAPI?.uiMockData === true || isCindyAccountUiVisible()) {

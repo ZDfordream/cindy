@@ -574,6 +574,27 @@ export function clearDraftAndNotify(sessionId: string): void {
   syncDraftUrlsToMain();
 }
 
+/**
+ * Clear every unsent draft owned by the **active** owner (HR OA 退出登录，
+ * FR-SESSION-03「清除内存会话与对话草稿」）。
+ *
+ * 与 FR-SESSION-02（登录态失效时草稿**保留**、同账号重新登录恢复）的分界刻意在此：
+ * 只有主动登出走这里；失效路径不清，靠 owner 前缀（`setComposerDraftOwner`）继续
+ * 让同账号恢复原草稿。草稿是「丢弃」而非「发出」，暂存附件副本照 `discardDraft`
+ * 口径释放，不在磁盘留孤儿。
+ */
+export function clearActiveOwnerComposerDrafts(): void {
+  const prefix = ownerPrefix();
+  for (const key of [...drafts.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    const sessionId = key.slice(prefix.length);
+    const draft = drafts.get(key);
+    if (draft) cleanupStagedChatAttachmentFiles(draft.attachments);
+    draftDiscardGenerations.set(key, (draftDiscardGenerations.get(key) ?? 0) + 1);
+    clearDraftAndNotify(sessionId);
+  }
+}
+
 function normalizedDraftBlocks(document: JSONContent | null | undefined): JSONContent[] {
   if (!tiptapDocHasContent(document)) return [];
   const normalized = normalizeComposerDocumentJSON(document!);

@@ -18011,6 +18011,10 @@
         "network": "Network error. Check your connection and try again",
         "timeout": "Sign-in timed out. Please try again later"
       }
+    },
+    "more": {
+      "customize": "Customize",
+      "logout": "Log out"
     }
   }
 }

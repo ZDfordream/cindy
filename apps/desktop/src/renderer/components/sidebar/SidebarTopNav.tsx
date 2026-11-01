@@ -44,6 +44,7 @@ import { useGhostMainViews, type GhostMainViewItem } from '@/cindy-brain/ghostMa
 import { useInstalledGhosts } from '@/cindy-brain/useInstalledGhosts';
 import { useActiveMainView } from '@/hooks/useActiveMainView';
 import { SidebarInlineSearch } from '@/features/cc-agent/sidebar/SidebarInlineSearch';
+import { HrOaMoreMenuItems, HrOaCustomizeFallbackHost } from '@/features/hr-oa-auth/HrOaMoreMenuItems';
 import { SidebarIconButton, SIDEBAR_RAIL_ICON_BUTTON_CLASS } from './SidebarIconButton';
 import { Tip } from '@/components/ui/tooltip';
 import { useConversationSearchContext } from '@/features/cc-agent/sidebar/conversationSearchContext';
@@ -208,6 +209,8 @@ function useSidebarNavigationEntries(): {
 /**
  * Unchecked entries and (when there is room) the customize panel; empty menus render nothing.
  * Opens on hover as well as click (useHoverOpenMenu), so it is non-modal.
+ * `sessionItems`（hr 会话）：「更多」浮层的 HRBuddy 会话条目（自定义 / 退出登录，PRD
+ * FR-HOME-02/03）——有它们时浮层恒显（退出登录必须无条件可达），条目自带分隔线。
  */
 function SidebarNavigationMoreMenu({
   trigger,
@@ -217,6 +220,7 @@ function SidebarNavigationMoreMenu({
   unseen,
   onSeen,
   onCustomize,
+  sessionItems,
   onCloseAutoFocus,
 }: {
   /** Receives the open state so a trigger can quiet its own tooltip. */
@@ -228,6 +232,8 @@ function SidebarNavigationMoreMenu({
   /** Called when the menu closes after showing new entries. */
   onSeen: () => void;
   onCustomize?: () => void;
+  /** hr 会话条目（`HrOaMoreMenuItems`）；存在即菜单恒显。 */
+  sessionItems?: React.ReactNode;
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   const { t } = useTranslation();
@@ -240,9 +246,13 @@ function SidebarNavigationMoreMenu({
     onOpenChange: (open) => { if (!open && unseen.size > 0) onSeen(); },
     onCloseAutoFocus,
   });
-  if (hiddenIds.length === 0 && !onCustomize) return null;
+  if (hiddenIds.length === 0 && !onCustomize && !sessionItems) return null;
   return (
-    <DropdownMenu open={menu.open} onOpenChange={menu.onOpenChange} modal={false}>
+    <>
+      {/* 回落弹窗宿主在菜单**外**：DropdownMenuContent 关闭即整棵卸载，弹窗挂在
+          条目输出里会跟着消失（FR-HOME-02 回落路径）。 */}
+      <HrOaCustomizeFallbackHost />
+      <DropdownMenu open={menu.open} onOpenChange={menu.onOpenChange} modal={false}>
       <DropdownMenuTrigger asChild {...menu.triggerProps}>{trigger(menu.open)}</DropdownMenuTrigger>
       <DropdownMenuContent
         side="right"
@@ -309,9 +319,26 @@ function SidebarNavigationMoreMenu({
             </DropdownMenuItem>
           </>
         )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        {sessionItems && (
+          <>
+            {(hiddenIds.length > 0 || onCustomize) && <DropdownMenuSeparator />}
+            {sessionItems}
+          </>
+        )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
+}
+
+/**
+ * hr 会话（HRBuddy）下的「更多」浮层附加条目：「自定义」+「退出登录」（PRD FR-HOME-02/03）。
+ * 仅 `mode === 'hr'` 出——Cindy 会话（cloud / local，含 SHOW_CINDY_ACCOUNT_UI 恢复面）
+ * 的「更多」维持原样（导航收纳 + 导航自定义）。
+ */
+function useMoreMenuSessionItems(): React.ReactNode | undefined {
+  const { mode } = useAuth();
+  return mode === 'hr' ? <HrOaMoreMenuItems /> : undefined;
 }
 
 export interface SidebarRailSearchOptions {
@@ -338,6 +365,7 @@ export function SidebarRailNavigation({
   const [searchOpen, setSearchOpen] = useState(false);
   const [openSearchOnMount, setOpenSearchOnMount] = useState(false);
   const pendingSearchRef = useRef(false);
+  const sessionItems = useMoreMenuSessionItems();
   // Open after More has closed: its focus return would otherwise dismiss the popover.
   const actions = useSidebarNavigationActions(() => {
     pendingSearchRef.current = true;
@@ -391,6 +419,7 @@ export function SidebarRailNavigation({
         appFor={entries.appFor}
         unseen={entries.unseen}
         onSeen={entries.markSeen}
+        sessionItems={sessionItems}
         onCloseAutoFocus={handleMoreCloseAutoFocus}
         trigger={(open) => (
           // The open menu already names itself; keep the tooltip from covering it.
@@ -427,6 +456,7 @@ export function SidebarTopNav({
   const { search, allKnownProjects, openSignal } = useConversationSearchContext();
   const { dataOwnerId } = useAuth();
   const entries = useSidebarNavigationEntries();
+  const sessionItems = useMoreMenuSessionItems();
   const [customizing, setCustomizing] = useState(false);
   const [showHiddenSearch, setShowHiddenSearch] = useState(false);
   const [searchOpenSignal, setSearchOpenSignal] = useState(0);
@@ -515,7 +545,10 @@ export function SidebarTopNav({
       appFor={entries.appFor}
       unseen={entries.unseen}
       onSeen={entries.markSeen}
-      onCustomize={() => setCustomizing(true)}
+      // hr 会话：飞层的「自定义」是模型配置（PRD FR-HOME-02），导航自定义让位
+      // 消歧（藏不删——恢复 Cindy 账号层 / 非 hr 会话即回）。
+      onCustomize={sessionItems ? undefined : () => setCustomizing(true)}
+      sessionItems={sessionItems}
       trigger={() => (
         <button
           type="button"

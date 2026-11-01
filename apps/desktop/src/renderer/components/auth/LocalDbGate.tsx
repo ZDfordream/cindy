@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppShellCover } from '@/contexts/AppShellCoverContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { LocalDbFatalScreen } from '@/components/error/LocalDbFatalScreen';
+import { requestHrOaLogout } from '@/features/hr-oa-auth/hrOaAuthStore';
 import { createLogger } from '@/lib/logger';
 import { toast } from '@/lib/toast';
 import { formatBytes } from '@/features/cc-agent/workdir-browse/lib/fileMeta';
@@ -178,13 +179,15 @@ export function LocalDbGate() {
           setRetryNonce((n) => n + 1);
         }}
         onBackToLogin={() => {
-          // `hr` 的离开走 hrOa.logout：Cindy 的 logout() 会把 app session commit 回
-          // signed-out，踩掉仍有效的 HR 会话（登录门禁 Task 4 审计）。
+          // `hr` 的离开走 requestHrOaLogout（Task 7）：Cindy 的 logout() 会把 app
+          // session commit 回 signed-out，踩掉仍有效的 HR 会话（登录门禁 Task 4
+          // 审计）；裸调 hrOa.logout 则会被当成「登录态失效」误弹过期 toast——
+          // 主动离开必须走 voluntary 抑制的同一条登出链。
           const leave =
             mode === 'local'
               ? exitLocalMode()
               : mode === 'hr'
-                ? window.electronAPI.hrOa.logout()
+                ? requestHrOaLogout()
                 : logout();
           void leave.then(
             () => navigate('/login', { replace: true }),

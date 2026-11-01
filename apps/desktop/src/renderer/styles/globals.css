@@ -2372,6 +2372,42 @@ html[data-wallpaper-active='true'] :is(.layout-divider-v, .layout-divider-h) {
   }
 }
 
+/* HRBuddy S3 引导与 T9 退出的编排面（PRD §9.2 T3/T4/T9/T10，Task 7）。
+   规则钉在编排状态的 body 数据属性上（OnboardingSessionHost / requestHrOaLogout
+   驱动），视觉挂 `[data-hr-home-root]`（首页根）与欢迎页入场类：
+   - `body[data-hr-s3-preview='on']`：显式登录待导期间首页以「预览姿态」（半透明 +
+     下沉）呈现在 S3 遮罩（modal-scrim 既有 blur + 变暗）之下；属性移除即 settle
+     归位（T4「首页元素落位」收敛为容器级一次落位——PRD 的逐元素 40ms 错峰属窄收敛，
+     与 Task 6 把 PRD 时长收敛到登记 token 同口径，逐值差额见 report）。
+   - `body[data-hr-leave='leaving']`：主动登出（T9）首页淡出的一半；另一半 = 欢迎页
+     入场类 `.hr-oa-screen-enter`（T2/T9/T10 的「欢迎页淡入」）。
+   时长 / 曲线一律走 §14.4 登记 token（enter/exit + ease-out/ease-in）；PRD 的
+   360/240/120ms 组合按「一语义一动效」收敛到 heavy-overlay 的 enter/exit 语义
+   （与 Task 6 弹窗进出场同一裁决）。reduce 下 `* { transition: none }` + token
+   归零，全部瞬时切换。 */
+[data-hr-home-root] {
+  transition:
+    opacity var(--motion-enter) var(--motion-ease-out),
+    transform var(--motion-enter) var(--motion-ease-out);
+}
+body[data-hr-s3-preview='on'] [data-hr-home-root] {
+  opacity: 0.55;
+  transform: translateY(10px);
+}
+body[data-hr-leave='leaving'] [data-hr-home-root] {
+  opacity: 0;
+  transition: opacity var(--motion-exit) var(--motion-ease-in);
+}
+.hr-oa-screen-enter {
+  animation: hr-oa-screen-in var(--motion-enter) var(--motion-ease-out);
+}
+@keyframes hr-oa-screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
 /* MorphPopover 菜单面板(输入框的模型 / 权限 / + 菜单)终态与共享下拉菜单同一材质:面板底色
    经内联 background-color 从 chip 底色形变过去,所以用变量承接上面两条规则的取值 ——
    其它主题 = --cmd-palette-bg,Cindy 主题 = 毛玻璃底 + blur 6px,Windows 一律实色、无模糊。 */

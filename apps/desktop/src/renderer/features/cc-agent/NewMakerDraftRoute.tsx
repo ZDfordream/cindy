@@ -80,6 +80,7 @@ import {
   useHomeGateSurface,
 } from '@/features/model-gateway/homeOnboardingGate';
 import { OnboardingHomeBanner } from '@/features/model-gateway/OnboardingHomeBanner';
+import { OnboardingSessionHost } from '@/features/hr-oa-auth/OnboardingSessionHost';
 import { resolveDeviceLinkSubmission } from './deviceLinkCreateArgs';
 import { commitRemoteSessionHandoff } from './remoteSessionHandoff';
 import { remoteProjectsStore } from '@/features/device-link/remoteProjectsStore';
@@ -720,12 +721,16 @@ interface DraftTargetRequest {
  * 首页草稿路由（S4）。外层套 `ModelGatewayProvider` + `HomeOnboardingGateProvider`：
  * 横幅 / 补配弹窗 / 发送门禁 / 模型菜单共用同一份网关条目表（保存成功一并翻转两态），
  * 弹窗打开期间门禁面整体 inert（PRD §8.3）。会话等其它面不走这两层，行为不变。
+ * `OnboardingSessionHost`（Task 7）在 provider 之内：S3 引导弹窗与首页共用条目表，
+ * 保存成功即时翻转两态；显式登录的 S3 出现规则与 T3/T4 预览姿态由它收口。
  */
 export function NewMakerDraftRoute() {
   return (
     <ModelGatewayProvider>
       <HomeOnboardingGateProvider>
-        <NewMakerDraftHome />
+        <OnboardingSessionHost>
+          <NewMakerDraftHome />
+        </OnboardingSessionHost>
       </HomeOnboardingGateProvider>
     </ModelGatewayProvider>
   );
@@ -5695,6 +5700,7 @@ function NewMakerDraftHome() {
     <TopRightChipStackProvider>
       <div
         ref={containerRef}
+        data-hr-home-root
         className="h-full w-full"
         // 整页 drop(与 CCAgentSessionView 的聊天区同语义):拖到草稿页任意位置
         // 都算数,不必精准落在输入框上。dragover 必须自己 preventDefault——

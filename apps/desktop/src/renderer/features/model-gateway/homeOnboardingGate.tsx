@@ -34,8 +34,11 @@ import {
 import { OnboardingModelDialog } from './OnboardingModelDialog';
 import { useModelGateway } from './ModelGatewayStore';
 
-/** 门禁触发入口（`home_gate_trigger` 埋点的 trigger 维度，PRD §10.2）。 */
-export type HomeGateTrigger = 'send' | 'selector' | 'suggestion' | 'banner';
+/**
+ * 门禁触发入口（`home_gate_trigger` 埋点的 trigger 维度，PRD §10.2）。`customize`
+ * 是 Task 7「更多 → 自定义」（PRD T6 同一弹窗入口）——只加值不改 gate 语义。
+ */
+export type HomeGateTrigger = 'send' | 'selector' | 'suggestion' | 'banner' | 'customize';
 
 /**
  * 首页两态 + 加载窗口（PRD §6.4 状态矩阵）：
