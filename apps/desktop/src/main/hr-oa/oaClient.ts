@@ -7,10 +7,12 @@
  *   3. 公钥取不到才降级为**恰好一次**明文提交，并留一条不含口令的 warn（不重试明文）。
  *
  * 判据（同 HRMcp/oa_client.py）：
- *   - 登录成功 = POST 没有落到 login_error（location 头或 finalUrl）；锁定信号
- *     （location/query 或 body 命中 /lock(ed)?/i）优先映射 locked；
- *   - 会话失效 = 3xx 且 location 含 anonym.jsp：自动重登并重试**一次**，再失效抛
- *     OaLoginError（复用 network_error，消息注明会话未恢复——不新增失败种类）。
+ *   - 登录成功 = POST 没有落到 login_error（location 头或 finalUrl），没落就是成功、到此为止；
+ *     锁定映射**只在 login_error 弹回内**判（Ruling 6）：location/query 或 body 命中
+ *     /\block(ed)?\b/i 才是 locked，否则 wrong_credentials；
+ *   - 会话失效 = location 或 finalUrl 含 anonym.jsp（3xx 弹回与跟随重定向后的 200 两种形态
+ *     都认）：自动重登并重试**一次**，再失效抛 OaLoginError（复用 network_error，消息注明
+ *     会话未恢复——不新增失败种类）。
  *
  * 安全红线：口令明文只进 transport 的 j_password（且仅 SM2 降级那一次是明文），
  * 任何异常/日志文本经 scrub 后绝不含明文。
@@ -33,6 +35,12 @@ export interface OaTransport {
   /**
    * 发一个请求。`path` 是已拼好 baseUrl 的绝对 URL；transport 自持 cookie jar
    * （Electron session），`params` 追加为查询串。
+   *
+   * 重定向语义（合同）：**跟随重定向**——返回链条终点的最终响应，`finalUrl` 是最终
+   * URL，`status`/`headers`/`body` 是该最终响应的（Electron session fetch 同款语义）。
+   * 会话过期因此常见形态是 `200` + `finalUrl` 含 anonym.jsp（无 location 头）。选择不跟
+   * 重定向、直接暴露 3xx + location 的 transport 同样被接受：客户端的弹回判据对两种
+   * 形态都认（与 isLoginErrorBounce 对称）。
    */
   request(input: {
     method: 'GET' | 'POST';
@@ -57,11 +65,12 @@ const PROFILE_PATH = '/sys/person/setting.do';
 const PROFILE_SETTING = 'sys_zone_person_info';
 const ANONYM_MARKER = 'anonym.jsp';
 const LOGIN_ERROR_MARKER = 'login_error';
-// Ruling 1：锁定信号只认这一个判据（location/query 或 body），不发明其它信号。
-const LOCK_RE = /lock(ed)?/i;
+// Ruling 6：锁定信号只认这一个判据（location/query 或 body），不发明其它信号。
+// \b 前后缀把 "block"/"clock"/"unlock"/"display:block" 排除在外，保留 "?lock=1" 与
+// "account locked"。且只在 login_error 弹回内才判（见 classifyLoginResponse）。
+const LOCK_RE = /\block(ed)?\b/i;
 // window.getSM2PubKey = function(){ return "04...hex..."; }（同 oa_client.py::_SM2_PUBKEY_RE）
 const SM2_PUBKEY_RE = /getSM2PubKey\s*=\s*function\s*\([^)]*\)\s*\{\s*return\s*"([0-9a-fA-F]+)"/;
-const ANONYM_STATUSES = new Set([301, 302, 303, 307, 308]);
 const DEFAULT_TIMEOUT_MS = 10_000;
 const SESSION_RECOVERY_FAIL_MSG = 'session could not be restored after re-login';
 
@@ -97,13 +106,17 @@ function isLockSignal(res: OaResponse): boolean {
 }
 
 function isAnonymBounce(res: OaResponse): boolean {
-  return ANONYM_STATUSES.has(res.status) && headerValue(res, 'location').includes(ANONYM_MARKER);
+  // 与 isLoginErrorBounce 对称：3xx + location（不跟重定向的 transport）与
+  // 跟随后的 200 + finalUrl（Electron session fetch）两种形态都认。
+  return headerValue(res, 'location').includes(ANONYM_MARKER) || res.finalUrl.includes(ANONYM_MARKER);
 }
 
 function classifyLoginResponse(res: OaResponse): OaLoginOutcome {
+  // 成功判据优先（Ruling 6）：没落到 login_error 就是成功，到此为止——锁定映射只在
+  // login_error 弹回内判，防 body/URL 里的 "lock" 子串把成功翻成 locked（会误清凭证）。
+  if (!isLoginErrorBounce(res)) return { ok: true };
   if (isLockSignal(res)) return { ok: false, kind: 'locked' };
-  if (isLoginErrorBounce(res)) return { ok: false, kind: 'wrong_credentials' };
-  return { ok: true };
+  return { ok: false, kind: 'wrong_credentials' };
 }
 
 function failureKindOf(e: unknown): OaLoginFailure {

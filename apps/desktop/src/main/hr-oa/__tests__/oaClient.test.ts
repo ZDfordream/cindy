@@ -4,13 +4,16 @@
  *   network_error / timeout）、SM2 成功路径 j_password 只带标记密文（从不发明文）、公钥取不到时
  *   恰好一次明文降级 + 一条不含口令的 warn；getPersonProfile() 的资料拉取与 anonym.jsp 会话失效
  *   恢复（自动重登重试一次，再失效抛会话语义错误）；所有抛错与日志文本不含口令明文。
- * - Bug／规则依据：计划 Task 1 Step 5 场景矩阵；Ruling 1 锁定判据 = location/query 或 body 命中
- *   /lock(ed)?/i（不发明其它锁定信号，login_error 弹回无锁信号即 wrong_credentials）；Ruling 2
- *   公钥取不到只降级一次明文、不重试；Ruling 3/4 会话恢复失败复用 network_error（不新增失败种类）
- *   并在消息里注明会话未恢复；Review Focus #4 口令不进日志/异常。
+ * - Bug／规则依据：计划 Task 1 Step 5 场景矩阵；Ruling 6 锁定映射只在 login_error 弹回内判
+ *   （成功判据优先，防 "display:block" 等子串把成功翻成 locked 误清凭证），判据 = location/query
+ *   或 body 命中 /\block(ed)?\b/i（不发明其它锁定信号）；Ruling 2 公钥取不到只降级一次明文、
+ *   不重试；Ruling 3/4 会话恢复失败复用 network_error（不新增失败种类）并在消息里注明会话未
+ *   恢复；会话失效判据对 3xx+location 与跟随后 200+finalUrl 两种形态都认；Review Focus #4
+ *   口令不进日志/异常。
  * - 现有覆盖缺口：新模块，此前没有门户登录序列、失败分流与会话恢复覆盖。
- * - 最小失败输入：见表驱动场景（SM2 成功 / 凭证错 / 锁定×2 信号 / 网络错 / 超时 / 公钥取不到 /
- *   会话失效×2 / 资料拉取网络错）。
+ * - 最小失败输入：见表驱动场景（SM2 成功 / 凭证错 / 锁定×2 信号 / display:block 成功不误判锁 /
+ *   网络错 / 超时 / 公钥取不到 / 会话失效×2（3xx+location 与跟随后 200+finalUrl 两形态）/
+ *   资料拉取网络错）。
  * - tier：unit（transport 全注入 fake，无真实网络；超时用 5ms 短定时器，不做真实长等待）。
  * - 实测耗时：单文件 ~0.7s（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/oaClient.test.ts）。
  */
@@ -129,14 +132,31 @@ describe('createOaClient().login', () => {
     await expect(client.login(USER, PASSWORD)).resolves.toEqual({ ok: false, kind: 'locked' });
   });
 
-  it('lock signal in body maps to locked', async () => {
+  it('lock signal in body maps to locked on a login_error bounce', async () => {
     const { transport } = makeTransport((input) => {
       if (isSessionJs(input)) return sessionJs();
-      return redirect('/portal', 'account locked');
+      return redirect('http://oa.test/login_error', 'account locked');
     });
     const client = createOaClient({ baseUrl: BASE, transport });
 
     await expect(client.login(USER, PASSWORD)).resolves.toEqual({ ok: false, kind: 'locked' });
+  });
+
+  it('a non-login_error response with display:block in the body is success, not locked', async () => {
+    // 成功判据优先：没落 login_error 就是成功。若把锁定判据施加到所有登录响应，
+    // 常见内联样式 display:block 会把成功登录翻成 locked——下游会误清钥匙串凭证。
+    const { transport } = makeTransport((input) => {
+      if (isSessionJs(input)) return sessionJs();
+      return {
+        status: 200,
+        headers: {},
+        body: '<div style="display:block">欢迎使用门户</div>',
+        finalUrl: `${BASE}/portal/home`,
+      };
+    });
+    const client = createOaClient({ baseUrl: BASE, transport });
+
+    await expect(client.login(USER, PASSWORD)).resolves.toEqual({ ok: true });
   });
 
   it('transport rejection maps to network_error', async () => {
@@ -198,7 +218,10 @@ describe('createOaClient().getPersonProfile', () => {
     });
   });
 
-  it('recovers an expired session by re-logging in and retrying once', async () => {
+  it('recovers session expiry surfaced as 200 + finalUrl anonym.jsp (redirect-following transport)', async () => {
+    // 合同：transport 跟随重定向（Electron session fetch 语义）。会话过期的常见形态是
+    // 200 + finalUrl 含 anonym.jsp（无 location 头）——判据必须认 finalUrl，否则弹回
+    // 检测失效、资料解析静默返回空档案、会话恢复成为死代码。
     let profileGets = 0;
     const { transport, calls } = makeTransport((input) => {
       if (isSessionJs(input)) return sessionJs();
@@ -206,7 +229,12 @@ describe('createOaClient().getPersonProfile', () => {
       if (isProfileGet(input)) {
         profileGets += 1;
         return profileGets === 1
-          ? redirect('http://oa.test/resource/jsp/anonym.jsp')
+          ? {
+              status: 200,
+              headers: {},
+              body: '<html>login page</html>',
+              finalUrl: 'http://oa.test/resource/jsp/anonym.jsp',
+            }
           : profileResponse();
       }
       throw new Error(`unexpected ${input.method} ${input.path}`);
