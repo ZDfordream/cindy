@@ -26,6 +26,7 @@ import { useNavigate } from 'react-router-dom';
 import { Check, ChevronDown } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { useHrOaSessionOffline } from '@/features/hr-oa-auth/hrOaAuthStore';
 
 import { useModelGateway } from './ModelGatewayStore';
 import { useCurrentModel } from './currentModelStore';
@@ -86,6 +87,10 @@ export function ChatModelMenu() {
   const homeGate = useHomeGateSurface();
   const gateUnconfigured = homeGate?.phase === 'unconfigured';
   const gateConfigured = homeGate?.phase === 'configured';
+  // HR OA 离线只读（设计 §4.2 / Finding 2）：连通状态展示回落「未知」（未测试），
+  // 与 ModelGatewayRow 同口径——行内状态与触发胶囊都不得显陈旧绿。
+  const hrOaOffline = useHrOaSessionOffline();
+  const displayStatusOf = (status: ModelStatus): ModelStatus => (hrOaOffline ? 'untested' : status);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -187,7 +192,7 @@ export function ChatModelMenu() {
         )}
       >
         <StatusDot
-          status={current?.status ?? 'untested'}
+          status={displayStatusOf(current?.status ?? 'untested')}
           gateState={gateUnconfigured ? 'unconfigured' : gateConfigured ? 'configured' : undefined}
         />
         <span
@@ -243,6 +248,7 @@ export function ChatModelMenu() {
               >
                 {enabled.map((entry) => {
                   const selected = entry.id === currentId;
+                  const rowStatus = displayStatusOf(entry.status);
                   return (
                     <div
                       key={entry.id}
@@ -262,9 +268,7 @@ export function ChatModelMenu() {
                         }
                       }}
                       title={
-                        entry.status !== 'untested' && !entry.status.ok
-                          ? entry.status.detail
-                          : undefined
+                        rowStatus !== 'untested' && !rowStatus.ok ? rowStatus.detail : undefined
                       }
                       className={cn(
                         'flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-2 py-1.5 text-left',
@@ -277,12 +281,12 @@ export function ChatModelMenu() {
                           <Check size={12} className="text-[var(--text-primary)]" />
                         ) : null}
                       </span>
-                      <StatusDot status={entry.status} />
+                      <StatusDot status={rowStatus} />
                       <span className="min-w-0 flex-1 truncate text-13 text-[var(--text-primary)]">
                         {entry.name}
                       </span>
                       <span className="shrink-0 text-12 text-[var(--text-secondary)]">
-                        {statusText(t, entry.status)}
+                        {statusText(t, rowStatus)}
                       </span>
                     </div>
                   );

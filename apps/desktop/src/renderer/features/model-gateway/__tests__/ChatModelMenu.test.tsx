@@ -19,6 +19,7 @@ import type { ProviderView } from '@cindy/model-providers';
 
 import { ModelGatewayProvider, useModelGateway } from '../ModelGatewayStore';
 import { CURRENT_MODEL_STORAGE_KEY, useCurrentModel } from '../currentModelStore';
+import { __testing as hrOaStoreTesting } from '@/features/hr-oa-auth/hrOaAuthStore';
 import { ChatModelMenu } from '../ChatModelMenu';
 import type { ModelGatewayApi } from '../types';
 
@@ -102,6 +103,7 @@ async function openMenu() {
 describe('ChatModelMenu', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    hrOaStoreTesting.resetHrOaGateMemory();
     maker = {
       listProviders: vi.fn(async () => ({ providers: [] as ProviderView[] })),
       createCustomProvider: vi.fn(async () => ({ ok: true })),
@@ -146,6 +148,42 @@ describe('ChatModelMenu', () => {
     expect(rows[0]!.getAttribute('aria-selected')).toBe('true');
     expect(rows[1]!.getAttribute('aria-selected')).toBe('false');
     expect(currentIdText()).toBe(idA);
+  });
+
+  it('offline（HR OA 离线只读）：菜单行连通展示回落「未测试」，不显陈旧绿', async () => {
+    // Finding 2 / 设计 §4.2：offline 时模型连通状态标记为未知——行内状态与触发胶囊
+    // 都用未测试展示，不把上次探测的 128ms 绿当现状（与 ModelGatewayRow 同口径）。
+    hrOaStoreTesting.resetHrOaGateMemory();
+    const { getApi } = renderMenu();
+    await act(async () => {});
+    const idA = await addModel(getApi(), 'a');
+    await act(async () => {
+      await getApi().setStatus(idA, { ok: true, latencyMs: 128 });
+    });
+    await openMenu();
+    expect(within(screen.getByTestId('chat-model-menu')).getByText('128ms')).toBeTruthy();
+
+    act(() => {
+      hrOaStoreTesting.landHrOaState({
+        status: 'offline',
+        accountKey: 'P100',
+        profile: {
+          name: '',
+          loginName: '',
+          dept: '',
+          mobile: '',
+          email: '',
+          title: '',
+          sex: '',
+          personId: 'P100',
+        },
+      });
+    });
+    await act(async () => {});
+
+    const menu = screen.getByTestId('chat-model-menu');
+    expect(within(menu).queryByText('128ms')).toBeNull();
+    expect(within(menu).getByText('未测试')).toBeTruthy();
   });
 
   it('switching the model updates the global current model and applies to later messages', async () => {

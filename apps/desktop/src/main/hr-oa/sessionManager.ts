@@ -7,9 +7,20 @@
  *     commitSession('hr', key)）——VPN 抖动绝不能把人锁在门外；
  *   - 资料拉取失败不阻断登录，账号键退化用已缓存的冻结键（键按缓存，不回空）。
  *
+ * signed-out 的 `reason`（Finding 1 / 4，FR-SESSION-02 的失效 toast 判据）：
+ *   - `expired`：**曾有**凭证但已失效——凭证类失败 / TTL 过期 / 密文损坏。渲染层
+ *     弹「登录已过期，请重新登录」，**冷启动也弹**（不再依赖 in-process 落差）。
+ *   - `logout`：主动登出（logout() 是唯一自愿来源），兄弟窗口据此一并抑制失效 toast。
+ *   - 缺省：无凭证首启 / 显式登录前——不是失效，不弹。
+ *
+ * 离线契约（设计 §4.2，Finding 2）：`network_error` / `timeout` 保留凭证 + 资料缓存
+ * 落的本地资料离线可读；网络恢复（`networkRecovered()`，渲染层 `window 'online'` 触发）
+ * 静默重登刷新会话，成功回 `signed-in`。发送不可用与模型连通「未知」在渲染层按
+ * `offline` 状态收口，不在此处。
+ *
  * Ruling 3：**显式** login() 失败只回 `{ error: kind }`——登录页留在原地出内联错误，
  * 不产生 offline、不改状态、不动存量凭证（被测的是手输口令；误清会连坐钥匙串里另一份
- * 可能仍有效的凭证）。`offline` 只由 startup() 的静默重登产生。
+ * 可能仍有效的凭证）。`offline` 只由 startup() / networkRecovered() 的静默重登产生。
  *
  * logout() 必须 `client.resetSession()`：OA client 在内存里记着口令做会话恢复，
  * 不复位会把口令跨登出留在进程里。凭证持久化走 credentialStore（口令不进日志）。
@@ -18,9 +29,17 @@
 import type { OaLoginFailure } from './errors.js';
 import type { OaClient } from './oaClient.js';
 import type { PersonProfile } from './profile.js';
+import type { OaStoredLogin } from './credentialStore.js';
+
+/**
+ * signed-out 的来源分类（FR-SESSION-02）：`expired` = 曾有凭证的失效（凭证类失败 /
+ * TTL 过期 / 损坏）→ 冷启动也弹「登录已过期」；`logout` = 主动登出 → 抑制 toast；
+ * 缺省 = 无凭证首启，不是失效。
+ */
+export type HrOaSignedOutReason = 'logout' | 'expired';
 
 export type HrOaAuthState =
-  | { status: 'signed-out' }
+  | { status: 'signed-out'; reason?: HrOaSignedOutReason }
   | { status: 'offline'; accountKey: string; profile: PersonProfile }
   | { status: 'signed-in'; accountKey: string; profile: PersonProfile };
 
@@ -30,6 +49,12 @@ export interface HrOaSessionManager {
   /** 显式登录；失败只回 `{ error }` 且不改状态（Ruling 3）。 */
   login(username: string, password: string): Promise<HrOaAuthState | { error: OaLoginFailure }>;
   logout(): Promise<void>;
+  /**
+   * 网络恢复后的静默重登（设计 §4.2）：只在 `offline` 落定后生效，其余状态原样返回；
+   * 并发触发（多窗口同响 `online`）单飞合并。成功回 `signed-in`，网络类失败留在
+   * `offline`，凭证类失败落 `signed-out` + `reason:'expired'`。
+   */
+  networkRecovered(): Promise<HrOaAuthState>;
   getState(): HrOaAuthState;
   onDidChange(listener: (state: HrOaAuthState) => void): () => void;
 }
@@ -44,6 +69,8 @@ export function createHrOaSessionManager(deps: {
   const now = deps.now ?? Date.now;
   let state: HrOaAuthState = { status: 'signed-out' };
   const listeners = new Set<(s: HrOaAuthState) => void>();
+  /** networkRecovered 的单飞闸：多窗口同响 `online` 只跑一轮静默重登。 */
+  let reconnectInFlight: Promise<HrOaAuthState> | null = null;
 
   function blankProfile(): PersonProfile {
     return {
@@ -67,32 +94,52 @@ export function createHrOaSessionManager(deps: {
     return next;
   }
 
-  async function startup(): Promise<HrOaAuthState> {
-    const stored = await credentials.loadOaLogin(now());
-    if (!stored) {
-      // 无凭证：保持 signed-out，不 commit——ensureLoaded 的启动归一已经把会话放在
-      // signed-out/local，HR 不该在这里踩掉 local。
-      state = { status: 'signed-out' };
-      for (const listener of listeners) listener(state);
-      return state;
+  /** 无 commit 的通知（无凭证首启：保持 signed-out，不踩 ensureLoaded 的启动归一）。 */
+  function notifyOnly(next: HrOaAuthState): HrOaAuthState {
+    state = next;
+    for (const listener of listeners) listener(next);
+    return next;
+  }
+
+  /**
+   * 离线资料来源（设计 §4.2 资料缓存）：登录成功落的本地缓存与本次凭证的冻结键
+   * 对得上才用；对不上（缓存串号 / 缺失）宁可 blank，不展示别人 / 空资料以外的东西。
+   */
+  async function offlineProfile(stored: OaStoredLogin): Promise<PersonProfile> {
+    const cache = await credentials.loadOaProfileCache();
+    return cache && cache.accountKey === stored.accountKey ? cache.profile : blankProfile();
+  }
+
+  /** 拉资料（失败不阻断登录，回 null 由调用方按缓存键退化）。 */
+  async function fetchProfile(): Promise<PersonProfile | null> {
+    try {
+      return await client.getPersonProfile();
+    } catch {
+      return null;
     }
+  }
+
+  /**
+   * 静默重登（startup 与网络恢复共用一条链）：凭证类失败清钥匙串落 `expired`；
+   * 网络类失败保留凭证进 offline（资料用本地缓存）；成功签入并刷新凭证与资料缓存。
+   */
+  async function silentRelogin(stored: OaStoredLogin): Promise<HrOaAuthState> {
     const outcome = await client.login(stored.username, stored.password);
     if (!outcome.ok) {
       if (outcome.kind === 'wrong_credentials' || outcome.kind === 'locked') {
-        // 凭证类失败：被测的正是钥匙串里这份 → 清除并落 signed-out。
+        // 凭证类失败：被测的正是钥匙串里这份 → 清除并落 signed-out（失效 toast 来源）。
         await credentials.clearOaLogin();
         client.resetSession();
-        return settle({ status: 'signed-out' });
+        return settle({ status: 'signed-out', reason: 'expired' });
       }
-      // 网络类失败：凭证保留，offline home 仍可读。
-      return settle({ status: 'offline', accountKey: stored.accountKey, profile: blankProfile() });
+      // 网络类失败：凭证保留，offline home 仍可读（资料走本地缓存）。
+      return settle({
+        status: 'offline',
+        accountKey: stored.accountKey,
+        profile: await offlineProfile(stored),
+      });
     }
-    let profile: PersonProfile | null = null;
-    try {
-      profile = await client.getPersonProfile();
-    } catch {
-      profile = null;
-    }
+    const profile = await fetchProfile();
     if (!profile) {
       // 资料失败不阻断登录：键按已缓存的冻结键，凭证保留（不重写，避免按错 loginName 重解）。
       return settle({ status: 'signed-in', accountKey: stored.accountKey, profile: blankProfile() });
@@ -108,7 +155,23 @@ export function createHrOaSessionManager(deps: {
       profile: { ...profile, loginName },
       now: now(),
     });
+    await credentials.saveOaProfileCache({ accountKey, loginName, profile });
     return settle({ status: 'signed-in', accountKey, profile });
+  }
+
+  async function startup(): Promise<HrOaAuthState> {
+    const loaded = await credentials.loadOaLoginDetailed(now());
+    if (loaded.status === 'none') {
+      // 无凭证：保持 signed-out、不 commit——ensureLoaded 的启动归一已经把会话放在
+      // signed-out/local，HR 不该在这里踩掉 local。无 reason = 首启，不是失效。
+      return notifyOnly({ status: 'signed-out' });
+    }
+    if (loaded.status === 'expired') {
+      // TTL 过期 / 密文损坏：曾有凭证的失效（FR-SESSION-02）→ reason:'expired'，
+      // 渲染层冷启动也弹「登录已过期」；load 侧已顺手清掉密文。
+      return settle({ status: 'signed-out', reason: 'expired' });
+    }
+    return silentRelogin(loaded.record);
   }
 
   async function login(
@@ -120,12 +183,7 @@ export function createHrOaSessionManager(deps: {
       // Ruling 3：显式失败留在登录页出内联错误；不动状态、不动存量凭证。
       return { error: outcome.kind };
     }
-    let profile: PersonProfile | null = null;
-    try {
-      profile = await client.getPersonProfile();
-    } catch {
-      profile = null;
-    }
+    const profile = await fetchProfile();
     const effective = profile ?? blankProfile();
     // Review Focus #3（账号键漂移）：显式登录同样必须续用已冻结的键。先读存量凭证——
     // 同一 username 的冻结键/映射键接着用；资料页不可用时尤其不能退化成用 username
@@ -145,6 +203,11 @@ export function createHrOaSessionManager(deps: {
       cached?.accountKey ||
       (saved && saved.username === username ? saved.accountKey : null) ||
       credentials.resolveAccountKey(loginName, effective);
+    // 资料缓存（设计 §4.2）：登录成功覆盖更新；只落展示字段 + 冻结键，绝不含口令。
+    // 资料拉取失败时不动旧缓存（下次成功登录覆盖），离线兜底保留更好的那份。
+    if (profile) {
+      await credentials.saveOaProfileCache({ accountKey, loginName, profile: effective });
+    }
     return settle({ status: 'signed-in', accountKey, profile: effective });
   }
 
@@ -152,7 +215,27 @@ export function createHrOaSessionManager(deps: {
     await credentials.clearOaLogin();
     // OA client 内存里记着口令做会话恢复——登出必须复位，防口令跨登出滞留。
     client.resetSession();
-    settle({ status: 'signed-out' });
+    // reason:'logout' 随状态推送：兄弟窗口（无 voluntary 标记）据此抑制失效 toast。
+    settle({ status: 'signed-out', reason: 'logout' });
+  }
+
+  async function networkRecovered(): Promise<HrOaAuthState> {
+    if (state.status !== 'offline') return state;
+    if (reconnectInFlight) return reconnectInFlight;
+    reconnectInFlight = (async () => {
+      try {
+        const loaded = await credentials.loadOaLoginDetailed(now());
+        if (loaded.status !== 'ok') {
+          // 离线期间凭证到期 / 消失（含外部清钥匙串）：曾有会话却回不去 → 按失效处理
+          // （FR-SESSION-02 的「凭证过期」分支），不把人无解释地丢回 S1。
+          return settle({ status: 'signed-out', reason: 'expired' });
+        }
+        return await silentRelogin(loaded.record);
+      } finally {
+        reconnectInFlight = null;
+      }
+    })();
+    return reconnectInFlight;
   }
 
   function getState(): HrOaAuthState {
@@ -166,5 +249,5 @@ export function createHrOaSessionManager(deps: {
     };
   }
 
-  return { startup, login, logout, getState, onDidChange };
+  return { startup, login, logout, networkRecovered, getState, onDidChange };
 }

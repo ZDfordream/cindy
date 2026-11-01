@@ -10,14 +10,21 @@
  * 会话规则（FR-SESSION-02…05）也记在这份模块级门禁记忆里（跨 ownerKey 重挂载存活）：
  * - **显式登录资格**：只有 `login()`（用户在 S2 手输）成功才立起 S3 引导资格——
  *   「仅启动且登录态有效」走 `getState` 静默落定，**不**立资格，S3 不再弹（FR-SESSION-05）。
- * - **主动登出抑制**：`requestHrOaLogout()` 先标记 voluntary，had-session → signed-out
- *   的落差不再计入失效通知（FR-HOME-03 主动登出不得弹「登录已过期」；LocalDbGate
- *   的 fatal-DB 离开路径同款）。
+ * - **失效通知双源（Finding 1/4）**：①had-session → signed-out 的落差（非自愿）；
+ *   ②状态自带 `reason:'expired'`（startup / 网络恢复的凭证类失败、TTL 过期）——**冷启动
+ *   也弹**「登录已过期，请重新登录」（FR-SESSION-02 主触发路径，此前被 in-process
+ *   落差判据吞掉）。首启无凭证（无 reason）不是失效，不弹。
+ * - **主动登出抑制**：`requestHrOaLogout()` 先标记 voluntary，且 main 的 `logout()` 落
+ *   `reason:'logout'` 随推送带给**每个**窗口（voluntary 标记只在本窗有，兄弟窗口靠
+ *   reason 抑制——Finding 4）；had-session → signed-out 的落差不再计入失效通知
+ *   （FR-HOME-03 主动登出不得弹「登录已过期」；LocalDbGate 的 fatal-DB 离开路径同款）。
  * - **T9/T10 转场锁**：登出 / 失效的落差记 600ms 锁（PRD §9.2）；失效 toast 在锁末
- *   弹出（FR-SESSION-02），登出动作在锁内防重入。
+ *   弹出（FR-SESSION-02），登出动作在锁内防重入。冷启动发现失效无锁（没有首页可淡出）。
+ * - **离线只读（Finding 2）**：`offline` 落定暴露 `useHrOaSessionOffline()`——composer
+ *   发送置灰与模型连通「未知」共用它；网络恢复（`window 'online'`）触发 main 静默重登。
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 import { captureActiveOwnerComposerDrafts } from '@/lib/composerDraftStore';
 import { createLogger } from '@/lib/logger';
@@ -25,11 +32,11 @@ import { clearHrOaHomeArrival, noteHrOaHomeArrival, trackHrOaEvent } from '@/lib
 
 import type { OaLoginFailure } from '../../../main/hr-oa/errors';
 import type { PersonProfile } from '../../../main/hr-oa/profile';
-import type { HrOaAuthState } from '../../../main/hr-oa/sessionManager';
+import type { HrOaAuthState, HrOaSignedOutReason } from '../../../main/hr-oa/sessionManager';
 
 const log = createLogger('HrOaAuthStore');
 
-export type { HrOaAuthState, OaLoginFailure, PersonProfile };
+export type { HrOaAuthState, HrOaSignedOutReason, OaLoginFailure, PersonProfile };
 
 /** `hrOa:login` 的原样回包：显式登录失败恒为 `{ error }`（Ruling 3），成功为新状态。 */
 export type HrOaLoginResult = HrOaAuthState | { error: OaLoginFailure };
@@ -58,6 +65,11 @@ interface HrOaGateMemorySnapshot {
   successBeatActive: boolean;
   /** had-session → signed-out 的失效通知（`consumeHrOaExpiryNotice` 消费）。 */
   expiryNoticeSeq: number;
+  /**
+   * HR OA `offline` 落定中（设计 §4.2 离线只读）：composer 发送置灰、模型连通展示
+   * 「未知」都认这一个信号（Finding 2）。
+   */
+  sessionOffline: boolean;
 }
 
 const gateMemory: {
@@ -97,6 +109,7 @@ let gateMemorySnapshot: HrOaGateMemorySnapshot = {
   loginInFlight: false,
   successBeatActive: false,
   expiryNoticeSeq: 0,
+  sessionOffline: false,
 };
 const gateMemoryListeners = new Set<() => void>();
 
@@ -105,32 +118,51 @@ function publishGateMemory(): void {
     loginInFlight: gateMemory.loginInFlight,
     successBeatActive: gateMemory.successBeatDeadline !== null,
     expiryNoticeSeq: gateMemory.expiryNoticeSeq,
+    sessionOffline: gateMemory.lastStatus === 'offline',
   };
   for (const listener of gateMemoryListeners) listener();
 }
 
-/** 落定一个登录态：记录 had-session 落差（跨重挂载存活）。 */
+/**
+ * 落定一个登录态：记录 had-session 落差与 signed-out 原因（跨重挂载存活）。
+ *
+ * 失效通知（FR-SESSION-02 的 toast）两类来源（Finding 1/4）：
+ *   1. **in-process 落差**：had-session（signed-in/offline）→ signed-out 且非自愿——
+ *      合成推送 / 无 reason 的兼容路径都走这条，T9 转场锁从落差起算；
+ *   2. **状态自带 `reason:'expired'`**（startup / 网络恢复的凭证类失败、TTL 过期）：
+ *      **冷启动（previous === null）也弹**——这是 FR-SESSION-02 的主触发路径，旧实现
+ *      只认 in-process 落差，冷启动静默重登失效被吞（最终分支评审 Finding 1）。
+ *
+ * 自愿性双源：本窗 `requestHrOaLogout` 的 voluntary 标记（一次性消费）+ 状态携带的
+ * `reason:'logout'`（main 的 logout() 是唯一自愿来源，兄弟窗口只看得到后者——
+ * Finding 4：只靠本窗标记，另一窗口登出会让这边误弹「登录已过期」）。
+ *
+ * 同一 signed-out 的重复落定（多次 sync 重拉）不重复弹、不改 S1 曝光因（sticky）。
+ */
 function landHrOaState(next: HrOaAuthState): void {
   const previous = gateMemory.lastStatus;
   gateMemory.lastStatus = next.status;
   const wasActive = previous === 'signed-in' || previous === 'offline';
-  if (wasActive && next.status === 'signed-out') {
-    // T9/T10 转场锁从落差起算（PRD §9.2）：失效 toast 在锁末弹出。
-    gateMemory.leaveDeadline = Date.now() + HR_OA_LEAVE_LOCK_MS;
-    // 主动登出（requestHrOaLogout）不弹「登录已过期」（FR-HOME-03）；voluntary 标记
-    // 一次性消费——下一次真正失效（凭证过期 / 吊销）恢复弹 toast。
-    const voluntary = gateMemory.voluntaryLogout;
-    if (!voluntary) {
-      gateMemory.expiryNoticeSeq += 1;
+  if (next.status === 'signed-out') {
+    const entered = previous !== 'signed-out';
+    const voluntary = gateMemory.voluntaryLogout || next.reason === 'logout';
+    if (entered) {
+      const expiry = next.reason === 'expired' || (wasActive && !voluntary);
+      if (expiry) gateMemory.expiryNoticeSeq += 1;
+      if (wasActive) {
+        // T9/T10 转场锁从落差起算（PRD §9.2）：失效 toast 在锁末弹出。
+        gateMemory.leaveDeadline = Date.now() + HR_OA_LEAVE_LOCK_MS;
+        // 埋点（PRD §10.2）：退出登录 / 登录态失效共一个事件，reason 区分。account_hash
+        // 走上下文（signed-out 保留末次账号键）。冷启动发现失效（无 in-process 会话）
+        // 不发 logout 事件——没有可归因的登出动作，只改 S1 曝光因。
+        trackHrOaEvent('logout', { reason: voluntary ? 'user' : 'token_expired' });
+        // 登出即一次首页到达周期结束：丢弃未消费的到达账，防下次登录串台。
+        clearHrOaHomeArrival();
+      }
+      // S1 曝光原因（welcome_view.from，PRD §10.2）。
+      gateMemory.welcomeFrom = voluntary ? 'logout' : expiry ? 'token_expired' : 'launch';
     }
     gateMemory.voluntaryLogout = false;
-    // 埋点（PRD §10.2）：退出登录 / 登录态失效共一个事件，reason 区分；S1 曝光原因
-    // 同步改写（welcome_view.from）。account_hash 走上下文（signed-out 保留末次账号键）。
-    const reason = voluntary ? 'user' : 'token_expired';
-    gateMemory.welcomeFrom = voluntary ? 'logout' : 'token_expired';
-    trackHrOaEvent('logout', { reason });
-    // 登出即一次首页到达周期结束：丢弃未消费的到达账，防下次登录串台。
-    clearHrOaHomeArrival();
   }
   if (next.status === 'signed-in' || next.status === 'offline') {
     gateMemory.voluntaryLogout = false;
@@ -168,6 +200,19 @@ export function subscribeHrOaGateMemory(listener: () => void): () => void {
 
 export function getHrOaGateMemorySnapshot(): HrOaGateMemorySnapshot {
   return gateMemorySnapshot;
+}
+
+function getSessionOffline(): boolean {
+  return gateMemorySnapshot.sessionOffline;
+}
+
+/**
+ * HR OA 离线只读信号（设计 §4.2，Finding 2）：`offline` 落定中返回 true。
+ * composer 发送置灰、模型连通展示「未知」共用这一个来源——不另开镜像。
+ * 骑模块级门禁记忆（不发 IPC）：状态由 `useHrOaAuth` 的 sync 落进来。
+ */
+export function useHrOaSessionOffline(): boolean {
+  return useSyncExternalStore(subscribeHrOaGateMemory, getSessionOffline);
 }
 
 /** 「登录成功」拍剩余毫秒；无拍返回 0（LoginScreen 重挂载续拍用）。 */
@@ -253,7 +298,9 @@ export async function requestHrOaLogout(): Promise<boolean> {
     if (fadeMs > 0) await new Promise((resolve) => window.setTimeout(resolve, fadeMs));
     await window.electronAPI.hrOa.logout();
     destroyDrafts();
-    landHrOaState({ status: 'signed-out' });
+    // reason:'logout' 随后到的推送同款（main 的 logout() 落的也是它）：重复落定不再
+    // 计一次失效，兄弟窗口也认这个 reason 抑制 toast（Finding 4）。
+    landHrOaState({ status: 'signed-out', reason: 'logout' });
     publishGateMemory();
     return true;
   } catch (err) {
@@ -298,9 +345,23 @@ export function useHrOaAuth(): HrOaAuthApi {
     const unsubscribe = window.electronAPI.onAuthStateChange(() => {
       sync();
     });
+    // 网络恢复（设计 §4.2「网络恢复后静默重登刷新会话」）：main 侧没有网络变化信号
+    // （grep network-changed/'online'/reachability 只有 device-link/relay），本仓既有
+    // 恢复信号就是渲染层 `window 'online'`（botGroupOutbox / localCatalogSnapshot 同款）。
+    // 触发 main 的 networkRecovered()：只在 offline 落定后重登，多窗口同响单飞合并。
+    const onOnline = (): void => {
+      // 事件回调里不许抛：测试桥 / 老桥可能没接这条通道，缺了静默跳过。
+      const recover = window.electronAPI.hrOa.networkRecovered;
+      if (typeof recover !== 'function') return;
+      void Promise.resolve(recover()).catch((err) => {
+        log.warn('hrOa network-recovered failed', err);
+      });
+    };
+    window.addEventListener('online', onOnline);
     return () => {
       cancelled = true;
       unsubscribe();
+      window.removeEventListener('online', onOnline);
     };
   }, []);
 
@@ -327,7 +388,7 @@ export function useHrOaAuth(): HrOaAuthApi {
 
   const logout = useCallback(async () => {
     // 失败（回 false）不切 UI：登录态未变，等下一次触发。
-    if (await requestHrOaLogout()) setState({ status: 'signed-out' });
+    if (await requestHrOaLogout()) setState({ status: 'signed-out', reason: 'logout' });
   }, []);
 
   return { state, login, logout };
@@ -344,6 +405,9 @@ export const __testing = {
     gateMemory.voluntaryLogout = false;
     gateMemory.leaveDeadline = null;
     gateMemory.leaveInFlight = false;
+    gateMemory.welcomeFrom = 'launch';
     publishGateMemory();
   },
+  /** 走生产 `landHrOaState` 落一个登录态（离线门禁 / 失效分流用例的状态来源）。 */
+  landHrOaState,
 };

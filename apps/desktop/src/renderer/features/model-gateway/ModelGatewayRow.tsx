@@ -20,6 +20,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
+import { useHrOaSessionOffline } from '@/features/hr-oa-auth/hrOaAuthStore';
 import { readCustomProviderKey } from '@/lib/customProviders';
 import { cn } from '@/lib/utils';
 
@@ -109,14 +110,18 @@ export function ModelGatewayRow({
     }
   }, [entry.baseUrl, entry.id, entry.modelId, retesting, setStatus]);
 
-  const kind = statusKindOf(entry.status, retesting);
+  // HR OA 离线只读（设计 §4.2 / Finding 2）：离线测不了连通——状态展示回落「未知」
+  // （未测试四态的 idle：空心点 + 未测试），不得把上次探测的绿点 / 延迟当现状。
+  // 只改**展示**；store 里的探测结果不动，回在线自然恢复（宁可未测试不留陈旧已连通）。
+  const displayStatus: ModelStatus = useHrOaSessionOffline() ? 'untested' : entry.status;
+  const kind = statusKindOf(displayStatus, retesting);
   const statusText =
     kind === 'testing'
       ? t('settings.providers.modelGateway.testing')
       : kind === 'idle'
         ? t('settings.providers.modelGateway.untested')
         : kind === 'ok'
-          ? `${(entry.status as { ok: true; latencyMs: number }).latencyMs}ms`
+          ? `${(displayStatus as { ok: true; latencyMs: number }).latencyMs}ms`
           : t('settings.providers.modelGateway.failed');
 
   return (

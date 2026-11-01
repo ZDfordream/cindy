@@ -1,21 +1,26 @@
 /**
- * credentialStore.ts — HR OA 门户登录凭证（钥匙串）与账号键映射（main 进程）。
+ * credentialStore.ts — HR OA 门户登录凭证（钥匙串）、账号键映射与资料缓存（main 进程）。
  *
- * 两份持久数据，生命周期分离：
+ * 三份持久数据，生命周期分离：
  *   1. **登录凭证**（username / password / accountKey / loginName / expiresAt）——口令只经
  *      `SecretStorageIo` 落盘（与 providerSecretStore / bootstrap-electron safe-storage IPC
  *      **字节级一致**的 safeStorage 密文格式，不新开加密格式），且**不在 owner 分区内**：
  *      静默重登发生在 owner 认领之前，凭证必须先于分区可读。
  *   2. **账号键映射表**——`loginName → { accountKey, expiresAt }`，落 `userData` 根下全局
  *      明文 JSON（同样不在 owner 分区内，后续任务在 owner 出现前就要查它），原子替换写入。
+ *   3. **资料缓存**——`{ accountKey, loginName, profile }`，登录成功时落一份（设计 §4.2
+ *      「账号键与个人资料落一份本地缓存，离线启动靠它定位数据分区」），与凭证/映射表同住
+ *      `userData` 根、**不在 owner 分区内**（离线启动要在认领分区前读到它）。下次登录成功
+ *      覆盖更新。**绝不含口令**——资料缓存是明文 JSON，只有展示字段。
  *
  * 账号键**冻结在首次登录**：映射表里已有条目就永远回冻结键，之后资料里出现的 personId 只进
  * 资料字段，不得顶替账号键——否则 dataOwner 换键会把本地数据分区整体孤儿化。条目的
  * expiresAt 是登录时效（save 时滑动刷新），供后续任务判断新鲜度；**不**参与冻结判定。
- * clearOaLogin 只清凭证密文，映射表保留（登出再登不得换键）。
+ * clearOaLogin 只清凭证密文，映射表与资料缓存保留（登出再登不得换键；资料缓存留作
+ * 下次离线启动的兜底，登录成功即覆盖）。
  *
  * 安全红线：口令明文只出现在 secret IO 的密文槽与返回给会话恢复的 OaStoredLogin 里；
- * 映射表、日志与错误文本绝不含口令。
+ * 映射表、资料缓存、日志与错误文本绝不含口令。
  */
 
 import { app, safeStorage } from 'electron';
@@ -279,19 +284,30 @@ function parseStoredLogin(raw: string): OaStoredLogin | null {
   }
 }
 
-/** 缺失 / 损坏 / 过期均返回 null；过期或损坏的密文顺手清除。 */
-export async function loadOaLogin(
+/**
+ * 载入结果三分（Finding 1 的失效分流来源）：`expired` = **曾有**凭证但已不可用
+ * （TTL 过期 / 密文损坏）——FR-SESSION-02 按失效处理（弹「登录已过期」）；
+ * `none` = 无凭证（首启 / 已登出）——不是失效，不弹。
+ */
+export type OaLoginLoadResult =
+  | { status: 'ok'; record: OaStoredLogin }
+  | { status: 'none' }
+  | { status: 'expired' };
+
+/** 缺失 / 损坏 / 过期的分流版 load；过期或损坏的密文顺手清除。 */
+export async function loadOaLoginDetailed(
   now?: number,
   deps: OaCredentialDeps = defaultDeps(),
-): Promise<OaStoredLogin | null> {
+): Promise<OaLoginLoadResult> {
   let raw: string | null;
   try {
     raw = deps.secretIo.read(OA_LOGIN_STORAGE_KEY);
   } catch (err) {
     log.warn('oa credential read failed', { err: errorText(err) });
-    return null;
+    // 读失败无从判断存量：按无凭证处理（不得凭一次 IO 抖动弹「已过期」）。
+    return { status: 'none' };
   }
-  if (raw == null) return null;
+  if (raw == null) return { status: 'none' };
   const record = parseStoredLogin(raw);
   const at = now ?? (deps.now ?? Date.now)();
   if (!record || at >= record.expiresAt) {
@@ -300,14 +316,24 @@ export async function loadOaLogin(
     } catch (err) {
       log.warn('oa credential remove failed', { err: errorText(err) });
     }
-    return null;
+    return { status: 'expired' };
   }
-  return record;
+  return { status: 'ok', record };
+}
+
+/** 缺失 / 损坏 / 过期均返回 null（区分载入原因用 `loadOaLoginDetailed`）。 */
+export async function loadOaLogin(
+  now?: number,
+  deps: OaCredentialDeps = defaultDeps(),
+): Promise<OaStoredLogin | null> {
+  const result = await loadOaLoginDetailed(now, deps);
+  return result.status === 'ok' ? result.record : null;
 }
 
 /**
  * 清除登录凭证（登出 / 凭证类失败）。**不动**账号键映射表——登出再登不得换键，
- * 否则本地数据分区会被孤儿化。
+ * 否则本地数据分区会被孤儿化。资料缓存同样保留（下次登录成功覆盖；离线兜底数据
+ * 不随登出销毁，但只展示不认证）。
  */
 export async function clearOaLogin(deps: OaCredentialDeps = defaultDeps()): Promise<void> {
   try {
@@ -315,5 +341,76 @@ export async function clearOaLogin(deps: OaCredentialDeps = defaultDeps()): Prom
     if (!result.success) log.warn('oa credential remove failed', { error: result.error ?? 'remove_failed' });
   } catch (err) {
     log.warn('oa credential remove failed', { err: errorText(err) });
+  }
+}
+
+// ── 资料缓存（设计 §4.2：账号键与个人资料落一份本地缓存，离线启动靠它定位数据分区）──
+// 与凭证/映射表同住 userData 根（不在 owner 分区内）。**明文 JSON、绝不含口令**：
+// 只存展示字段 + 冻结账号键，登录成功覆盖更新。
+
+export interface OaProfileCache {
+  accountKey: string;
+  loginName: string;
+  profile: PersonProfile;
+}
+
+const OA_PROFILE_CACHE_FILE = 'hr-oa-profile-cache.json';
+
+function profileCachePath(deps: OaCredentialDeps): string {
+  return path.join(path.dirname(deps.mappingFilePath), OA_PROFILE_CACHE_FILE);
+}
+
+/** 登录成功落一份（覆盖写，原子替换）；IO 失败只 warn，不阻断登录。 */
+export async function saveOaProfileCache(
+  input: OaProfileCache,
+  deps: OaCredentialDeps = defaultDeps(),
+): Promise<void> {
+  const file = profileCachePath(deps);
+  const tmp = `${file}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify(input), 'utf-8');
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    log.warn('oa profile cache write failed', { err: errorText(err) });
+  }
+}
+
+/** 读资料缓存；缺失 / 损坏 / 形状不符返回 null（缓存坏了不能拖垮离线启动）。 */
+export async function loadOaProfileCache(
+  deps: OaCredentialDeps = defaultDeps(),
+): Promise<OaProfileCache | null> {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(profileCachePath(deps), 'utf-8');
+  } catch {
+    return null;
+  }
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    if (typeof record.accountKey !== 'string' || !record.accountKey) return null;
+    if (typeof record.loginName !== 'string') return null;
+    const profile = record.profile;
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return null;
+    const p = profile as Record<string, unknown>;
+    const text = (key: string): string => (typeof p[key] === 'string' ? (p[key] as string) : '');
+    return {
+      accountKey: record.accountKey,
+      loginName: record.loginName,
+      profile: {
+        name: text('name'),
+        loginName: text('loginName'),
+        dept: text('dept'),
+        mobile: text('mobile'),
+        email: text('email'),
+        title: text('title'),
+        sex: text('sex'),
+        personId: text('personId'),
+      },
+    };
+  } catch {
+    return null;
   }
 }

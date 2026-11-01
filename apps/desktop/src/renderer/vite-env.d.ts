@@ -2212,6 +2212,8 @@ interface ElectronAPI {
     ) => Promise<import('../main/hr-oa/sessionManager').HrOaAuthState | { error: import('../main/hr-oa/errors').OaLoginFailure }>;
     logout: () => Promise<void>;
     getState: () => Promise<import('../main/hr-oa/sessionManager').HrOaAuthState>;
+    /** 网络恢复(设计 §4.2)：window 'online' 触发 main 静默重登(仅 offline 落定后有动作)。 */
+    networkRecovered: () => Promise<import('../main/hr-oa/sessionManager').HrOaAuthState>;
     /** HR OA 埋点(PRD §10)：fire-and-forget；载荷组装与脱敏在 main trackHrOaEvent 收口。 */
     trackEvent: (name: string, props: Record<string, unknown>) => void;
   };

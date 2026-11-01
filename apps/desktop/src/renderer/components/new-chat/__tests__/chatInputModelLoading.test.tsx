@@ -7,6 +7,7 @@ import type { ProviderView } from '@cindy/model-providers';
 import { sharedTaskHostPeer } from '@cindy/device-link';
 import { sshNativeCodexProvider, sshModel } from '@/features/cc-agent/__tests__/sshModelFixtures';
 import { ChatInput } from '../ChatInput';
+import { __testing as hrOaStoreTesting } from '@/features/hr-oa-auth/hrOaAuthStore';
 import * as providerMemory from '@/state/providerModelMemory';
 import * as draftMemory from '@/state/newMakerDraft';
 import { getEffortChangeCoordinator } from '../effortChangeQueue';
@@ -111,7 +112,7 @@ const attachments: ComponentProps<typeof ChatInput>['attachmentState'] = {
   pendingFileMentionsVersion: 0, consumePendingFileMentions: () => [],
   removeFile: noOp, updateFile: noOp, discardFiles: noOp, clearFiles: noOp, restoreFiles: (files) => [...files],
 };
-beforeEach(() => { h.platform = 'darwin'; h.listening = false; h.processing = null; h.stop.mockClear(); h.selectEffort = undefined; h.connectedSourceLoading = false; h.listGatewayProviders = () => Promise.resolve({ providers: h.gatewayProviders }); window.electronAPI = api; window.localStorage.removeItem('hrbuddy.currentModel'); vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
+beforeEach(() => { h.platform = 'darwin'; h.listening = false; h.processing = null; h.stop.mockClear(); h.selectEffort = undefined; h.connectedSourceLoading = false; h.listGatewayProviders = () => Promise.resolve({ providers: h.gatewayProviders }); window.electronAPI = api; window.localStorage.removeItem('hrbuddy.currentModel'); hrOaStoreTesting.resetHrOaGateMemory(); vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
 afterEach(() => { cleanup(); clearDraft('queue-shortcut'); clearPromptRecommendationSession('queue-shortcut'); h.remoteProviders = []; h.localProviders = []; h.gatewayProviders = []; h.remoteStatus = 'ready'; h.setModel.mockReset(); h.confirm.mockReset(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const props = {
@@ -1033,4 +1034,43 @@ it('still shows the no-source dialog when the steady state truly has zero connec
     confirmText: 'newChat.noProvider.connect',
   });
   expect(onSend).not.toHaveBeenCalled();
+});
+
+it('HR OA offline（设计 §4.2 离线只读）：Send 置灰、点击与 Enter 静默不发（Finding 2 发送不可用）', async () => {
+  // 测试价值：offline 是 HR OA 静默重登撞上网络类失败的稳态（凭证保留、home 可读）。
+  // 设计 §4.2 要求「发送不可用」——用户看到的是**灰掉的 Send**，不是点了之后的神秘
+  // 失败。走 homeGateLoading/sendButtonDisabled 同一发送门禁缝，不另开一套判据。
+  // 现有覆盖缺口：本文件只盖零来源 / 水合窗口的置灰，没有 HR OA 离线置灰。
+  // 最小失败输入：baseline recovery 可发送的草稿 + land(offline) → Send 仍可点即失败。
+  hrOaStoreTesting.resetHrOaGateMemory();
+  h.localProviders = [];
+  const onSend = vi.fn().mockResolvedValue(true);
+  const route = { agentKind: 'codex' as const, model: 'retired-model', providerId: 'removed', effort: null, fastMode: false };
+  render(<ChatInput {...props} sessionId="offline-send" deviceLinkDeviceId={null}
+    initialModel={route.model} initialProviderId={route.providerId} runtimeEffective={route}
+    allowBaselineRecovery onSend={onSend} />);
+  await waitFor(() => expect(h.editor).not.toBeNull());
+  await act(async () => { h.editor!.commands.setContent('<p>Offline draft</p>'); });
+  // 在线基线：有 baseline recovery 时 Send 可用（对照，证明置灰是 offline 造成的）。
+  expect((screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement).disabled).toBe(false);
+
+  act(() => {
+    hrOaStoreTesting.landHrOaState({
+      status: 'offline',
+      accountKey: 'P100',
+      profile: { name: '', loginName: '', dept: '', mobile: '', email: '', title: '', sex: '', personId: 'P100' },
+    });
+  });
+  await act(async () => {});
+
+  const send = screen.getByRole('button', { name: 'newChat.sendButton.send' }) as HTMLButtonElement;
+  expect(send.disabled).toBe(true);
+  await act(async () => { fireEvent.click(send); });
+  await act(async () => {
+    fireEvent.keyDown(h.editor!.view.dom, { key: 'Enter', code: 'Enter' });
+  });
+  expect(onSend).not.toHaveBeenCalled();
+  expect(h.confirm).not.toHaveBeenCalled();
+  // 离线只收发送，不清草稿：恢复后接着发。
+  expect(h.editor!.getText()).toBe('Offline draft');
 });

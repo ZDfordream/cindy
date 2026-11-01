@@ -130,6 +130,7 @@ import { resolveComposerModelSelection } from './composerModelSelection';
 import { ModelGatewayScope } from '@/features/model-gateway/ModelGatewayStore';
 import { useCurrentModelRoute } from '@/features/model-gateway/currentModelStore';
 import { useHomeGateSurface } from '@/features/model-gateway/homeOnboardingGate';
+import { useHrOaSessionOffline } from '@/features/hr-oa-auth/hrOaAuthStore';
 import { ChatModelMenu } from '@/features/model-gateway/ChatModelMenu';
 import type { SessionRuntimeProfileProjection, SessionRuntimePendingProjection } from '@/lib/ccAgent.types';
 import {
@@ -2252,6 +2253,11 @@ function ChatInputInner({
   const homeGate = useHomeGateSurface();
   const homeGateUnconfigured = homeGate?.phase === 'unconfigured';
   const homeGateLoading = homeGate?.phase === 'loading';
+  // HR OA 离线只读（login-onboarding 设计 §4.2 / Finding 2）：静默重登撞上网络类失败的
+  // 稳态——凭证保留、home 可读，但**发送不可用**。走 homeGateLoading/sendButtonDisabled
+  // 同一条发送门禁缝（Send 置灰 + 间接派发静默 return），不另开一套判据：用户看到的是
+  // 灰掉的按钮，不是点了之后的神秘失败。
+  const hrOaOffline = useHrOaSessionOffline();
 
   // 当前**生效来源 id**(= ModelSelector 高亮的 activeSourceId 同口径):显式选中且仍可连、
   // 且提供当前模型 → 用它;否则只在“提供当前模型”的来源里取原生默认。providerModelMemory
@@ -5533,6 +5539,9 @@ function ChatInputInner({
   const dispatchSend = useCallback(
     async (deliveryMode: MessageDeliveryMode = 'queue') => {
       if (!editor) return;
+      // HR OA 离线只读（设计 §4.2）：发送不可用——含 Enter / 语音 / 代发等间接派发。
+      // Send 已置灰；这里兜住绕过按钮的入口，静默 return（输入保留，网络恢复后接着发）。
+      if (hrOaOffline) return;
       // 首页补配门禁（S4b 开弹窗 / loading 静默等待，含 Enter / 语音 / 代发等间接派发）：
       // 已被门禁消费即不进发送链——输入保留，绝不弹「当前模型没有可用来源」（Review Focus #5）。
       if (homeGate?.gate('send')) return;
@@ -6433,6 +6442,7 @@ function ChatInputInner({
       sourceGateActive,
       sourceGateLoading,
       homeGate,
+      hrOaOffline,
       fastMode,
       hasAttachments,
       attachments,
@@ -6560,6 +6570,8 @@ function ChatInputInner({
 
   const handleClickSend = useCallback(
     async (deliveryMode: MessageDeliveryMode = 'queue') => {
+      // HR OA 离线只读先行（设计 §4.2）：发送不可用，与置灰的 Send 同判据（Finding 2）。
+      if (hrOaOffline) return;
       // 首页补配门禁先行（S4b：点发送打开添加模型弹窗而不是发送，输入保留）。
       if (homeGate?.gate('send')) return;
       if (queueEditActive) {
@@ -6602,6 +6614,7 @@ function ChatInputInner({
       editor,
       handleVoiceInputStop,
       homeGate,
+      hrOaOffline,
       hasPreparedOrPendingAttachments,
       queueEditActive,
       submitQueueEdit,
@@ -9262,6 +9275,8 @@ function ChatInputInner({
     sourceGateLoading ||
     // 首页补配门禁的加载窗口（hydrated === false）：同口径置灰等待（Review Focus #5）。
     homeGateLoading ||
+    // HR OA 离线只读（设计 §4.2 / Finding 2）：发送不可用，Send 置灰（非神秘失败）。
+    hrOaOffline ||
     waitingForFolders ||
     // 空態:当前 agent 无已连接来源 → Send 禁用(设计 Q7NYAD「send 置灰」),引导用户先去连接来源。
     // S4b 补配门禁面除外：点击发送的去处就是添加模型弹窗，不因「零来源」置灰。

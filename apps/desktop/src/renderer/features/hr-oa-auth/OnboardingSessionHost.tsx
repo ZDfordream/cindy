@@ -19,6 +19,10 @@
  * 之下；决定弹 S3 后延迟 `HR_OA_S3_DIALOG_DELAY_MS` 出弹窗；跳过 / 保存后姿态归位
  * （settle）。时长 / 曲线走登记 token（reduce 下全局 `transition: none` 瞬时切换），
  * 编排状态本身在 body 数据属性上，可观察、可测试。
+ * **计时器合同（Finding 3）**：出窗 timer 只住在 `decideTimerRef`，清理只随真正卸载走；
+ * deps 翻转（entries 在任何 rows 变更上换 identity）不得取消它，decidedRef 挡住重决定
+ * 时 effect 重跑**补排**——否则一次 rows 翻转就把 phase 卡死在 pending（S3 永不出、
+ * home_view 永不 flush）。
  *
  * **弹窗双回调合同（Task 5 deferred minor）**：保存成功尾 `OnboardingModelDialog` 会**既**
  * 回 `onSaved(id)` **又**回 `onClose()`。两个回调都只表示「弹窗结束」——`onSaved` 先落
@@ -95,6 +99,26 @@ export function OnboardingSessionHost(props: { children?: ReactNode }) {
   const lastSaveRef = useRef<string | null>(null);
   // 资格判定只跑一次：cleanup / 竞态下不许把消费掉的资格再决定一遍。
   const decidedRef = useRef(false);
+  // Finding 3：240ms 出窗计时器的唯一住处。决定=「弹」之后**任何** deps 翻转
+  // （entries 在每次 rows 变更上换 identity）都不许取消它；decidedRef 挡住重决定后
+  // effect 重跑走补排分支，timer 不会因一次 cleanup 就永远消失（否则 phase 卡死在
+  // pending：预览姿态永不落位、S3 不弹、home_view 永不 flush）。
+  const decideTimerRef = useRef<number | null>(null);
+  const decidedShowRef = useRef(false);
+
+  const armShowTimer = useCallback((reduced: boolean) => {
+    if (decideTimerRef.current !== null) return;
+    const delay = reduced ? 0 : HR_OA_S3_DIALOG_DELAY_MS;
+    // §9.5 状态瞬时切换：reduce / 0 延迟直落，不挂 timer（fake timers 下也不留尾巴）。
+    if (delay <= 0) {
+      setPhase('showing');
+      return;
+    }
+    decideTimerRef.current = window.setTimeout(() => {
+      decideTimerRef.current = null;
+      setPhase('showing');
+    }, delay);
+  }, []);
 
   // 显式登录资格（模块级记忆，跨 ownerKey 重挂载存活）→ 进入待决 + 预览姿态。
   useEffect(() => {
@@ -112,24 +136,36 @@ export function OnboardingSessionHost(props: { children?: ReactNode }) {
     };
   }, [phase]);
 
-  // 决定点：hydrate 落定后判「有没有模型」（FR-SESSION-05 / T3b）。
+  // 决定点：hydrate 落定后判「有没有模型」（FR-SESSION-05 / T3b）。决定只做一次；
+  // 已决定「弹」而 timer 被卸载/重挂载收走（StrictMode cleanup、ownerKey 重挂载）时
+  // **补排**，不许因 decidedRef 挡着就永远停在 pending（Finding 3）。
   useEffect(() => {
-    if (phase !== 'pending' || !hydrated || decidedRef.current) return;
+    if (phase !== 'pending' || !hydrated) return;
+    if (decidedRef.current) {
+      if (decidedShowRef.current) armShowTimer(reducedMotion);
+      return;
+    }
     decidedRef.current = true;
     const eligible = consumeHrOaOnboardingEligibility();
     if (!eligible || entries.length > 0) {
       setPhase('settled');
       return;
     }
-    const delay = reducedMotion ? 0 : HR_OA_S3_DIALOG_DELAY_MS;
-    // §9.5 状态瞬时切换：reduce / 0 延迟直落，不挂 timer（fake timers 下也不留尾巴）。
-    if (delay <= 0) {
-      setPhase('showing');
-      return;
-    }
-    const timer = window.setTimeout(() => setPhase('showing'), delay);
-    return () => window.clearTimeout(timer);
-  }, [phase, hydrated, entries, reducedMotion]);
+    decidedShowRef.current = true;
+    armShowTimer(reducedMotion);
+  }, [phase, hydrated, entries, reducedMotion, armShowTimer]);
+
+  // timer 的清理只随**真正卸载**走（`[]`）：deps 翻转（rows 变更换 entries identity）
+  // 不在 decide effect 里挂 cleanup，240ms 编排不被中途取消（见 armShowTimer 头注）。
+  useEffect(
+    () => () => {
+      if (decideTimerRef.current !== null) {
+        window.clearTimeout(decideTimerRef.current);
+        decideTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   // 「更多 → 自定义」→ 同一补配弹窗（Task 6 宿主；origin=home）。
   useEffect(() => {

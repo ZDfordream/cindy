@@ -6,16 +6,23 @@
  *   commitSession('hr', key)）；logout() 清凭证 + commitSession('signed-out') + client.resetSession()；
  *   login() 手输账号写入经 resolveAccountKey 冻结的新键，显式登录失败只回 { error } 不改状态与
  *   存量凭证（Ruling 3：登录页留在原地出内联错误，只有 startup 静默重登会产生 offline）。
+ *   失效原因分流（FR-SESSION-02 冷启动 toast 来源）：凭证类失败 / TTL 过期落
+ *   `{status:'signed-out', reason:'expired'}`，主动登出 `reason:'logout'`，无凭证首启无 reason；
+ *   离线契约（设计 §4.2）：登录成功落本地资料缓存（**无口令**），offline 启动优先用缓存资料，
+ *   networkRecovered() 在网络恢复后静默重登回 signed-in。
  * - Bug／规则依据：登录门禁计划 Task 2 Step 5/6 失败分流表；Ruling 3 显式登录失败不进 offline；
  *   「资料失败不阻断登录，键退化用已缓存的冻结键」；VPN 抖动（网络类失败）绝不能清凭证把人锁在
  *   门外；logout 必须 client.resetSession()（OA client 在内存里记着口令做会话恢复，不复位会跨
- *   登出口令泄漏）。
+ *   登出口令泄漏）；集成设计 §4.2（wrong_credentials/locked → 清钥匙串 + toast「登录已过期」；
+ *   network_error/timeout → 保留凭证离线只读 + 网络恢复静默重登 + 资料本地缓存）。
  * - 现有覆盖缺口：新模块，此前没有 HR 会话生命周期与失败分流覆盖；oaClient.test.ts 只覆盖单次
- *   登录 outcome，不覆盖凭证去留与会话状态。
- * - 最小失败输入：见表驱动 startup 六行 + 手输新账号 / 冻结键 / 显式失败四类 / logout；凭证层
- *   用真实 credentialStore（内存 secret IO + mkdtemp 映射表），client 全 fake。
+ *   登录 outcome，不覆盖凭证去留与会话状态。评审 Finding 1/2 前：startup 不报告 signed-out
+ *   原因（冷启动失效无法弹 toast）、无资料缓存、无网络恢复重登。
+ * - 最小失败输入：见表驱动 startup 六行 + 手输新账号 / 冻结键 / 显式失败四类 / logout +
+ *   TTL 过期 reason / networkRecovered 三态 / 资料缓存与无口令；凭证层用真实 credentialStore
+ *   （内存 secret IO + mkdtemp 映射表），client 全 fake。
  * - tier：unit（无真实网络；client/commitSession 注入 fake，凭证走真实模块 + 假 IO）。
- * - 实测耗时：单文件 ~1.5s 墙钟（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/sessionManager.test.ts）。
+ * - 实测耗时：单文件 ~1.8s 墙钟（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/sessionManager.test.ts）。
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,6 +34,7 @@ vi.mock('../../logger.js', () => ({
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
+import * as credentialStoreNs from '../credentialStore.js';
 import {
   OA_LOGIN_TTL_MS,
   clearOaLogin,
@@ -99,6 +107,10 @@ function makeCredentials(): typeof import('../credentialStore.js') {
     OA_LOGIN_TTL_MS,
     saveOaLogin: (input) => saveOaLogin(input, testDeps),
     loadOaLogin: (now?: number) => loadOaLogin(now, testDeps),
+    // 失效原因分流（Finding 1）与离线资料缓存（Finding 2）走同一注入层。
+    loadOaLoginDetailed: (now?: number) => credentialStoreNs.loadOaLoginDetailed(now, testDeps),
+    saveOaProfileCache: (input) => credentialStoreNs.saveOaProfileCache(input, testDeps),
+    loadOaProfileCache: () => credentialStoreNs.loadOaProfileCache(testDeps),
     clearOaLogin: clearOaLoginSpy as typeof clearOaLogin,
     resolveAccountKey: (loginName, forProfile) => resolveAccountKey(loginName, forProfile, testDeps),
   };
@@ -176,11 +188,12 @@ describe('startup silent re-login', () => {
       expectedCommit: ['hr', 'p-seed'],
     },
     {
-      name: 'wrong_credentials clears the credential and commits signed-out',
+      name: 'wrong_credentials clears the credential and commits signed-out as an expiry',
       seed: true,
       login: { ok: false, kind: 'wrong_credentials' },
       profile: freshProfile,
-      expected: { status: 'signed-out' },
+      // reason:'expired' 是渲染层冷启动弹「登录已过期」的唯一来源（FR-SESSION-02）。
+      expected: { status: 'signed-out', reason: 'expired' },
       expectedCleared: true,
       expectedCommit: ['signed-out'],
     },
@@ -255,6 +268,114 @@ describe('startup silent re-login', () => {
     const state = await manager.startup();
     expect(state).toMatchObject({ status: 'signed-in', accountKey: 'login-u1' });
     expect(await loadOaLogin(clock, testDeps)).toMatchObject({ accountKey: 'login-u1' });
+  });
+
+  it('TTL-expired stored login settles signed-out with an expiry reason and drops the ciphertext', async () => {
+    // Finding 1：14 天 TTL 过期与凭证类失败同为「曾有凭证的失效」→ reason:'expired'
+    // （FR-SESSION-02 要弹「登录已过期」）；与「首启无凭证」（表首行，无 reason）分流。
+    await seedStoredLogin();
+    clock += OA_LOGIN_TTL_MS;
+    const manager = makeManager();
+    const state = await manager.startup();
+    expect(state).toEqual({ status: 'signed-out', reason: 'expired' });
+    expect(clearOaLoginSpy).not.toHaveBeenCalled();
+    expect(await loadOaLogin(clock, testDeps)).toBeNull();
+    expect(client.login).not.toHaveBeenCalled();
+    // 与凭证类失败同口径：曾有凭证的失效落定 signed-out 会话（无凭证首启才不 commit）。
+    expect(commitSession.mock.calls).toEqual([['signed-out']]);
+  });
+});
+
+describe('offline profile cache（设计 §4.2 本地缓存）', () => {
+  it('login success persists the profile cache and offline startup prefers it over blank', async () => {
+    const manager = makeManager();
+    clientProfile = profile({ loginName: 'u1', personId: 'p-seed', name: '张三' });
+    await manager.login('u1', PASSWORD);
+
+    // 模拟重启：网络类失败 → offline 应带缓存资料（用户还认得出自己的名字），不是 blank。
+    clientLogin = { ok: false, kind: 'network_error' };
+    const restarted = makeManager();
+    const state = await restarted.startup();
+    expect(state).toEqual({
+      status: 'offline',
+      accountKey: 'p-seed',
+      profile: profile({ loginName: 'u1', personId: 'p-seed', name: '张三' }),
+    });
+  });
+
+  it('offline startup falls back to blank when the cache belongs to another account', async () => {
+    const manager = makeManager();
+    clientProfile = profile({ loginName: 'u1', personId: 'p-seed', name: '张三' });
+    await manager.login('u1', PASSWORD);
+    // 换账号但写缓存失败后的残骸场景：缓存键对不上时宁可 blank，不得串号展示别人的资料。
+    await credentialStoreNs.saveOaProfileCache(
+      { accountKey: 'other-key', loginName: 'other', profile: profile({ loginName: 'other', name: '李四' }) },
+      testDeps,
+    );
+    clientLogin = { ok: false, kind: 'timeout' };
+    const state = await makeManager().startup();
+    expect(state).toEqual({ status: 'offline', accountKey: 'p-seed', profile: blank });
+  });
+
+  it('the profile cache never contains the password', async () => {
+    const manager = makeManager();
+    clientProfile = profile({ loginName: 'u1', personId: 'p-seed' });
+    await manager.login('u1', PASSWORD);
+    const raw = fs.readFileSync(path.join(tempDir, 'hr-oa-profile-cache.json'), 'utf-8');
+    expect(raw).not.toContain(PASSWORD);
+    expect(raw.toLowerCase()).not.toContain('password');
+    expect(raw).toContain('p-seed');
+  });
+});
+
+describe('networkRecovered（网络恢复静默重登，设计 §4.2）', () => {
+  it('re-runs the silent re-login from offline and settles signed-in', async () => {
+    await seedStoredLogin();
+    const manager = makeManager();
+    clientLogin = { ok: false, kind: 'network_error' };
+    await manager.startup();
+    expect(manager.getState().status).toBe('offline');
+
+    clientLogin = { ok: true };
+    clientProfile = freshProfile;
+    const state = await manager.networkRecovered();
+    expect(state).toEqual({ status: 'signed-in', accountKey: 'p-seed', profile: freshProfile });
+    expect(manager.getState()).toEqual(state);
+    expect(client.login).toHaveBeenLastCalledWith('u1', PASSWORD);
+  });
+
+  it('stays offline (credential kept) when the network is still down', async () => {
+    await seedStoredLogin();
+    const manager = makeManager();
+    clientLogin = { ok: false, kind: 'timeout' };
+    await manager.startup();
+    clientLogin = { ok: false, kind: 'network_error' };
+    const state = await manager.networkRecovered();
+    expect(state).toMatchObject({ status: 'offline', accountKey: 'p-seed' });
+    expect(await loadOaLogin(clock, testDeps)).not.toBeNull();
+  });
+
+  it('clears a dead credential and settles expired signed-out', async () => {
+    await seedStoredLogin();
+    const manager = makeManager();
+    clientLogin = { ok: false, kind: 'network_error' };
+    await manager.startup();
+    clientLogin = { ok: false, kind: 'locked' };
+    const state = await manager.networkRecovered();
+    expect(state).toEqual({ status: 'signed-out', reason: 'expired' });
+    expect(clearOaLoginSpy).toHaveBeenCalled();
+    expect(await loadOaLogin(clock, testDeps)).toBeNull();
+  });
+
+  it('is a no-op when not offline', async () => {
+    const manager = makeManager();
+    clientProfile = profile({ loginName: 'u1' });
+    await manager.login('u1', PASSWORD);
+    clientLogin = { ok: false, kind: 'wrong_credentials' };
+    await manager.networkRecovered();
+    // 只有显式登录那一次打过网络；signed-in 态的「恢复」不得重登（更不得被误清凭证）。
+    expect(client.login).toHaveBeenCalledTimes(1);
+    expect(manager.getState().status).toBe('signed-in');
   });
 });
 
@@ -347,7 +468,8 @@ describe('logout', () => {
     await manager.logout();
     expect(resetSession).toHaveBeenCalled();
     expect(await loadOaLogin(clock, testDeps)).toBeNull();
-    expect(manager.getState()).toEqual({ status: 'signed-out' });
+    // reason:'logout' = 自愿登出：兄弟窗口据此抑制失效 toast（Finding 4）。
+    expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
     expect(commitSession.mock.calls.at(-1)).toEqual(['signed-out']);
   });
 });

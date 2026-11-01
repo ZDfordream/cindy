@@ -16,10 +16,13 @@
  *   Task 5 弹窗成功尾 `onSaved` + `onClose` 双回调合同（宿主不得把 onClose 当放弃）。
  * - 现有覆盖缺口：`hrOaGate.test.tsx` 只钉门禁面（S1/S2 往返与失效 toast），无 S3
  *   宿主、无会话规则、无「更多」条目；`homeOnboardingGate.test.tsx` 只钉首页两态与
- *   补配门禁，无「显式登录才弹 S3」、无退出/失效分流、无 owner 分区边界。
+ *   补配门禁，无「显式登录才弹 S3」、无退出/失效分流、无 owner 分区边界。Finding 3
+ *   前：S3 用例全在 reduce=true（0 延迟直落）下走，240ms 计时器路径与「窗口内 rows
+ *   翻转」零覆盖（timer 被 deps cleanup 清掉 = phase 卡死 pending）。
  * - 最小失败输入：显式登录成功 + `listProviders` 落定零条目 → 不出 S3 即失败；
  *   仅 `getState` 静默落定 signed-in（= 启动）却弹 S3 即失败；主动登出弹了
- *   「登录已过期」即失败；失效 toast 在转场锁结束前出现即失败。
+ *   「登录已过期」即失败；失效 toast 在转场锁结束前出现即失败；240ms 窗口内 rows
+ *   翻转后 S3 不弹即失败（Finding 3）。
  * - tier：unit（jsdom，真实 store + 组件，IPC 边界打桩；500ms 成功拍 / 450ms
  *   已保存保持 / 600ms 转场锁全走 fake timers，无真实等待）。
  * - 实测耗时：单文件墙钟 3.3s（`pnpm --dir apps/desktop exec vitest run
@@ -46,6 +49,7 @@ import {
   subscribeDraftContent,
 } from '@/lib/composerDraftStore';
 import { ModelGatewayProvider, useModelGateway } from '@/features/model-gateway/ModelGatewayStore';
+import type { ModelGatewayApi } from '@/features/model-gateway/types';
 import {
   HomeOnboardingGateProvider,
   useHomeGateSurface,
@@ -188,6 +192,13 @@ function DraftProbe() {
   return <span data-testid="draft-probe">{present ? 'has-draft' : ''}</span>;
 }
 
+/** store API 探针（与 OnboardingSessionHost 共用同一个 ModelGatewayProvider）：窗口内 rows 翻转用。 */
+let gatewayApi: ModelGatewayApi | null = null;
+function GatewayApiProbe() {
+  gatewayApi = useModelGateway();
+  return null;
+}
+
 /** 首页面（与 NewMakerDraftRoute 的宿主接线同构）：横幅两态 + 模型/当前模型标记 + 「更多」浮层。 */
 function HomeSurface() {
   const surface = useHomeGateSurface();
@@ -218,9 +229,11 @@ function HomeSurface() {
 
 /** 生产同构树：HrOaGate → ModelGatewayProvider → HomeOnboardingGateProvider → OnboardingSessionHost。 */
 function renderSessionHome() {
+  gatewayApi = null;
   return render(
     <HrOaGate>
       <ModelGatewayProvider>
+        <GatewayApiProbe />
         <HomeOnboardingGateProvider>
           <OnboardingSessionHost>
             <HomeSurface />
@@ -344,6 +357,53 @@ describe('FR-SESSION-05：显式再登必经 S3，仅启动不弹', () => {
     expect(s3Preview()).toBe('');
     expect(bannerText()).toBeTruthy();
     expect(phaseMarker()).toBe('unconfigured');
+  });
+
+  it('S3 240ms 窗口内条目表翻转（rows 变更）不取消决定：S3 仍弹（Finding 3）', async () => {
+    // 测试价值：decide effect 的 240ms 计时器被 deps cleanup 清掉后（entries 在任何
+    // rows 翻转上都换 identity），decidedRef 已为 true、effect 重跑被挡 → 再也不补排
+    // → phase 卡死在 pending（预览姿态永不落位、S3 不弹、home_view 永不 flush）。
+    // 窗口今天很窄，但失败态是首次运行整场卡死。
+    // Bug／规则依据：OnboardingSessionHost 头注 T3/T4 编排；FR-SESSION-05「空表必经 S3」
+    // ——决定一经做出（consume 资格）就必须走完 240ms 出弹窗，不许被中间的 rows 翻转打断。
+    // 现有覆盖缺口：sessionRules 的 S3 用例全在 reduce=true（0 延迟直落）下走，从未
+    // 覆盖 240ms 计时器路径，更没有窗口内 rows 翻转。
+    // 最小失败输入：显式登录（零条目）→ 决定后 240ms 内 add 一条 → 计时器走完必须见弹窗。
+    vi.useFakeTimers();
+    mockMatchMedia(false); // reduce=false：走 HR_OA_S3_DIALOG_DELAY_MS=240 计时器路径
+    bridge.login.mockImplementation(async () => {
+      bridge.currentAccountKey = 'P100';
+      bridge.getState.mockResolvedValue(SIGNED_IN_A);
+      for (const listener of bridge.listeners) listener({});
+      return SIGNED_IN_A;
+    });
+    renderSessionHome();
+    await flush();
+    await submitLogin('zhangsan');
+    await flush();
+
+    // 决定已做（弹 S3）：还在延迟窗口里——预览姿态已上，弹窗未出。
+    expect(homeSurface()).toBeTruthy();
+    expect(dialog()).toBeNull();
+    expect(s3Preview()).toBe('on');
+
+    // 窗口内 rows 翻转：任何 setRows 都让 entries 换 identity（useMemo([rows])）。
+    await act(async () => {
+      await gatewayApi!.add({
+        baseUrl: 'https://gw.example.test',
+        apiKey: 'sk-test',
+        modelId: 'late-model',
+      });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(240);
+    });
+    await flush();
+    // 决定不回退：S3 仍要弹（RED：旧码 timer 已被 cleanup 清掉，永远停在 pending）。
+    expect(dialog()).toBeTruthy();
+    expect(within(dialog() as HTMLElement).getByText(DIALOG_TITLE)).toBeTruthy();
+    expect(s3Preview()).toBe('on');
   });
 
   it('仅启动且登录态有效 → 不弹 S3，只出未配置横幅', async () => {

@@ -489,6 +489,37 @@ owner 统一口径前不得单边收敛为单一行为，也别把分流删了�
   S4b 发送钮在 providers 快照加载期间误灰；`HomeZeroModelAction` 注释与实现不符；
   `homeOnboardingGate.test.tsx` 超 5s 预算。
 - **T7（会话规则）**：*`lastSaveRef` dead bookkeeping——Task 8 已修（handleDialogEnd 现读账
-  判 skip/save，改写 `home_view.entry`）*；OnboardingSessionHost 240ms 计时器脆弱；
-  StrictMode 零弹出注记；菜单路径登出失败静默；用例缺口两条（跳过后同账号再登须重弹 S3；
-  S3 保存同时翻两态的链路）。
+  判 skip/save，改写 `home_view.entry`）*；*OnboardingSessionHost 240ms 计时器脆弱 +
+  StrictMode 零弹出注记——final-fix 波已修（timer 入 `decideTimerRef`、只随真正卸载清理、
+  decidedRef 挡重决定时补排，见 §11.7）*；菜单路径登出失败静默；用例缺口两条（跳过后
+  同账号再登须重弹 S3；S3 保存同时翻两态的链路）。
+
+### 11.7 离线契约（设计 §4.2）已全量落地 + 失效原因分流（2026-11-01 final-fix 波）
+
+最终分支评审 Finding 1/2/3/4 收口（不再只是挂账）。**设计 §4.2 的离线合同现已完整实现**
+（此前只做了「保留凭证 + 可读 home」一半，且未登记）：
+
+| §4.2 条目 | 落点 |
+| --- | --- |
+| 发送不可用 | `ChatInput` 的 `homeGateLoading`/`sendButtonDisabled` 同一发送门禁缝加 `hrOaOffline`（来源 `useHrOaSessionOffline()`）；Send 置灰，Enter / 语音 / 代发静默 return，输入保留 |
+| 模型连通状态标记为未知 | `ModelGatewayRow` / `ChatModelMenu` 的状态展示在 offline 回落「未测试」四态（空心点 + 未测试），**不显陈旧绿**；store 里的探测结果不动，回在线自然恢复 |
+| 网络恢复后静默重登刷新会话 | 渲染层 `window 'online'`（本仓既有恢复信号；main 侧无网络变化事件）→ `hrOa:network-recovered` → `manager.networkRecovered()`（`startup()` 同款静默重登，单飞、仅 offline 生效），成功回 `signed-in` |
+| 账号键 + 个人资料本地缓存 | `credentialStore` 新增 `hr-oa-profile-cache.json`（与凭证/账号映射同住 userData 根、**不在 owner 分区内**，登录成功覆盖更新）；offline 启动优先用缓存资料，对不上冻结键则 blank。**缓存绝不含口令**（只存 profile 字段 + 冻结键） |
+
+**失效原因分流（Finding 1/4，FR-SESSION-02 主触发路径）**：`HrOaAuthState` 的
+signed-out 带 `reason`（`'expired'` = wrong_credentials / locked / TTL 过期 / 凭证损坏 →
+**冷启动也弹**「登录已过期，请重新登录」；`'logout'` = 主动登出 → 兄弟窗口一并抑制 toast
+——voluntary 标记每渲染进程一份，跨窗口必须靠状态携带的 reason；无 reason = 首启无凭证，
+不是失效，不弹）。`startup()` 经 `loadOaLoginDetailed` 区分「无凭证」与「曾有凭证已过期」。
+
+**仍属 owner 决策项（不在本波擅自定案）**：
+
+- PRD §8 / OQ-7 离线只读那几行仍是**假设（待确认）**状态——「离线只读到什么程度
+  （草稿/历史/设置是否也只读）」按设计 §4.2 现行合同（发送不可用、home 可读）执行，
+  owner 推翻 PRD 假设列时需回头对表。
+- 资料缓存落 **userData 根全局明文 JSON**（不在 owner 分区内）：设计 §4.2 原文写
+  「随 owner 数据存」，但「离线启动靠它定位数据分区」要求它先于分区可读——finding
+  裁定落凭证/账号映射旁（同 `hr-oa-account-map.json` 口径，§11.3 已登记的全局表）。
+  若 owner 要求个人资料字段（mobile/email）另走加密存储，需升级 secret IO，另开任务。
+- 14 天 TTL 过期现在会弹「登录已过期」（Finding 1 要求与凭证类失效同款 toast）；
+  若 owner 想区分文案（「凭证已过期」vs「账号被禁用」），等门户错误码可分辨后再说。

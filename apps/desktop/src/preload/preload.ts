@@ -2332,6 +2332,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('hrOa:login', username, password),
     logout: (): Promise<void> => ipcRenderer.invoke('hrOa:logout'),
     getState: (): Promise<HrOaAuthState> => ipcRenderer.invoke('hrOa:state'),
+    // 网络恢复（设计 §4.2）：渲染层 window 'online' 触发 main 静默重登；只在 offline
+    // 落定后有动作，多窗口同响单飞合并。
+    networkRecovered: (): Promise<HrOaAuthState> => ipcRenderer.invoke('hrOa:network-recovered'),
     // 埋点（PRD §10）：fire-and-forget，不返回、不阻塞 UI。载荷组装与采集边界
     // 脱敏在 main 的 trackHrOaEvent 收口；这里只负责送触发事实。
     trackEvent: (name: string, props: Record<string, unknown>): void => {

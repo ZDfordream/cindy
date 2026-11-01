@@ -70,6 +70,14 @@ export function registerHrOaIpc(deps: {
     await manager.logout();
   });
 
+  // 网络恢复（设计 §4.2「网络恢复后静默重登刷新会话」）：渲染层 `window 'online'` 是
+  // 本仓既有恢复信号（main 侧无网络变化事件），多窗口同响由 manager 单飞合并。
+  ipcMain.handle('hrOa:network-recovered', async (event) => {
+    assertTrustedAppRendererEvent(event);
+    await settled;
+    return manager.networkRecovered();
+  });
+
   ipcMain.handle('hrOa:state', async (event) => {
     assertTrustedAppRendererEvent(event);
     await settled;

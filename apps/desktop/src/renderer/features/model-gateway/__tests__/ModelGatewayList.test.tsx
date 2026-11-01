@@ -27,6 +27,7 @@ import type { ProviderView } from '@cindy/model-providers';
 
 import { ToastContainer } from '@/components/ui/toast';
 import { toast } from '@/lib/toast';
+import { __testing as hrOaStoreTesting } from '@/features/hr-oa-auth/hrOaAuthStore';
 import { ModelGatewayProvider, useModelGateway } from '../ModelGatewayStore';
 import type { ModelGatewayApi } from '../types';
 import { ModelGatewayList } from '../ModelGatewayList';
@@ -84,6 +85,7 @@ describe('ModelGatewayList', () => {
   beforeEach(() => {
     window.localStorage.clear();
     toast.dismissAll();
+    hrOaStoreTesting.resetHrOaGateMemory();
     maker = {
       listProviders: vi.fn(async () => ({ providers: [] as ProviderView[] })),
       createCustomProvider: vi.fn(async () => ({ ok: true })),
@@ -326,6 +328,46 @@ describe('ModelGatewayList', () => {
     expect(statusBtn().textContent).toBe('settings.providers.modelGateway.failed');
     expect(dot().getAttribute('data-status')).toBe('fail');
     expect(getApi().entries[0]!.status).toEqual({ ok: false, detail: 'boom' });
+  });
+
+  it('offline（HR OA 离线只读）：连通展示回落「未知」（未测试态），不显陈旧绿', async () => {
+    // Finding 2 / 设计 §4.2：offline 时「模型连通状态标记为未知」——用既有的未测试
+    // 展示（空心点 + 未测试），不得继续把上次探测的绿点 / 延迟当现状（离线测不了连通，
+    // 展示陈旧绿就是撒谎）。store 里的探测结果不动（回在线自然恢复展示）。
+    hrOaStoreTesting.resetHrOaGateMemory();
+    const { getApi } = renderList();
+    await act(async () => {});
+    await addModel(getApi(), 'a');
+    await act(async () => {
+      await getApi().setStatus(getApi().entries[0]!.id, { ok: true, latencyMs: 128 });
+    });
+    const dot = () => screen.getByTestId('model-gateway-status-dot');
+    const statusBtn = () =>
+      screen.getByRole('button', { name: 'settings.providers.modelGateway.retest' });
+    // 在线基线：已连通 128ms + 绿点。
+    expect(statusBtn().textContent).toBe('128ms');
+    expect(dot().getAttribute('data-status')).toBe('ok');
+
+    act(() => {
+      hrOaStoreTesting.landHrOaState({
+        status: 'offline',
+        accountKey: 'P100',
+        profile: {
+          name: '',
+          loginName: '',
+          dept: '',
+          mobile: '',
+          email: '',
+          title: '',
+          sex: '',
+          personId: 'P100',
+        },
+      });
+    });
+    await act(async () => {});
+
+    expect(statusBtn().textContent).toBe('settings.providers.modelGateway.untested');
+    expect(dot().getAttribute('data-status')).toBe('idle');
   });
 
   it('test_inflight_retest_result_discarded_after_edit_resets_status', async () => {
