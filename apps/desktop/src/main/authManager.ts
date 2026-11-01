@@ -142,6 +142,7 @@ import {
   LOCAL_DATA_OWNER_ID,
   type AppSessionMode,
 } from './appSessionState.js';
+import type { PersonProfile } from './hr-oa/profile.js';
 import {
   claimLegacyOwnerNamespace,
   recordLegacyGhostMigrationResult,
@@ -314,6 +315,12 @@ export interface AuthState {
    * 续期持久化,renderer 应显示可操作提示;成功读写一次后自动回 false。
    */
   credentialStoreUnavailable: boolean;
+  /**
+   * HR OA 登录资料投影（登录门禁）。骑现有 `auth:state-change` 推送（同一推送形状、
+   * payload 增此字段），不另开通道——renderer 只消费一处，避免两套登录态镜像打架。
+   * 非 HR 会话为 null；旧 main 不带此字段时 renderer 按 null 处理。
+   */
+  hrProfile?: PersonProfile | null;
 }
 
 export interface AuthInitializeOptions {
@@ -3468,6 +3475,19 @@ function broadcastToRenderers(channel: string, payload: unknown): void {
 }
 
 /**
+ * HR OA 登录资料投影（登录门禁 Task 2）。资料由 hr-oa 会话管理器落定后经
+ * `setHrOaProfileProjection` 写入,随现有 `auth:state-change` 一起推送（payload 增
+ * `hrProfile`）,不另开推送通道。setter 会立刻广播一次,调用方须先 commit 完
+ * `hr` / signed-out 的 app session,推送里的 mode 与 hrProfile 才对得上。
+ */
+let hrOaProfileProjection: PersonProfile | null = null;
+
+export function setHrOaProfileProjection(profile: PersonProfile | null): void {
+  hrOaProfileProjection = profile;
+  notifyRenderer();
+}
+
+/**
  * 当前登录态快照(所有状态出口共用)。
  *
  * `currentUser` 即服务端真值的合并展示态(auth-server membership 为主、
@@ -3511,6 +3531,7 @@ function snapshotAuthState(): AuthState {
     hasAccountDeletionReceipt: readPersistedAccountDeletionReceipt() !== null,
     accountDeletionRestored: accountDeletionRestoredNoticePending,
     credentialStoreUnavailable: credentialStoreHealth.unavailable,
+    hrProfile: hrOaProfileProjection,
   };
 }
 
@@ -3532,6 +3553,7 @@ function snapshotLoggedOutAuthState(ownerBoundaryPending = false): AuthState {
     // Startup recovery errors are returned by getLoginState; this projection
     // also serves stale/timeout paths and must not expose another owner's health.
     credentialStoreUnavailable: false,
+    hrProfile: null,
   };
 }
 

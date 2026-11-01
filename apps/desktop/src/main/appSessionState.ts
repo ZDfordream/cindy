@@ -15,7 +15,7 @@ import { createOverrideSettingsFile } from './maker-host/override-settings-file.
 import { LOCAL_PROFILE_DATA_OWNER_ID } from './profile/profileRegistryModel.js';
 import type { DataOwnerPushStamp } from '../shared/dataOwnerPush.js';
 
-export type AppSessionMode = 'signed-out' | 'local' | 'cloud';
+export type AppSessionMode = 'signed-out' | 'local' | 'cloud' | 'hr';
 
 export interface ActiveAppSession {
   mode: AppSessionMode;
@@ -185,20 +185,21 @@ export function isAppSessionBoundaryLocallyPending(): boolean {
 
 /**
  * Commit a stable session after its required runtime is ready.
- * Cloud commits require a verified membership id; local uses the reserved id.
+ * Cloud and hr commits require a verified owner id (cloud: membership id; hr: the
+ * frozen OA account key); local uses the reserved id.
  */
 export function commitActiveAppSession(
   mode: AppSessionMode,
-  cloudOwnerId?: string | null,
+  verifiedOwnerId?: string | null,
   forceBumpGeneration = false,
 ): ActiveAppSession {
   const previous = ensureLoaded();
   let dataOwnerId: string | null = null;
   if (mode === 'local') {
     dataOwnerId = LOCAL_DATA_OWNER_ID;
-  } else if (mode === 'cloud') {
-    const normalized = cloudOwnerId?.trim();
-    if (!normalized) throw new Error('cloud app session requires a verified data owner');
+  } else if (mode === 'cloud' || mode === 'hr') {
+    const normalized = verifiedOwnerId?.trim();
+    if (!normalized) throw new Error(`${mode} app session requires a verified data owner`);
     dataOwnerId = normalized;
   }
   const ownerChanged = previous.mode !== mode || previous.dataOwnerId !== dataOwnerId;
@@ -226,16 +227,16 @@ export function commitActiveAppSession(
 /** Update only this process after a passive instance signs out or is quarantined. */
 export function commitVolatileAppSession(
   mode: AppSessionMode,
-  cloudOwnerId?: string | null,
+  verifiedOwnerId?: string | null,
   forceBumpGeneration = false,
 ): ActiveAppSession {
   const previous = ensureLoaded();
   let dataOwnerId: string | null = null;
   if (mode === 'local') {
     dataOwnerId = LOCAL_DATA_OWNER_ID;
-  } else if (mode === 'cloud') {
-    const normalized = cloudOwnerId?.trim();
-    if (!normalized) throw new Error('cloud app session requires a verified data owner');
+  } else if (mode === 'cloud' || mode === 'hr') {
+    const normalized = verifiedOwnerId?.trim();
+    if (!normalized) throw new Error(`${mode} app session requires a verified data owner`);
     dataOwnerId = normalized;
   }
   const ownerChanged = previous.mode !== mode || previous.dataOwnerId !== dataOwnerId;
