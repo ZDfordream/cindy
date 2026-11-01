@@ -103,6 +103,9 @@ describe('production credential recovery wiring', () => {
         isCindyVersionLaunchPending: vi.fn(() => versionLaunchPending),
         recordDesktopDevAuthStartupResult: recordStartupResult,
         noteAuthColdStartState: vi.fn(),
+        // HR 静默重登落定点（登录门禁 Task 4 时序合同）：auth:initialize 先等它再收敛。
+        // 本用例测恢复接线不测 HR 时序，绑立即落定即可。
+        whenHrOaSessionSettled: Promise.resolve(),
       };
       new Function(...Object.keys(deps), compiled)(...Object.values(deps));
       if (rejects) await expect(handler()).rejects.toBe(outcome);

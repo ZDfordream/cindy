@@ -2332,6 +2332,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('hrOa:login', username, password),
     logout: (): Promise<void> => ipcRenderer.invoke('hrOa:logout'),
     getState: (): Promise<HrOaAuthState> => ipcRenderer.invoke('hrOa:state'),
+    // 埋点（PRD §10）：fire-and-forget，不返回、不阻塞 UI。载荷组装与采集边界
+    // 脱敏在 main 的 trackHrOaEvent 收口；这里只负责送触发事实。
+    trackEvent: (name: string, props: Record<string, unknown>): void => {
+      ipcRenderer.send('hrOa:track-event', name, props);
+    },
   },
 
   // ── 使用统计(TapDB)同意闸 ──

@@ -15,6 +15,7 @@ import { ipcMain } from 'electron';
 import { setHrOaProfileProjection } from '../authManager.js';
 import { assertTrustedAppRendererEvent } from '../security/trustedAppRenderer.js';
 import { requireString } from '../utils/ipcValidate.js';
+import { setHrOaTelemetryContext, trackHrOaEvent } from './telemetry.js';
 import type { HrOaAuthState, HrOaSessionManager } from './sessionManager.js';
 
 export function registerHrOaIpc(deps: {
@@ -31,10 +32,28 @@ export function registerHrOaIpc(deps: {
 
   const project = (state: HrOaAuthState): void => {
     setHrOaProfileProjection(state.status === 'signed-out' ? null : state.profile);
+    // 埋点 account_hash 的账号源 = 冻结账号键（accountKey，见 sessionManager）：
+    // 同一人换登录形式（账号/工号/邮箱）键不变，账号级去重（首次配置率等）才拼得上。
+    // signed-out 不清空：logout / welcome_view(from=logout) 仍属该账号的漏斗尾巴，
+    // 下一次登录覆盖。
+    if (state.status !== 'signed-out') {
+      setHrOaTelemetryContext({ account: state.accountKey });
+    }
   };
   manager.onDidChange(project);
   // startup() 落定早于注册时，把既有状态先对齐到投影，避免漏一次推送。
   project(manager.getState());
+
+  // 埋点出口（PRD §10）：renderer 触发点经此进 main 的 trackHrOaEvent（组装 + 脱敏 + sink）。
+  // fire-and-forget：埋点不得阻塞业务；载荷在 trackHrOaEvent 内按事件白名单裁剪，
+  // 采集边界（口令/API Key/明文账号/完整 URL）在 sink 前收口（哨兵测试钉死）。
+  ipcMain.on('hrOa:track-event', (event, name: unknown, props: unknown) => {
+    assertTrustedAppRendererEvent(event);
+    trackHrOaEvent(
+      requireString(name, 'name'),
+      typeof props === 'object' && props !== null ? (props as Record<string, unknown>) : {},
+    );
+  });
 
   ipcMain.handle('hrOa:login', async (event, username: unknown, password: unknown) => {
     assertTrustedAppRendererEvent(event);

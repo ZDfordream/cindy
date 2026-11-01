@@ -31,6 +31,13 @@ import {
   type ReactNode,
 } from 'react';
 
+import {
+  modelDialogOriginForGateTrigger,
+  noteHrOaHomeArrival,
+  trackHrOaEvent,
+  type HrOaModelDialogOrigin,
+} from '@/lib/hrOaTelemetry';
+
 import { OnboardingModelDialog } from './OnboardingModelDialog';
 import { useModelGateway } from './ModelGatewayStore';
 
@@ -86,23 +93,36 @@ export function applyHomeSuggestion(
 
 /** `home_gate_trigger` 的单一触发点（Task 8 接 sink；trigger 维度在此收口）。 */
 export function trackHomeGateTrigger(trigger: HomeGateTrigger): void {
-  // TODO(Task 8): 接埋点 sink（PRD §10.2 home_gate_trigger，属性 trigger）。
-  void trigger;
+  // 埋点（PRD §10.2）：S4b 触发门禁。trigger 维度在此收口——四个入口 + customize
+  // （「更多 → 自定义」）共用 openDialog，值域即 HomeGateTrigger。
+  trackHrOaEvent('home_gate_trigger', { trigger });
 }
 
 /**
  * 弹窗结束的单一触发点（Task 8 接 sink）：`savedId` 非空 = 本次结束带保存成功
  * （home_view(entry=save)），空 = 用户关闭（model_dialog_skip 一类）。
+ *
+ * 落点分工（2026-11-01 埋点接线）：`model_dialog_skip` 带 method / had_input 两个
+ * 只有表单才知道的维度，由 `ModelGatewayForm` 的 dismiss 路径发（覆盖 S3 与本弹窗）；
+ * 本 seam 只负责「带保存收尾」这条——保存落定即一次首页到达（entry=save），
+ * 交 OnboardingSessionHost 的落定消费点发 `home_view`。空分支不再重复发
+ * model_dialog_skip（表单已发，避免跳过率双计）。
  */
 export function trackHomeGateDialogClosed(savedId: string | null): void {
-  // TODO(Task 8): 接埋点 sink（PRD §10.2 home_view.entry / model_dialog_skip）。
-  void savedId;
+  if (savedId !== null) {
+    // 补配保存落定 S4a：记一次「经保存到达首页」。消费点在 OnboardingSessionHost
+    // 的落定 effect（entries 翻转会重跑它），账本一次性——不会与 S3 的 save 重复。
+    noteHrOaHomeArrival('save');
+  }
 }
 
 export function HomeOnboardingGateProvider(props: { children?: ReactNode }) {
   const { entries, hydrated } = useModelGateway();
   const phase = useMemo(() => homeGatePhaseOf(entries, hydrated), [entries, hydrated]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // 埋点 origin 维度（PRD §10.2）：本次开窗的**打开入口**（与 openDialog 的 trigger
+  // 同源映射；同为 home 的两次打开，banner 进来记 home_banner、侧栏记 sidebar_custom）。
+  const [dialogTrackOrigin, setDialogTrackOrigin] = useState<HrOaModelDialogOrigin>('home_banner');
   // 开弹窗前的活动元素：关闭后归还焦点（触发按钮或输入框，PRD §8.3）。
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   // Task 5 合同（deferred minor）：保存成功尾既回 onSaved(id) 又回 onClose()。
@@ -118,6 +138,7 @@ export function HomeOnboardingGateProvider(props: { children?: ReactNode }) {
           ? active
           : null;
       trackHomeGateTrigger(trigger);
+      setDialogTrackOrigin(modelDialogOriginForGateTrigger(trigger));
       setDialogOpen(true);
     },
     [dialogOpen],
@@ -180,6 +201,7 @@ export function HomeOnboardingGateProvider(props: { children?: ReactNode }) {
       <OnboardingModelDialog
         open={dialogOpen}
         origin="home"
+        trackOrigin={dialogTrackOrigin}
         onSkipped={handleSkipped}
         onSaved={handleSaved}
         onClose={handleClose}

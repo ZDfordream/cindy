@@ -405,3 +405,90 @@ PRD `/Users/zhudong/hrworkspace/hrbuddy_prd/design/model-provider-settings.html`
   「输入分享链接…」后，受邀贴链入口暂无挂载点（`ProviderSharePasteButton` 组件本体
   留在 provider-share 未删）。
 - （存量，见条目 16 附记）姊妹 worker 配置 `process.env` 内联 `{}` bug。
+
+---
+
+## 11. 登录与模型添加（login-onboarding）：账号层、会话与埋点登记（2026-11-01）
+
+计划台账 `.superpowers/sdd/2026-11-01-login-onboarding/`（8 任务）；改动流水见
+CHANGELOG 条目 17。本节是从 `makecindy/cindy` 主仓同步时的对照要点，外加下一会话的
+deferred-minor 挂账。
+
+### 11.1 Cindy 账号层「藏不删」+ 单一恢复点
+
+- **登记**：`apps/desktop/src/renderer/features/hr-oa-auth/legacyVisibility.ts` 的
+  `SHOW_CINDY_ACCOUNT_UI`（默认 `false`）是 Cindy 账号层（LoginPage / 账号切换 /
+  local 免登录 / SSO 与社交登录）的**单一恢复点**；口径同
+  `features/model-gateway/legacyVisibility.ts` 的 `SHOW_LEGACY_PROVIDER_UI`——
+  **保留代码、隐藏入口**，不做破坏性删除。`false` 时 `HrOaGate` 生效、`/login` 映射到
+  门禁流、`useSignInToCindy` 变 no-op。
+- **恢复方法**：把 `legacyVisibility.ts` 里那一个 `false` 改成 `true`，**一处即整块恢复**
+  （门禁让位、`/login` 回 LoginPage、账号切换 / 免登录 / SSO 入口全回）。不要再引入第二个
+  开关、环境变量或设置项——「单一恢复点」是该模块存在的全部理由。
+- **同步注意**：`router.tsx` 两处路由位是 `SHOW_CINDY_ACCOUNT_UI ? <LoginPage /> : <HrOaGate>`
+  开关三元；`scripts/shared/design-inventory.mjs` 的入口解析已兼容三元（**登记恢复面**），
+  主仓 merge 后跑 `pnpm check:design-inventory` 确认 57 surfaces 不掉。
+
+### 11.2 `AppSessionMode` 增 `'hr'`
+
+- **登记**：`apps/desktop/src/main/appSessionState.ts` 的 `AppSessionMode`
+  （`'signed-out' | 'local' | 'cloud'` → **`+ 'hr'`**）：HR OA 登录落定
+  `commitSession('hr', accountKey)`，登出 / 登录态失效 `commitSession('signed-out')`。
+  数据 owner = `accountKey`（§11.3）。
+- **同步注意**：主仓 merge 时 `appSessionState` / `authManager` 的 mode 分支、
+  `startupGateStall` 的 `AUTH_MODES`、webview-security 的 owner 投影都必须带 `'hr'` 分支；
+  同仓已有 `'hr'` 分支的地方**不要**在 merge 里被旧枚举覆盖回三值。
+
+### 11.3 账号键冻结规则（键漂移 = 换 dataOwner）
+
+- **登记**：`accountKey` **首次登录即冻结**（`apps/desktop/src/main/hr-oa/credentialStore.ts`）：
+  映射表里已有条目就永远回冻结键，之后资料里出现的 personId 只进 profile、**不换键**；
+  `expiresAt` 是登录时效（滑动刷新），**不参与**冻结判定（TTL 不得换键）；显式登录资料
+  不可用退化用缓存冻结键（键不回空、不重解）；username / loginName 双标识挂同一把键。
+- **禁止**：任何「键漂移」修复——键变 = 本地数据换主人。埋点 `account_hash`（PRD §10.1）
+  的哈希源也是冻结键（同人换登录形式，账号级去重才拼得上）。
+
+### 11.4 OA 口令 SM2-only
+
+- **登记**：`apps/desktop/src/main/hr-oa/sm2Password.ts`——门户口令**只走 SM2 加密**：
+  密文布局必须是 2 参 `SM2Utils.encs(pub, plain)` 的 `04||C1||C2||C3` hex（3 参
+  `encs(pub, plain, 1)` 会重排成 `04||C1||C3||C2`，门户**静默**弹回 login_error）；
+  `d.security` 标记 = `String.fromCharCode(0x534d, 0x3220, 0x4d45)`（"SM2 ME"），
+  不是计划文本误读的 ASCII `"SM2 "`。vendor `sm2.js`/`des.js` 原样拷贝自 HRMcp/vendor，
+  **勿手改**。安全红线（S-1）：口令明文不进日志 / 埋点 / 崩溃上报 / 仓库，错误文本一律
+  scrub 成 `***`。
+- **降级**（计划 Ruling 2）：SM2 公钥取不到时明文降级**仅一次、不重试**，失败照 POST
+  判据归类。
+
+### 11.5 §6 两 PRD 保存探测冲突——Task 8 复核仍准确
+
+2026-11-01（login-onboarding Task 8）复核：§6「模型弹窗保存是否真实探测连通性——两 PRD
+冲突」条目与代码现状**仍然一致**——Ruling 9 的 `ModelGatewayForm.probeOnSave` 分流有效
+（`OnboardingModelDialog` 两 origin 恒开探测、设置 → 模型面恒关），冲突**未消解**；
+owner 统一口径前不得单边收敛为单一行为，也别把分流删了。
+
+### 11.6 deferred-minor 挂账（下一会话 triage；本计划未修，按任务归组）
+
+> 除注明外均为 minor/低风险；T7 首条已在 Task 8 顺带修掉（见斜体注）。
+
+- **T1（oaClient）**：`scrub` / `errorText` 双份重复；`isLockSignal` 不匹配 `finalUrl`。
+- **T2（credentialStore）**：`writeAccountMap` 固定 tmp 名 + 整表替换（并发丢写窗口）；
+  启动凭证表缺 `locked` 行；`physicalSecretIo` 第三份拷贝；损坏 `.enc` 不清除；
+  username / loginName 映射命名空间碰撞。
+- **T3（S1/S2 门禁）**：`hrOaAuthStore` 桥容错只捕获 promise 拒绝（同步 throw 不捕）；
+  Enter 提交缺 `isComposing` 守卫；本地 `locked` 名与错误 kind 同名撞语义。
+- **T4（路由门禁）**：`SHOW_CINDY_ACCOUNT_UI` 有恒真同义反复测试；plugin-market
+  renderer / main 对 `'hr'` 判定不一致；静默重登过渡渲染裸 `null`。
+- **T4+（Task 8 收口新发现）**：`ConnectProviderCard` 的「登录 Cindy」推荐行不看恢复
+  开关，账号层藏起后在 local/hr 态是**死按钮**（点击无响应）——应隐藏该行或换推荐；
+  eval-摘源测试（`new Function(deps, 摘取块)`）对新增自由变量无编译期保护（Task 4
+  `whenHrOaSessionSettled`、Task 6 `homeGate` 两次踩中），建议加守卫。
+- **T5（S3 弹窗）**：`withProbeTimeout` 缺终态 `.catch`；探测失败用例 mock 形状 / 缺
+  detail 行断言。
+- **T6（首页两态）**：未披露 i18n churn；`--motion-model-dot-flip` 作用域泄漏；
+  S4b 发送钮在 providers 快照加载期间误灰；`HomeZeroModelAction` 注释与实现不符；
+  `homeOnboardingGate.test.tsx` 超 5s 预算。
+- **T7（会话规则）**：*`lastSaveRef` dead bookkeeping——Task 8 已修（handleDialogEnd 现读账
+  判 skip/save，改写 `home_view.entry`）*；OnboardingSessionHost 240ms 计时器脆弱；
+  StrictMode 零弹出注记；菜单路径登出失败静默；用例缺口两条（跳过后同账号再登须重弹 S3；
+  S3 保存同时翻两态的链路）。

@@ -54,6 +54,7 @@ import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { readCustomProviderKey } from '@/lib/customProviders';
+import { trackHrOaEvent, type HrOaModelDialogOrigin } from '@/lib/hrOaTelemetry';
 import { toast } from '@/lib/toast';
 
 import { testModelConnectivity, type ModelConnectivityResult } from './useModelConnectivity';
@@ -94,6 +95,14 @@ export interface ModelGatewayFormProps {
   onSkipped?: () => void;
   /** 落库成功后回传条目稳定 id（create = 新句柄，edit = 原句柄）。 */
   onSaved: (id: string) => void;
+  /**
+   * 埋点 origin 维度（PRD §10.2）：打开入口的六值枚举，**只在 onboarding 家族
+   * （S3 / 首页补配 / 侧栏自定义）传**——设置 → 模型面的添加/编辑弹窗不传，
+   * `model_*` 事件不发（那条面属 model-provider-settings PRD，不在这 14 事件漏斗里）。
+   * 与 `origin`（行为分流：onboarding | home）不是一层：同为 home 的两次打开，
+   * banner 进来记 home_banner、侧栏「自定义」记 sidebar_custom。
+   */
+  trackOrigin?: HrOaModelDialogOrigin;
 }
 
 /** PRD 2026-11-01 的 14px 圆角矩形（偏离登记：PRD 版式覆盖旧 10px 参考图条目）；其余 Input 样式走 DS 默认。 */
@@ -104,6 +113,19 @@ interface FormFieldErrors {
   apiKey?: string;
   modelId?: string;
 }
+
+/** 表单字段键（与 FormFieldErrors 同域）；PRD §10.2 的 `field` 维度另用 PRD 名。 */
+type ModelDialogFieldKey = 'baseUrl' | 'apiKey' | 'modelId';
+
+/** PRD §10.2 `model_field_error.error_type` 枚举。 */
+type ModelFieldErrorKind = 'empty' | 'format' | 'duplicate';
+
+/** 表单字段键 → PRD `field` 维度值（url | key | model）。 */
+const FIELD_PRD_NAME: Record<ModelDialogFieldKey, 'url' | 'key' | 'model'> = {
+  baseUrl: 'url',
+  apiKey: 'key',
+  modelId: 'model',
+};
 
 /** Ruling 9：探测超时（不回包按超时出独立失败条，不空等用户）。 */
 const PROBE_TIMEOUT_MS = 10_000;
@@ -151,37 +173,51 @@ function validateFields(
   entries: ModelEntry[],
   editId: string | undefined,
   t: (key: string) => string,
-): FormFieldErrors {
+): {
+  errors: FormFieldErrors;
+  kinds: Partial<Record<ModelDialogFieldKey, ModelFieldErrorKind>>;
+} {
   const errors: FormFieldErrors = {};
+  const kinds: Partial<Record<ModelDialogFieldKey, ModelFieldErrorKind>> = {};
   const trimmedBase = baseUrl.trim();
   const trimmedKey = apiKey.trim();
   const trimmedModel = modelId.trim();
-  if (!trimmedBase) errors.baseUrl = t('settings.providers.modelDialog.baseUrlRequired');
-  else if (!/^https?:\/\/\S+$/i.test(trimmedBase)) {
+  if (!trimmedBase) {
+    errors.baseUrl = t('settings.providers.modelDialog.baseUrlRequired');
+    kinds.baseUrl = 'empty';
+  } else if (!/^https?:\/\/\S+$/i.test(trimmedBase)) {
     errors.baseUrl = t('settings.providers.modelDialog.baseUrlInvalid');
+    kinds.baseUrl = 'format';
   } else {
     // Ruling 27：格式过后的 userinfo 闸门（判据 = URL 解析结果，非字符串包含）。
     try {
       const parsed = new URL(trimmedBase);
       if (parsed.username || parsed.password) {
         errors.baseUrl = t('settings.providers.modelDialog.urlNoCredentials');
+        // PRD error_type 无「凭证」档：Ruling 27 闸门按 format 收口（拒绝的是非法形态 URL）。
+        kinds.baseUrl = 'format';
       }
     } catch {
       // Ruling 28：解析失败不空转放行——拿不到解析结果就无法证明没有 userinfo，
       // 按既有格式错拒收（`https://user:pass@host:99999` 这类复合畸形不再绕过
       // 凭证红线，不新增文案 key）；合法 URL 解析必成，行为零变化。
       errors.baseUrl = t('settings.providers.modelDialog.baseUrlInvalid');
+      kinds.baseUrl = 'format';
     }
   }
   // 创建必填；编辑留空 = 沿用已存密钥（不回显红线下的「key 非空」等价语义）。
   if (mode === 'create' && !trimmedKey) {
     errors.apiKey = t('settings.providers.modelDialog.apiKeyRequired');
+    kinds.apiKey = 'empty';
   }
-  if (!trimmedModel) errors.modelId = t('settings.providers.modelDialog.modelIdRequired');
-  else if (entries.some((entry) => entry.modelId === trimmedModel && entry.id !== editId)) {
+  if (!trimmedModel) {
+    errors.modelId = t('settings.providers.modelDialog.modelIdRequired');
+    kinds.modelId = 'empty';
+  } else if (entries.some((entry) => entry.modelId === trimmedModel && entry.id !== editId)) {
     errors.modelId = t('settings.providers.modelDialog.modelIdDuplicate');
+    kinds.modelId = 'duplicate';
   }
-  return errors;
+  return { errors, kinds };
 }
 
 export function ModelGatewayForm({
@@ -193,6 +229,7 @@ export function ModelGatewayForm({
   onClose,
   onSkipped,
   onSaved,
+  trackOrigin,
 }: ModelGatewayFormProps) {
   const { t } = useTranslation();
   const uid = useId();
@@ -224,13 +261,32 @@ export function ModelGatewayForm({
   // shake 是命令式类名增删（PRD 重启动画），className 必须保持常量不被 React 改写。
   const panelRef = useRef<HTMLDivElement | null>(null);
 
+  /** dirty = 任一字段相对初值被改动（PRD 遮罩分层 / model_dialog_skip.had_input 的判据）。 */
+  const isDirty = () =>
+    baseUrl.trim() !== initialRef.current.baseUrl ||
+    apiKey.trim() !== initialRef.current.apiKey ||
+    modelId.trim() !== initialRef.current.modelId;
+
   // 关闭请求的唯一出口（×/取消/Esc/无输入遮罩共用）：保存在途一律不响应；
   // onboarding 走跳过出口，home 走 onClose。
-  const requestDismiss = useCallback(() => {
-    if (busyRef.current) return;
-    if (skipExit) skipExit();
-    else onClose();
-  }, [skipExit, onClose]);
+  // 埋点（PRD §10.2 model_dialog_skip）：非保存的弹窗结束都在此收口——method
+  // 区分关闭方式、had_input 记本次会话是否动过输入。保存成功走 onSaved+onClose
+  // 收尾，不经过这里，不发 skip。
+  const requestDismiss = useCallback(
+    (method: 'close_x' | 'skip_button' | 'cancel' | 'esc' | 'mask') => {
+      if (busyRef.current) return;
+      if (trackOrigin) {
+        trackHrOaEvent('model_dialog_skip', {
+          origin: trackOrigin,
+          method,
+          had_input: isDirty(),
+        });
+      }
+      if (skipExit) skipExit();
+      else onClose();
+    },
+    [trackOrigin, skipExit, onClose, isDirty],
+  );
 
   // 每次打开按模式复位：create 全空；edit 预填接口地址/模型，密钥永不回显。
   // （密钥的清空不在这里——Ruling 16 把它唯一挂在关闭路径，见下方 effect。）
@@ -255,6 +311,13 @@ export function ModelGatewayForm({
     if (!open) setApiKey('');
   }, [open]);
 
+  // 埋点（PRD §10.2）：添加模型弹窗曝光 = model_dialog_view。trackOrigin 缺省
+  // （设置 → 模型面）不发；按 open 翻转计次（常驻挂载、关窗只换 open）。
+  useEffect(() => {
+    if (!open || !trackOrigin) return;
+    trackHrOaEvent('model_dialog_view', { origin: trackOrigin });
+  }, [open, trackOrigin]);
+
   // Esc 关闭（保存中只吞按键不关窗）。capture + preventDefault + stopPropagation
   // 抢占 useSettingsEscape（window 冒泡注册、关闭路径不看 defaultPrevented）：
   // 一次 Esc 只关本弹窗，绝不级联再退一层设置——照 ProviderConnectionDialog 同款。
@@ -264,14 +327,22 @@ export function ModelGatewayForm({
       if (event.key !== 'Escape' || event.repeat) return;
       event.preventDefault();
       event.stopPropagation();
-      requestDismiss();
+      requestDismiss('esc');
     };
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [open, requestDismiss]);
 
   // 合法性门（PRD）：零错才可保存；keyMissing 是保存时才判出的密钥缺口。
-  const fieldErrors = validateFields(baseUrl, apiKey, modelId, mode, entries, editId, (key) => t(key));
+  const { errors: fieldErrors, kinds: fieldKinds } = validateFields(
+    baseUrl,
+    apiKey,
+    modelId,
+    mode,
+    entries,
+    editId,
+    (key) => t(key),
+  );
   const canSave =
     Object.keys(fieldErrors).length === 0 && !keyMissing && !saving;
   const visibleErrors: FormFieldErrors = {
@@ -282,11 +353,15 @@ export function ModelGatewayForm({
     modelId: touched.modelId ? fieldErrors.modelId : undefined,
   };
 
-  /** dirty = 任一字段相对初值被改动（PRD 遮罩分层的判据）。 */
-  const isDirty = () =>
-    baseUrl.trim() !== initialRef.current.baseUrl ||
-    apiKey.trim() !== initialRef.current.apiKey ||
-    modelId.trim() !== initialRef.current.modelId;
+  // 失焦 = 校验落地（PRD AC-07 失焦显错）：置 touched + 有错即发 model_field_error
+  // （kind 取本次渲染的校验结果；合法字段不发）。trackOrigin 缺省整族 model_* 不发。
+  const markTouched = (field: ModelDialogFieldKey) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    const kind = fieldKinds[field];
+    if (trackOrigin && kind) {
+      trackHrOaEvent('model_field_error', { field: FIELD_PRD_NAME[field], error_type: kind });
+    }
+  };
 
   // PRD 同款重启动画：摘类 → 强制 reflow → 加类。面板类名表由 React 管、shake 由
   // 这里命令式增删——className 保持常量，React 重渲染不会盖掉它。
@@ -302,14 +377,24 @@ export function ModelGatewayForm({
   const handleScrimClick = () => {
     if (busyRef.current) return;
     if (isDirty()) shakePanel();
-    else requestDismiss();
+    else requestDismiss('mask');
   };
 
   const handleSave = useCallback(async () => {
     if (busyRef.current) return;
     // 保存 = submit（PRD）：touched 全开。保存钮禁用时走不到这里，这里是兜底。
     setTouched({ baseUrl: true, apiKey: true, modelId: true });
-    const currentErrors = validateFields(
+    // 埋点（PRD §10.2）：点击「保存」= model_save_submit。url_host 传原始接口地址，
+    // emitter 侧收窄成 host（采集边界第二道闸；哨兵测试钉死）。trackOrigin 缺省
+    // （设置 → 模型面）整族 model_* 事件不发（那条面不在本漏斗）。
+    if (trackOrigin) {
+      trackHrOaEvent('model_save_submit', {
+        origin: trackOrigin,
+        url_host: baseUrl,
+        model_id: modelId.trim(),
+      });
+    }
+    const { errors: currentErrors, kinds: currentKinds } = validateFields(
       baseUrl,
       apiKey,
       modelId,
@@ -318,7 +403,18 @@ export function ModelGatewayForm({
       editId,
       (key) => t(key),
     );
-    if (Object.keys(currentErrors).length > 0) return;
+    if (Object.keys(currentErrors).length > 0) {
+      // 兜底校验出错（竞态改表等）：补发 model_field_error（正常路径在失焦处发）。
+      if (trackOrigin) {
+        for (const [field, kind] of Object.entries(currentKinds)) {
+          trackHrOaEvent('model_field_error', {
+            field: FIELD_PRD_NAME[field as ModelDialogFieldKey],
+            error_type: kind,
+          });
+        }
+      }
+      return;
+    }
 
     const trimmedBase = baseUrl.trim();
     const trimmedModel = modelId.trim();
@@ -337,6 +433,10 @@ export function ModelGatewayForm({
       if (!effectiveKey) {
         // 编辑留空且已存密钥读不到：按「未填密钥」报 PRD 文案，不落库。
         setKeyMissing(true);
+        // 埋点：「未填密钥」按 PRD 空值档收口（error_type 无独立「读不到」档）。
+        if (trackOrigin) {
+          trackHrOaEvent('model_field_error', { field: 'key', error_type: 'empty' });
+        }
         return;
       }
 
@@ -350,7 +450,17 @@ export function ModelGatewayForm({
       // （OQ-6：不允许「仍然保存」），10s 不回包按超时。设置页（不传 probeOnSave）保持
       // 「合法即存、保存不探测、存后未测试」（model-provider-settings PRD R14 推翻口径）。
       if (probeOnSave) {
+        const probeStartedAt = Date.now();
         const probe = await withProbeTimeout(testModelConnectivity(input));
+        // 埋点（PRD §10.2）：model_save_result = 连通性检测返回（触发点就是探测回包，
+        // 不是落库结果——探测成功后磁盘落库失败的稀有路径不改写本事件）。
+        if (trackOrigin) {
+          trackHrOaEvent('model_save_result', {
+            origin: trackOrigin,
+            result: probe === 'timeout' ? 'timeout' : probe.ok ? 'success' : 'fail',
+            duration_ms: Date.now() - probeStartedAt,
+          });
+        }
         if (probe === 'timeout') {
           setSaveError({ label: t('settings.providers.modelDialog.probeTimeout') });
           shakePanel();
@@ -416,6 +526,7 @@ export function ModelGatewayForm({
     onSaved,
     probeOnSave,
     t,
+    trackOrigin,
     update,
   ]);
 
@@ -460,7 +571,7 @@ export function ModelGatewayForm({
             type="button"
             aria-label={t('settings.providers.modelDialog.close')}
             className="mt-0.5 rounded-full p-1 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] disabled:opacity-60"
-            onClick={requestDismiss}
+            onClick={() => requestDismiss('close_x')}
             disabled={saving}
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -494,7 +605,7 @@ export function ModelGatewayForm({
                   // （Ruling 9 评审 Finding 2）。
                   if (probeOnSave) setSaveError(null);
                 }}
-                onBlur={() => setTouched((prev) => ({ ...prev, baseUrl: true }))}
+                onBlur={() => markTouched('baseUrl')}
                 placeholder={t('settings.providers.modelDialog.baseUrlPlaceholder')}
                 autoComplete="off"
                 spellCheck={false}
@@ -523,7 +634,7 @@ export function ModelGatewayForm({
                     // FR-MODEL-08：失败条在任意字段再次输入后消失（仅 probeOnSave）。
                     if (probeOnSave) setSaveError(null);
                   }}
-                  onBlur={() => setTouched((prev) => ({ ...prev, apiKey: true }))}
+                  onBlur={() => markTouched('apiKey')}
                   placeholder={
                     mode === 'edit'
                       ? t('settings.providers.custom.fields.apiKeyEditPlaceholder')
@@ -556,7 +667,7 @@ export function ModelGatewayForm({
                     // FR-MODEL-08：失败条在任意字段再次输入后消失（仅 probeOnSave）。
                     if (probeOnSave) setSaveError(null);
                   }}
-                  onBlur={() => setTouched((prev) => ({ ...prev, modelId: true }))}
+                  onBlur={() => markTouched('modelId')}
                   placeholder={t('settings.providers.modelDialog.modelIdPlaceholder')}
                   autoComplete="off"
                   spellCheck={false}
@@ -598,7 +709,7 @@ export function ModelGatewayForm({
               size="lg"
               type="button"
               disabled={saving}
-              onClick={requestDismiss}
+              onClick={() => requestDismiss('skip_button')}
               className="mr-auto !rounded-[14px] px-4"
             >
               {t('settings.providers.modelDialog.skip')}
@@ -609,7 +720,7 @@ export function ModelGatewayForm({
             size="lg"
             type="button"
             disabled={saving}
-            onClick={requestDismiss}
+            onClick={() => requestDismiss('cancel')}
             className="!rounded-[14px] px-6"
           >
             {t('settings.providers.custom.cancel')}

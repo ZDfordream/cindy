@@ -227,6 +227,7 @@ import {
   composerHistoryEntryToDocument,
   type ComposerHistoryEntry,
 } from '@/lib/composerQuoteDocument';
+import { consumeHrOaMessageSource, trackHrOaEvent } from '@/lib/hrOaTelemetry';
 import { deriveStableComposerHistory } from './composerHistoryProjection';
 import type { PastedTextRange, SlashCommandRange } from '@/lib/imageRef';
 import {
@@ -6345,6 +6346,23 @@ function ChatInputInner({
             // 选择发送，保证本 turn 与 UI/SQLite 的 effort 相同。
             effortForSend = coordinator.getCommittedEffort(sessionId) ?? selectedEffort;
           }
+          // 埋点（PRD §10.2）：message_send = 发送消息——合成器唯一出口（点击 / Enter /
+          // 语音 / 代发都汇到本处）。source 按发出内容判定（建议只填入不直发，AC-11）：
+          // 正文仍等于最近一次建议填入 = suggestion，用户改过 = typed。is_first_message =
+          // 会话首条（草稿页发送恒新建会话 = 首条；会话续聊读 store 的 isFirstMessage）。
+          // model_state 只有首页两态可判（会话面无门禁 = 恒已配置）。先打点再交棒
+          // onSend——与 login_submit 同口径（意图即事件，受理与否不回写本事件）。
+          trackHrOaEvent('message_send', {
+            model_state: homeGate
+              ? homeGate.phase === 'unconfigured'
+                ? 'unconfigured'
+                : 'configured'
+              : 'configured',
+            source: consumeHrOaMessageSource(editorText),
+            is_first_message: sourceSessionId
+              ? makerChatStore.getLightSnapshot(sourceSessionId).isFirstMessage
+              : true,
+          });
           result = await onSend(
             routedText,
             sendModel,

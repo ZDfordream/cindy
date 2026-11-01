@@ -17,12 +17,20 @@
  *   都不触发。设置 → 模型面直接挂 `ModelGatewayForm`（不传 `probeOnSave`）保持
  *   「保存不探测」，两 PRD 冲突登记在 CHANGES.md §6 待 owner 统一。
  */
+import type { HrOaModelDialogOrigin } from '@/lib/hrOaTelemetry';
+
 import { ModelGatewayForm } from './ModelGatewayForm';
 
 export interface OnboardingModelDialogProps {
   open: boolean;
   /** 弹窗来源：`onboarding` = S3 首登引导（可跳过）；`home` = 首页补配 / 更多 → 自定义。 */
   origin: 'onboarding' | 'home';
+  /**
+   * 埋点 `model_*` 的 origin 维度（PRD §10.2 六值枚举）：打开入口，透传给
+   * `ModelGatewayForm.trackOrigin`。S3 = onboarding；首页补配 = home_*（按触发口）；
+   * 「更多 → 自定义」= sidebar_custom。
+   */
+  trackOrigin: HrOaModelDialogOrigin;
   /** `origin='onboarding'` 的跳过出口（× / 取消 / 跳过 / Esc / 无输入遮罩）。 */
   onSkipped: () => void;
   /** 落库成功后回传新条目稳定 id。 */
@@ -31,12 +39,20 @@ export interface OnboardingModelDialogProps {
   onClose: () => void;
 }
 
-export function OnboardingModelDialog({ open, origin, onSkipped, onSaved, onClose }: OnboardingModelDialogProps) {
+export function OnboardingModelDialog({
+  open,
+  origin,
+  trackOrigin,
+  onSkipped,
+  onSaved,
+  onClose,
+}: OnboardingModelDialogProps) {
   return (
     <ModelGatewayForm
       open={open}
       mode="create"
       origin={origin}
+      trackOrigin={trackOrigin}
       probeOnSave
       onSkipped={onSkipped}
       onSaved={onSaved}

@@ -11,7 +11,9 @@ import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
+import { trackHrOaEvent } from '@/lib/hrOaTelemetry';
 
+import { getHrOaWelcomeFrom } from './hrOaAuthStore';
 import { Mascot } from './Mascot';
 
 export function WelcomeScreen(props: { onLogin: () => void }): React.JSX.Element {
@@ -20,8 +22,11 @@ export function WelcomeScreen(props: { onLogin: () => void }): React.JSX.Element
   const loginRef = useRef<HTMLButtonElement>(null);
 
   // FR-WELCOME-02：页面加载后「登录」默认获得焦点。
+  // 埋点（PRD §10.2）：S1 曝光 = welcome_view，from 记本次 signed-out 的由来。
+  // 曝光按「挂载」计——S1↔S2 往返回到 S1 是一次新曝光。
   useEffect(() => {
     loginRef.current?.focus();
+    trackHrOaEvent('welcome_view', { from: getHrOaWelcomeFrom() });
   }, []);
 
   return (
@@ -42,7 +47,10 @@ export function WelcomeScreen(props: { onLogin: () => void }): React.JSX.Element
         palette="confirmation"
         size="lg"
         className="h-11 px-11"
-        onClick={onLogin}
+        onClick={() => {
+          trackHrOaEvent('login_click', {});
+          onLogin();
+        }}
       >
         {t('hrOa.welcome.login')}
       </Button>

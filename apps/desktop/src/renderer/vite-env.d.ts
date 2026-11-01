@@ -2212,6 +2212,8 @@ interface ElectronAPI {
     ) => Promise<import('../main/hr-oa/sessionManager').HrOaAuthState | { error: import('../main/hr-oa/errors').OaLoginFailure }>;
     logout: () => Promise<void>;
     getState: () => Promise<import('../main/hr-oa/sessionManager').HrOaAuthState>;
+    /** HR OA 埋点(PRD §10)：fire-and-forget；载荷组装与脱敏在 main trackHrOaEvent 收口。 */
+    trackEvent: (name: string, props: Record<string, unknown>) => void;
   };
 
   // ── 使用统计(TapDB)同意闸 ──

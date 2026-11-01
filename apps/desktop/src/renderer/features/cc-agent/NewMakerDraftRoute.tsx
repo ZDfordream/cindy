@@ -148,6 +148,7 @@ import {
   restoreRemoteOptimisticDraft,
   saveDraft as saveComposerDraft,
 } from '@/lib/composerDraftStore';
+import { noteHrOaSuggestionFill } from '@/lib/hrOaTelemetry';
 import { useProvisionalDraftEmptyCleanup } from './hooks/useProvisionalDraftEmptyCleanup';
 import {
   canOpenProvisionalDraftTask,
@@ -5498,6 +5499,9 @@ function NewMakerDraftHome() {
       text: plainTextToTiptapDoc(prompt),
       attachments: existing?.attachments ?? [],
     });
+    // 埋点（PRD §10.2 message_send.source）：建议只填入不直发（AC-11）——记下原文，
+    // 发送时文本未改即判 suggestion（见 consumeHrOaMessageSource）。
+    noteHrOaSuggestionFill(prompt);
     return true;
   }, []);
   // 一条建议的预览与读屏描述:内容与点击填入的 pluginSuggestionComposerText 一致,

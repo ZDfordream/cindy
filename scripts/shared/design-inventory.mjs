@@ -253,7 +253,12 @@ function parseRouteObject(body) {
   const elementAt = keys.get('element');
   if (elementAt !== undefined) {
     const element = body.slice(elementAt);
-    route.component = /^\s*<([A-Za-z][\w.]*)/.exec(element)?.[1];
+    // 入口组件既可能是裸 JSX（`element: <Page />`），也可能是**藏不删**的开关三元
+    // （`element: SHOW_X ? <Page /> : <Other />`，HRBuddy 收起 Cindy 账号层的形态）。
+    // 三元取**第一个 JSX 分支**作入口组件——与 catalog 登记的恢复面一致；条件前缀
+    // 限定「不含尖括号 + 问号」，保证纯变量 element（`element: someVar`）仍不误配到
+    // 后面的 errorElement JSX（那个值没有问号引导）。
+    route.component = /^\s*(?:[^<>]*?\?\s*)?<([A-Za-z][\w.]*)/.exec(element)?.[1];
     if (route.component === 'Navigate') route.to = /\bto="([^"]*)"/.exec(element)?.[1] ?? '';
   }
 

@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { captureActiveOwnerComposerDrafts } from '@/lib/composerDraftStore';
 import { createLogger } from '@/lib/logger';
+import { clearHrOaHomeArrival, noteHrOaHomeArrival, trackHrOaEvent } from '@/lib/hrOaTelemetry';
 
 import type { OaLoginFailure } from '../../../main/hr-oa/errors';
 import type { PersonProfile } from '../../../main/hr-oa/profile';
@@ -73,6 +74,12 @@ const gateMemory: {
   leaveDeadline: number | null;
   /** 登出转场在途（防重入；与 leaveDeadline 分工：这只锁 logout 动作）。 */
   leaveInFlight: boolean;
+  /**
+   * S1 曝光原因（`welcome_view.from`，PRD §10.2）：本次 signed-out 周期怎么来的——
+   * 冷启动无会话 = launch；主动登出 = logout；会话失效 = token_expired。
+   * sticky 到下一次状态转移（S1↔S2 来回不改因）。
+   */
+  welcomeFrom: 'launch' | 'logout' | 'token_expired';
 } = {
   lastStatus: null,
   loginInFlight: false,
@@ -83,6 +90,7 @@ const gateMemory: {
   voluntaryLogout: false,
   leaveDeadline: null,
   leaveInFlight: false,
+  welcomeFrom: 'launch',
 };
 
 let gateMemorySnapshot: HrOaGateMemorySnapshot = {
@@ -111,13 +119,25 @@ function landHrOaState(next: HrOaAuthState): void {
     gateMemory.leaveDeadline = Date.now() + HR_OA_LEAVE_LOCK_MS;
     // 主动登出（requestHrOaLogout）不弹「登录已过期」（FR-HOME-03）；voluntary 标记
     // 一次性消费——下一次真正失效（凭证过期 / 吊销）恢复弹 toast。
-    if (!gateMemory.voluntaryLogout) {
+    const voluntary = gateMemory.voluntaryLogout;
+    if (!voluntary) {
       gateMemory.expiryNoticeSeq += 1;
     }
     gateMemory.voluntaryLogout = false;
+    // 埋点（PRD §10.2）：退出登录 / 登录态失效共一个事件，reason 区分；S1 曝光原因
+    // 同步改写（welcome_view.from）。account_hash 走上下文（signed-out 保留末次账号键）。
+    const reason = voluntary ? 'user' : 'token_expired';
+    gateMemory.welcomeFrom = voluntary ? 'logout' : 'token_expired';
+    trackHrOaEvent('logout', { reason });
+    // 登出即一次首页到达周期结束：丢弃未消费的到达账，防下次登录串台。
+    clearHrOaHomeArrival();
   }
   if (next.status === 'signed-in' || next.status === 'offline') {
     gateMemory.voluntaryLogout = false;
+    // 冷启动静默恢复落定（此前无会话）= launch 到达；显式登录在 login() 里另记。
+    if (previous === null) {
+      noteHrOaHomeArrival('launch');
+    }
   }
   publishGateMemory();
 }
@@ -188,6 +208,14 @@ export function hrOaLeaveLockRemainingMs(now = Date.now()): number {
   return gateMemory.leaveDeadline === null
     ? 0
     : Math.max(0, gateMemory.leaveDeadline - now);
+}
+
+/**
+ * 本次 signed-out 周期的 S1 曝光原因（`welcome_view.from`，PRD §10.2）：
+ * launch = 冷启动无会话；logout = 主动登出后；token_expired = 会话失效后。
+ */
+export function getHrOaWelcomeFrom(): 'launch' | 'logout' | 'token_expired' {
+  return gateMemory.welcomeFrom;
 }
 
 /** T9 首页淡出的 JS 等待窗口：从 motion token 读出（reduce / jsdom 下 0 即瞬时）。 */
@@ -287,6 +315,9 @@ export function useHrOaAuth(): HrOaAuthApi {
         landHrOaState(result);
         beginHrOaSuccessBeat();
         setState(result);
+        // 埋点（PRD §10.2）：显式登录成功 = 一次「登录到达」（entry=login）；
+        // S3 若弹出，skip/save 会在弹窗结束处改写为 skip/save。
+        noteHrOaHomeArrival('login');
       }
       return result;
     } finally {

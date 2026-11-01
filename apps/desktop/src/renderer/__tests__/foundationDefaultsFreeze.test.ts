@@ -27,6 +27,13 @@ const RADIUS = {
 const MOTION = {
   instant: '80ms', fast: '150ms', base: '200ms', enter: '250ms', exit: '150ms',
   'spinner-cycle': '1000ms', 'sidebar-title-marquee-per-viewport': '2400ms',
+  // 2026-11-01 login-onboarding（PRD §9.2 转场编排）批准入账的运动 token：
+  // S1 吉祥物眨眼/漂浮循环、登录与模型弹窗抖动、S4b 横幅折叠（+延迟）、
+  // S4 模型圆点翻面。记账更新即治理合同 §1.1「同 PR 更新守卫台账」的合法路径。
+  'error-shake': '360ms',
+  'home-banner-collapse': '240ms', 'home-banner-collapse-delay': '120ms',
+  'mascot-blink-cycle': '4200ms', 'mascot-float-cycle': '3600ms',
+  'model-dot-flip': '240ms',
   'ease-out': 'cubic-bezier(0.16, 1, 0.3, 1)',
   'ease-in': 'cubic-bezier(0.4, 0, 1, 1)',
   'ease-move': 'cubic-bezier(0.4, 0, 0.2, 1)',

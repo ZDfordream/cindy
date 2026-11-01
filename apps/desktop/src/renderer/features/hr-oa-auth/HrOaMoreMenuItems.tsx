@@ -28,6 +28,7 @@ import {
 
 import { OnboardingModelDialog } from '../model-gateway/OnboardingModelDialog';
 import { ModelGatewayScope } from '../model-gateway/ModelGatewayStore';
+import { trackHomeGateTrigger } from '../model-gateway/homeOnboardingGate';
 import { requestHrOaLogout } from './hrOaAuthStore';
 import { requestHomeCustomizeDialog } from './OnboardingSessionHost';
 
@@ -75,6 +76,10 @@ function unregisterFallbackHost(token: object): void {
 function openCustomizeFallback(): void {
   fallbackOpen = true;
   fallbackUsed = true;
+  // 埋点（PRD §10.2 / 控制器口径）：「更多 → 自定义」两个宿主路径各记一次
+  // home_gate_trigger(trigger=customize)——首页宿主经 openDialog('customize') 记，
+  // 回落（首页未挂载）在这里记；不重复、不漏。
+  trackHomeGateTrigger('customize');
   publishFallback();
 }
 
@@ -119,6 +124,7 @@ export function HrOaCustomizeFallbackHost() {
       <OnboardingModelDialog
         open={open}
         origin="home"
+        trackOrigin="sidebar_custom"
         onSkipped={closeCustomizeFallback}
         onSaved={closeCustomizeFallback}
         onClose={closeCustomizeFallback}

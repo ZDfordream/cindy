@@ -40,6 +40,10 @@ import {
 } from 'react';
 
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import {
+  flushHrOaHomeArrival,
+  noteHrOaHomeArrival,
+} from '@/lib/hrOaTelemetry';
 
 import { OnboardingModelDialog } from '../model-gateway/OnboardingModelDialog';
 import { useHomeGateSurface } from '../model-gateway/homeOnboardingGate';
@@ -136,16 +140,35 @@ export function OnboardingSessionHost(props: { children?: ReactNode }) {
     });
   }, [surface]);
 
+  // home_view 落定消费点（PRD §10.2）：到达账本（login/launch/skip/save）在首页**曝光
+  // 落定**时消费一次——落定 = 条目表水合完成 + S3 不再悬挂（无资格 / 决定不弹 / 弹完
+  // 收场）。S3 进行中（pending 待决 / showing 弹窗压着首页）不发：「到达」与「曝光」
+  // 之间隔着弹窗落定（冷启动 arm→首页水合 flush；S3 结束当场落定 flush）。entries
+  // 翻转会重跑本 effect：S4b 补配保存（entry=save）也算一次到达（两态翻转即新曝光）。
+  // 资格待决再挡一道：显式登录后 mount 首帧 phase 还是 idle，防抢在 S3 决策前误发。
+  useEffect(() => {
+    if (!hydrated) return;
+    if (phase === 'pending' || phase === 'showing') return;
+    if (hrOaOnboardingEligibilityPending()) return;
+    flushHrOaHomeArrival(entries.length > 0 ? 'configured' : 'unconfigured');
+  }, [phase, hydrated, entries]);
+
   const handleSaved = useCallback((id: string) => {
     // 成功尾先回 onSaved 再回 onClose：这里只记账 + 收场，视觉由 entries 翻转驱动。
     lastSaveRef.current = id;
+    // S3 保存 = 「经保存到达首页」：改写到达原因（PRD home_view.entry=save）。
+    noteHrOaHomeArrival('save');
     setPhase('settled');
   }, []);
 
   const handleDialogEnd = useCallback(() => {
     // 跳过 / 关闭 / 保存成功的收尾都走这里：读出「本次结束是否带保存」再清账。
     // onClose ≠ 用户放弃（放弃也保留输入、不回退两态）；S3 的两态本就由 entries 驱动。
+    // 埋点：双回调合同下保存成功尾先落 lastSaveRef（handleSaved）——非保存收尾
+    // （× / 取消 / 跳过 / Esc / 无输入遮罩）= 跳过（PRD home_view.entry=skip）。
+    const saved = lastSaveRef.current !== null;
     lastSaveRef.current = null;
+    if (!saved) noteHrOaHomeArrival('skip');
     setPhase('settled');
   }, []);
 
@@ -162,6 +185,7 @@ export function OnboardingSessionHost(props: { children?: ReactNode }) {
       <OnboardingModelDialog
         open={phase === 'showing'}
         origin="onboarding"
+        trackOrigin="onboarding"
         onSkipped={handleDialogEnd}
         onSaved={handleSaved}
         onClose={handleDialogEnd}

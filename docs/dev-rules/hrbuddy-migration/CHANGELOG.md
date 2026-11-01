@@ -10,6 +10,66 @@
 
 ## 2026-11-01
 
+### 17. 登录与模型添加（login-onboarding PRD）8 任务收口：门禁、S3 引导、埋点
+
+> **需求分节对照**：PRD 交互稿 `hrbuddy_prd/design/hrbuddy-login-onboarding.html`（§1–13）。
+> 计划台账 `.superpowers/sdd/2026-11-01-login-onboarding/`；产品登记与挂账见
+> [CHANGES.md](./CHANGES.md) §11（账号层恢复开关、`hr` 会话模式、账号键冻结、SM2-only、
+> deferred-minor 挂账）。
+
+- **改动（计划 8 任务）**：
+
+  | # | 任务 | 交付 commit | 备注 |
+  | --- | --- | --- | --- |
+  | 1 | 门户登录客户端 | `8b853504a2` + `36fc719623` | OA 登录 + 资料解析；口令 **SM2-only** 加密桥（2 参 `encs` `04\|\|C1\|\|C2\|\|C3` 布局，security 标记 = fromCharCode('SM2 ME')）；锁定判据收窄到 `login_error` 命中 `/lock(ed)?/i` |
+  | 2 | 登录态生命周期 | `a6f877ec7d` + `db59cd7277` | 钥匙串凭证 + **账号键首次冻结**（键漂移 = 换 dataOwner，禁止）+ `AppSessionMode='hr'` 会话提交；资料失败退化用缓存冻结键 |
+  | 3 | S1 欢迎页 + S2 登录页 | `222e4f352c` + `d8e52eb336` | 吉祥物两态几何、S1↔S2 转场、行内错误/抖动/锁定/超时五态；动效与几何按评审裁决收敛 |
+  | 4 | 登录门禁接路由 | `ba6d9336e7` + `61d0535ab3` | `HrOaGate` 拦路由；**Cindy 账号层整体「藏不删」**（`SHOW_CINDY_ACCOUNT_UI` 单一恢复点）；门禁记忆升模块级，跨 ownerKey 重挂载不丢 |
+  | 5 | S3 添加模型弹窗 | `acaa00d190` + `655915931b` + `0f331029ca` | onboarding 来源（跳过 + 底部提示）；**Ruling 9** `probeOnSave` 分流：S3/首页弹窗保存即真实连通性检测（10s 超时、失败零落库），设置面保持「保存不探测」（两 PRD 冲突仍挂账 CHANGES §6） |
+  | 6 | 首页两态 + 补配门禁 | `b6d99329e4` | S4a/S4b 两态（`hydrated` 门）、未配置横幅、发送/选择器/建议/横幅四入口统一门禁（`home_gate_trigger.trigger` 收口） |
+  | 7 | 退出登录 / 失效 / 会话规则 | `80091dc6c6` + `30085abb4a` | 「更多」浮层（自定义 + 退出登录）、T9/T10 转场、失效 toast 不误弹、同账号再登不重弹 S3；回落弹窗全窗单例 |
+  | 8 | 埋点 + 双模式收口 + 文档 | 本次 commit | PRD §10 的 14 事件（下详） |
+
+- **任务 8（本条主体）——埋点（PRD §10）**：
+  - `main/hr-oa/telemetry.ts`：14 事件（`HrOaEventName`，类型合同在 `shared/hrOaTelemetry.ts`
+    ——renderer 不得 import main）+ 每事件**属性白名单** + 通用属性（app_version /
+    os_version / session_id / account_hash / ts）组装；**采集边界**（S-1 红线，哨兵测试
+    钉死）：口令/API Key/token 键名命中即弃、明文账号只出 `account_hash`（SHA-256 前 8 hex）、
+    接口地址收窄 `url_host`（含凭证 URL 也只出 host）；**sink 可替换**（`registerHrOaTelemetrySink`，
+    默认结构化日志 `hr-oa.telemetry`——暂无既有客户端分析通道可接，正式后端接入只换注册点）。
+  - 触发点全量接线：S1/S2 曝光与登录五态（Welcome/Login）、`model_*` 六值 origin 维度
+    （`trackOrigin` 只在 onboarding 家族传；设置面整族不发）、`model_dialog_skip.method`
+    按控件记实（close_x / skip_button / cancel / esc / mask）+ `had_input`、
+    `home_view` 到达账本（login/launch/skip/save，曝光落定一次性消费）、
+    `home_gate_trigger`（send/selector/suggestion/banner/**customize** 两宿主路径各一次）、
+    `message_send`（合成器唯一出口；source 按「发出正文 = 最近建议填入」判定、
+    `is_first_message` = 会话首条）、`logout`（user/token_expired）。
+  - `scripts/shared/design-inventory.mjs`：路由入口解析兼容「藏不删」开关三元
+    （`SHOW_X ? <Page /> : <Other />`），catalog 仍登记恢复面。
+
+- **动机**：owner 提供 login-onboarding PRD，要求未登录不得进首页、登录后可跳过添加模型、
+  首页两态持续补配入口；漏斗 14 事件为「登录成功率 / 首次模型配置完成率 / 跳过率 / TTFM /
+  登录→首页耗时」五个指标供数。
+- **影响面**：Desktop 登录门禁（router / hr-oa-auth / hr-oa main）、S3 与首页补配
+  （model-gateway + OnboardingSessionHost）、合成器发送打点（ChatInput）、埋点模块（新增）。
+  Mobile 不动；`~/.hrbuddy/models.json` 与 keychain 凭证红线不变。**无新增 UI 文案 key**
+  （五语 i18n 不扩表）。
+- **验证**：desktop typecheck ✅；telemetry.test.ts 4/4 ✅（14 事件表 + 哨兵密钥穿透 +
+  白名单/未知事件/sink 注销；**TDD 证据**：绕过白名单的突变使哨兵用例 RED（精确点名泄漏的
+  口令），还原后 GREEN）；`pnpm test:unit:related` / `check:i18n`（五语一致）/
+  `check:i18n-glossary` / `check:design-colors` / `check:design-inventory`（57 surfaces）/
+  `check:test-hygiene` / `check:dco` 全 ✅（明细见任务报告；收口顺带修掉 5 个计划内 latent
+  测试断裂，见任务报告 §7.1）；`--mock` 实机目检 **S4a/S4b 双模式**（Light + Dark 各过目
+  横幅/红绿点/发送钮两态）；**S1/S2/S3 与弹窗开启、reduce-motion 未实机**（mock 门禁旁路 +
+  合成输入通道受限，逐屏原因与等价覆盖见任务报告 §5）——不以「复用 themed token」冒充双模式。
+
+> **附记（口径）**：`model_save_result` 触发点 = 连通性检测**回包**（非落库结果）——探测成功后
+> 磁盘落库失败的稀有路径不改写本事件；`message_send` 只计合成器出口（点击/Enter/语音/代发），
+> mivo UI 动作与编辑重发不计；S3 保存/跳过会在弹窗结束处改写 `home_view.entry`（=save/skip），
+> 一次到达只发一条曝光。
+
+---
+
 ### 16. 模型设置对齐 PRD 2026-11-01（PRD 对齐计划 4 任务收口）
 
 > **需求分节对照**：PRD 交互稿 `hrbuddy_prd/design/model-provider-settings.html` 是模型

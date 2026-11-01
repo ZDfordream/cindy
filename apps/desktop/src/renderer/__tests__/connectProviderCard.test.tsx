@@ -34,6 +34,15 @@ vi.mock('../../shared/brandRegion', () => ({
   },
 }));
 
+// 「登录 Cindy」推荐行钉的是**账号层恢复后**的存量通路合同（藏不删的「不删」半边）：
+// `useSignInToCindy` 在 `SHOW_CINDY_ACCOUNT_UI=false`（登录门禁 Task 4）时整块静默，
+// 本文件显式置回可见，验 local 推荐行 → exitLocalMode → /login 不得被改坏；藏起态的
+// 静默收口由 hook 自身保证（恢复开关一开即回，见 hr-oa-auth/legacyVisibility.ts）。
+vi.mock('@/features/hr-oa-auth/legacyVisibility', () => ({
+  SHOW_CINDY_ACCOUNT_UI: true,
+  isCindyAccountUiVisible: () => true,
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh-CN' } }),
 }));

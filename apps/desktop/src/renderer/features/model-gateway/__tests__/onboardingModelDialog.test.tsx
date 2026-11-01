@@ -91,6 +91,7 @@ function renderDialog(props: { origin: 'onboarding' | 'home' }) {
       <OnboardingModelDialog
         open
         origin={props.origin}
+        trackOrigin={props.origin === 'onboarding' ? 'onboarding' : 'home_send'}
         onSkipped={onSkipped}
         onSaved={onSaved}
         onClose={onClose}

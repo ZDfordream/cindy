@@ -93,6 +93,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { textFilePreviewResult, TEXT_PREVIEW_LIMIT_MB } from './text-file-preview';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import windowStateKeeper from 'electron-window-state';
@@ -1120,6 +1121,7 @@ import { createHrOaSessionTransport, resolveHrOaBaseUrl } from './hr-oa/electron
 import { registerHrOaIpc } from './hr-oa/ipc.js';
 import { createOaClient } from './hr-oa/oaClient.js';
 import { createHrOaSessionManager } from './hr-oa/sessionManager.js';
+import { setHrOaTelemetryContext } from './hr-oa/telemetry.js';
 import {
   resolveNewMakerMenuCommand,
   type ApplicationMenuCommand,
@@ -2255,6 +2257,14 @@ const whenHrOaSessionSettled: Promise<unknown> = app
     return hrOaSessionManager.getState();
   });
 registerHrOaIpc({ manager: hrOaSessionManager, whenSettled: whenHrOaSessionSettled });
+// 埋点通用属性（PRD §10.1）：app/os 版本与「应用会话 ID」在 main 初始化一次注入。
+// session_id = 一次应用运行（launch）的随机 UUID；account 经 registerHrOaIpc 的
+// 状态投影更新（冻结账号键），renderer 只发触发事实。
+setHrOaTelemetryContext({
+  appVersion: app.getVersion(),
+  osVersion: process.getSystemVersion(),
+  sessionId: randomUUID(),
+});
 
 // A launch fence left by the host we just replaced (or by one that crashed
 // mid-relaunch) would otherwise refuse this instance's Subagent launches for as

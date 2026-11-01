@@ -28,6 +28,7 @@ import {
   useHrOaAuth,
   type OaLoginFailure,
 } from './hrOaAuthStore';
+import { trackHrOaEvent } from '@/lib/hrOaTelemetry';
 
 type Phase = 'idle' | 'submitting' | 'success';
 
@@ -67,19 +68,23 @@ export function LoginScreen(props: { onBack: () => void; onSuccess: () => void }
   const cardRef = useRef<HTMLFormElement>(null);
   const successTimerRef = useRef<number | null>(null);
   const submittingRef = useRef(false);
+  // 埋点 attempt_no（PRD §10.2 login_result）：本次 S2 会话内的第 N 次提交，
+  // 1 起算、随 S2 挂载归一（S1↔S2 往返是一次新尝试序列）。
+  const attemptNoRef = useRef(0);
+
+  // FR-LOGIN-02：进入 S2 自动聚焦账号框。埋点：S2 曝光 = login_view。
+  useEffect(() => {
+    accountRef.current?.focus();
+    trackHrOaEvent('login_view', {});
+    return () => {
+      if (successTimerRef.current !== null) window.clearTimeout(successTimerRef.current);
+    };
+  }, []);
 
   const busy = phase === 'submitting';
   const succeeded = phase === 'success';
   const locked = busy || succeeded;
   const canSubmit = account.trim().length > 0 && password.length > 0 && phase === 'idle';
-
-  // FR-LOGIN-02：进入 S2 自动聚焦账号框。
-  useEffect(() => {
-    accountRef.current?.focus();
-    return () => {
-      if (successTimerRef.current !== null) window.clearTimeout(successTimerRef.current);
-    };
-  }, []);
 
   // 续拍订阅：重挂载落在「登录在途」（拍尚未开始）时，拍开始的瞬间补进成功面。
   useEffect(() => {
@@ -111,14 +116,47 @@ export function LoginScreen(props: { onBack: () => void; onSuccess: () => void }
     submittingRef.current = true;
     setPhase('submitting');
     setError(null);
+    const typedAccount = account.trim();
+    attemptNoRef.current += 1;
+    const attemptNo = attemptNoRef.current;
+    // 埋点（PRD §10.2）：login_submit 在请求发出前打；account_type 按输入形态
+    // 分类（PRD §7 本期不校验格式）：含 @ = email、纯数字 = employee_id、其余 = account。
+    trackHrOaEvent('login_submit', {
+      account_type: /@/.test(typedAccount)
+        ? 'email'
+        : /^\d+$/.test(typedAccount)
+          ? 'employee_id'
+          : 'account',
+      // 明文账号只作 account_hash 的输入（emitter 内收口），载荷不带 account 键。
+      account: typedAccount,
+    });
     // 桥/handler 拒绝（非 { error } 合同内的失败）按网络异常收口，避免卡在登录中。
     let result: Awaited<ReturnType<typeof login>>;
+    const startedAt = Date.now();
     try {
-      result = await login(account.trim(), password);
+      result = await login(typedAccount, password);
     } catch {
       result = { error: 'network_error' };
     }
     submittingRef.current = false;
+    const durationMs = Date.now() - startedAt;
+    // 埋点（PRD §10.2）：login_result 的 result 枚举与 OaLoginFailure + success 一一对应。
+    trackHrOaEvent(
+      'login_result',
+      'error' in result
+        ? {
+            result: result.error,
+            duration_ms: durationMs,
+            attempt_no: attemptNo,
+            account: typedAccount,
+          }
+        : {
+            result: 'success',
+            duration_ms: durationMs,
+            attempt_no: attemptNo,
+            // 落定后的账号键已进上下文（ipc.ts 的状态投影），此处无需再传。
+          },
+    );
     if ('error' in result) {
       setPhase('idle');
       setError(result.error);

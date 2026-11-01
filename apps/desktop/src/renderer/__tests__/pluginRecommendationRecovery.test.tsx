@@ -52,6 +52,9 @@ describe('plugin recommendation recovery', () => {
         fillComposerWithSuggestion,
         pluginSuggestionComposerText,
         installedGhostStoragePart,
+        // 首页补配门禁面（Task 6 在 runPluginSuggestion 里 gate('suggestion')）：
+        // 本用例钉「建议填入不直发」，绑 null = 无门禁面（不拦截），fill 正常执行。
+        homeGate: null,
         i18n: { language: 'en' },
         t: () => 'Use plugin mail via ghost_info and ghost_call',
         isRemoteProjectDraft: false,
@@ -99,6 +102,8 @@ describe('plugin recommendation recovery', () => {
       fillComposerWithSuggestion,
       pluginSuggestionComposerText,
       installedGhostStoragePart,
+      // 首页补配门禁面（Task 6）：绑 null = 无门禁面，建议 fill 不被拦截。
+      homeGate: null,
       i18n: { language: 'en' },
       t: () => 'Use Org',
       isRemoteProjectDraft: false,
@@ -133,6 +138,8 @@ describe('plugin recommendation recovery', () => {
       fillComposerWithSuggestion,
       pluginSuggestionComposerText,
       installedGhostStoragePart,
+      // 首页补配门禁面（Task 6）：绑 null = 无门禁面，建议 fill 不被拦截。
+      homeGate: null,
       i18n: { language: 'en' },
       t: () => 'Use Org',
       isRemoteProjectDraft: false,

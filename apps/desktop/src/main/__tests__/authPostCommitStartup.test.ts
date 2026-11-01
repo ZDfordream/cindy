@@ -104,6 +104,9 @@ describe('authentication does not wait for optional plugin provisioning', () => 
       app: { isPackaged: true },
       isCindyVersionLaunchPending: () => false,
       noteAuthColdStartState: vi.fn(),
+      // HR 静默重登落定点（登录门禁 Task 4 时序合同）：auth:initialize 先等它再收敛。
+      // 本用例不测 HR 时序（见 hrOaGate / sessionRules），绑立即落定即可。
+      whenHrOaSessionSettled: Promise.resolve(),
     };
     new Function(...Object.keys(deps), compiled)(...Object.values(deps));
     try {
