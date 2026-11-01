@@ -542,6 +542,8 @@ interface AuthStateChangePayload {
   accountDeletionRestored: boolean;
   /** 持久凭证库(safeStorage)连续多个刷新周期不可用(#1687);旧版 main 不带此字段。 */
   credentialStoreUnavailable?: boolean;
+  /** HR OA 登录资料投影(hr-oa 登录门禁)：null = 未登录；随本推送骑发，不另开通道。 */
+  hrProfile?: import('../main/hr-oa/profile').PersonProfile | null;
 }
 
 /**
@@ -2200,6 +2202,15 @@ interface ElectronAPI {
   authConsumeAccountDeletionRestoredNotice: () => Promise<boolean>;
   onAuthStateChange: (callback: (state: AuthStateChangePayload) => void) => () => void;
   onAuthSessionExpired: (callback: (state: AuthSessionExpiredPayload) => void) => () => void;
+  /** HR OA 登录态(main/hr-oa/ipc.ts)：显式登录失败恒回 { error }，不回显口令。 */
+  hrOa: {
+    login: (
+      username: string,
+      password: string,
+    ) => Promise<import('../main/hr-oa/sessionManager').HrOaAuthState | { error: import('../main/hr-oa/errors').OaLoginFailure }>;
+    logout: () => Promise<void>;
+    getState: () => Promise<import('../main/hr-oa/sessionManager').HrOaAuthState>;
+  };
 
   // ── 使用统计(TapDB)同意闸 ──
   getAnalyticsSettings: () => Promise<AnalyticsSettingsPayload>;

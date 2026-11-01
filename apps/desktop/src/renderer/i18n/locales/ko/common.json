@@ -17914,5 +17914,32 @@
     "title": "첨부 파일 접근 확인",
     "message": "HRBuddy가 이 첨부 파일을 읽을 수 없습니다. 원본 파일을 선택하면 이 메시지 전송을 계속합니다. 취소하면 초안이 유지됩니다.",
     "button": "원본 파일 사용"
+  },
+  "hrOa": {
+    "welcome": {
+      "title": "HRBuddy, 곁에서 도와드릴게요",
+      "login": "로그인"
+    },
+    "login": {
+      "title": "HRBuddy 로그인",
+      "subtitle": "회사 계정으로 로그인하면 시작할 수 있습니다",
+      "account": "계정",
+      "accountPlaceholder": "계정 / 사원 ID / 이메일 입력",
+      "password": "비밀번호",
+      "passwordPlaceholder": "비밀번호 입력",
+      "submit": "로그인",
+      "submitting": "로그인 중…",
+      "success": "로그인되었습니다",
+      "back": "뒤로",
+      "forgot": "비밀번호를 잊으셨나요? 관리자에게 문의하세요",
+      "showPassword": "비밀번호 표시",
+      "hidePassword": "비밀번호 숨기기",
+      "error": {
+        "credentials": "계정 또는 비밀번호가 올바르지 않습니다",
+        "locked": "계정이 잠겼습니다",
+        "network": "네트워크 오류입니다. 연결을 확인한 후 다시 시도하세요",
+        "timeout": "로그인 시간이 초과되었습니다. 잠시 후 다시 시도하세요"
+      }
+    }
   }
 }

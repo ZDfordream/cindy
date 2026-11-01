@@ -1055,6 +1055,8 @@ body.resizing-pane [data-ghost-webview] {
 [data-app-hidden='true'] .agent-island-mascot-key,
 [data-app-hidden='true'] .agent-island-mascot-eyes,
 [data-app-hidden='true'] .agent-island-mascot-sparkle,
+[data-app-hidden='true'] .hr-oa-mascot-float,
+[data-app-hidden='true'] .hr-oa-mascot-blink,
 [data-app-hidden='true'] [class*='animate-spinner'],
 [data-app-hidden='true'] [class*='animate-spin'],
 [data-app-hidden='true'] [class*='animate-pulse'],
@@ -2306,6 +2308,64 @@ html[data-wallpaper-active='true'] :is(.layout-divider-v, .layout-divider-h) {
   }
   .model-gateway-row-flash {
     animation: model-gateway-row-flash 1.4s ease-out;
+  }
+
+  /* HRBuddy 登录门禁 S1/S2(PRD 2026-11-01 login-onboarding):吉祥物闲置浮动/眨眼
+     为 infinite 装饰动画,宿主类已登记进 [data-app-hidden] 冻结清单;登录卡片错误
+     抖动与成功 ✓ 弹出是一次性动画,刻意不进冻结清单。减弱动效下组件侧不挂浮动/眨眼
+     类(FR-WELCOME-01),下方 reduce 块统一兜底归零。 */
+  .hr-oa-mascot-float {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: hr-oa-mascot-float 3.6s ease-in-out infinite;
+  }
+  .hr-oa-mascot-blink {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: hr-oa-mascot-blink 4.2s ease-in-out infinite;
+  }
+  .hr-oa-login-card.shake {
+    /* 复用 modal-panel-shake 的 ±6px 双回位移(同 PRD 系列同一形状);时长按
+       PRD §9.3 shake 360ms,曲线走 motion token。 */
+    animation: modal-panel-shake 360ms var(--motion-ease-move);
+  }
+  .hr-oa-success-check {
+    animation: hr-oa-success-check 240ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+}
+@keyframes hr-oa-mascot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+@keyframes hr-oa-mascot-blink {
+  0%,
+  95%,
+  100% {
+    transform: scaleY(1);
+  }
+  97.5% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes hr-oa-success-check {
+  from {
+    transform: scale(0.6);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hr-oa-mascot-float,
+  .hr-oa-mascot-blink,
+  .hr-oa-login-card.shake,
+  .hr-oa-success-check {
+    animation: none;
   }
 }
 

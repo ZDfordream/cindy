@@ -17914,5 +17914,32 @@
     "title": "确认附件访问",
     "message": "HRBuddy 无法读取这个附件。请选择原文件，确认后继续发送这条消息；取消会保留草稿。",
     "button": "使用原文件"
+  },
+  "hrOa": {
+    "welcome": {
+      "title": "HRBuddy，我帮你",
+      "login": "登录"
+    },
+    "login": {
+      "title": "登录 HRBuddy",
+      "subtitle": "使用企业账号登录后开始使用",
+      "account": "账号",
+      "accountPlaceholder": "请输入账号 / 工号 / 邮箱",
+      "password": "密码",
+      "passwordPlaceholder": "请输入密码",
+      "submit": "登录",
+      "submitting": "登录中…",
+      "success": "登录成功",
+      "back": "返回",
+      "forgot": "忘记密码？请联系管理员",
+      "showPassword": "显示密码",
+      "hidePassword": "隐藏密码",
+      "error": {
+        "credentials": "账号或密码错误",
+        "locked": "账号已被锁定",
+        "network": "网络异常，请检查网络后重试",
+        "timeout": "登录超时，请稍后重试"
+      }
+    }
   }
 }

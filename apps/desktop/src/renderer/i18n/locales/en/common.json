@@ -17974,5 +17974,32 @@
     "title": "Confirm Attachment Access",
     "message": "HRBuddy cannot read this attachment. Select the original file to continue sending this message. Cancelling keeps your draft.",
     "button": "Use Original File"
+  },
+  "hrOa": {
+    "welcome": {
+      "title": "HRBuddy, here to help",
+      "login": "Sign In"
+    },
+    "login": {
+      "title": "Sign in to HRBuddy",
+      "subtitle": "Sign in with your company account to get started",
+      "account": "Account",
+      "accountPlaceholder": "Enter your account, employee ID, or email",
+      "password": "Password",
+      "passwordPlaceholder": "Enter your password",
+      "submit": "Sign In",
+      "submitting": "Signing in…",
+      "success": "Signed in",
+      "back": "Back",
+      "forgot": "Forgot your password? Contact your administrator",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "error": {
+        "credentials": "Incorrect account or password",
+        "locked": "This account is locked",
+        "network": "Network error. Check your connection and try again",
+        "timeout": "Sign-in timed out. Please try again later"
+      }
+    }
   }
 }

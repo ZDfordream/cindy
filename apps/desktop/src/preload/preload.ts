@@ -1,3 +1,5 @@
+import type { OaLoginFailure } from '../main/hr-oa/errors';
+import type { HrOaAuthState } from '../main/hr-oa/sessionManager';
 import type { VoiceConversationApi } from '../shared/voiceConversation';
 import { createAccessibilitySupportBridge } from './accessibilitySupport';
 import { createWallpaperAssetsBridge } from './wallpaperAssets';
@@ -2320,6 +2322,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }): Promise<{ ok: true }> => ipcRenderer.invoke('profile:update', params),
   onAuthStateChange: fanOutAuthStateChange,
   onAuthSessionExpired: fanOutAuthSessionExpired,
+
+  // ── HR OA 登录(main/hr-oa/ipc.ts)──
+  // 显式登录失败恒回 { error: OaLoginFailure }，登录页原地展示行内错误；
+  // 口令只经 login 入参过桥进 main，不回显、不进本对象任何持久槽。
+  hrOa: {
+    login: (username: string, password: string): Promise<HrOaAuthState | { error: OaLoginFailure }> =>
+      ipcRenderer.invoke('hrOa:login', username, password),
+    logout: (): Promise<void> => ipcRenderer.invoke('hrOa:logout'),
+    getState: (): Promise<HrOaAuthState> => ipcRenderer.invoke('hrOa:state'),
+  },
 
   // ── 使用统计(TapDB)同意闸 ──
   // 真相在 main(<userData>/analytics-settings.json);renderer 只读结论、只提交
