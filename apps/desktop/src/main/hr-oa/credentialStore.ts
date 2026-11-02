@@ -285,16 +285,39 @@ function parseStoredLogin(raw: string): OaStoredLogin | null {
 }
 
 /**
- * 载入结果三分（Finding 1 的失效分流来源）：`expired` = **曾有**凭证但已不可用
- * （TTL 过期 / 密文损坏）——FR-SESSION-02 按失效处理（弹「登录已过期」）；
- * `none` = 无凭证（首启 / 已登出）——不是失效，不弹。
+ * 载入结果四分（Finding 1 的失效分流来源 + 真机 2026-11-01 冷启动误判修复）：
+ *   - `ok`：有未过期凭证；
+ *   - `expired` = **曾有**凭证但已不可用（TTL 过期）——FR-SESSION-02 按失效处理
+ *     （弹「登录已过期」），密文顺手清除；
+ *   - `none` = 无凭证（首启 / 已登出）——不是失效，不弹；
+ *   - `unavailable` = **密文在盘但暂时读不出**（safeStorage 后端未就绪 / 解密瞬时
+ *     失败 / 密文暂时解析不出）——**绝不能**折成 `none`（会把有凭证的人判回首启、
+ *     冷启动落 S1 回 `welcome_view from=launch`，密文却还在盘上——真机 2026-11-01
+ *     实证签名）或折成 `expired`（会顺手删密文 = 清凭证）。authManager #1687 同一条
+ *     界：只有「加密可用且文件确实不在」才能当凭证被外部清除，其余按瞬时失败。
+ *     密文保留、由调用方重试或转 offline。
  */
 export type OaLoginLoadResult =
   | { status: 'ok'; record: OaStoredLogin }
   | { status: 'none' }
-  | { status: 'expired' };
+  | { status: 'expired' }
+  | { status: 'unavailable' };
 
-/** 缺失 / 损坏 / 过期的分流版 load；过期或损坏的密文顺手清除。 */
+/** 密文是否仍在盘上（不探加密后端、不解密；`list()` 只看文件名）。 */
+function ciphertextPresent(deps: OaCredentialDeps): boolean {
+  try {
+    return deps.secretIo.list().includes(OA_LOGIN_STORAGE_KEY);
+  } catch {
+    // 列举失败无从判断：按在盘处理（宁可 unavailable 也不误判首启把人锁在 S1）。
+    return true;
+  }
+}
+
+/**
+ * 缺失 / 过期 / 暂时读不出的分流版 load。只有 **TTL 过期**（记录完好但时效已过）
+ * 才顺手清除密文；读不出 / 解析不出一律保留密文并回 `unavailable`——那可能是
+ * 瞬时的钥匙串抖动，删了就是把仍有效的凭证清掉。
+ */
 export async function loadOaLoginDetailed(
   now?: number,
   deps: OaCredentialDeps = defaultDeps(),
@@ -304,13 +327,21 @@ export async function loadOaLoginDetailed(
     raw = deps.secretIo.read(OA_LOGIN_STORAGE_KEY);
   } catch (err) {
     log.warn('oa credential read failed', { err: errorText(err) });
-    // 读失败无从判断存量：按无凭证处理（不得凭一次 IO 抖动弹「已过期」）。
-    return { status: 'none' };
+    return ciphertextPresent(deps) ? { status: 'unavailable' } : { status: 'none' };
   }
-  if (raw == null) return { status: 'none' };
+  if (raw == null) {
+    return ciphertextPresent(deps) ? { status: 'unavailable' } : { status: 'none' };
+  }
   const record = parseStoredLogin(raw);
+  if (!record) {
+    // 密文在但解析不出：可能是一次解密异常的垃圾输出（真机启动期 backend 未就绪
+    // 的同族症状），也可能是损坏。删了不可逆——保留并按暂时读不出上报，由调用方
+    // 重试（下次读到正本即恢复）或转 offline；下次登录成功会覆盖写正本。
+    log.warn('oa credential record unparseable; keeping ciphertext for retry');
+    return { status: 'unavailable' };
+  }
   const at = now ?? (deps.now ?? Date.now)();
-  if (!record || at >= record.expiresAt) {
+  if (at >= record.expiresAt) {
     try {
       deps.secretIo.remove(OA_LOGIN_STORAGE_KEY);
     } catch (err) {
@@ -321,7 +352,7 @@ export async function loadOaLoginDetailed(
   return { status: 'ok', record };
 }
 
-/** 缺失 / 损坏 / 过期均返回 null（区分载入原因用 `loadOaLoginDetailed`）。 */
+/** 缺失 / 暂时读不出 / 过期均返回 null（区分载入原因用 `loadOaLoginDetailed`）。 */
 export async function loadOaLogin(
   now?: number,
   deps: OaCredentialDeps = defaultDeps(),

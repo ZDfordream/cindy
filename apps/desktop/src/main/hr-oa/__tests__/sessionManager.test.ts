@@ -53,6 +53,7 @@ import {
 } from '../credentialStore.js';
 import type { SecretStorageIo } from '../../secrets/providerSecretStore.js';
 import type { OaLoginFailure, OaLoginOutcome } from '../errors.js';
+import { createOaClient, type OaResponse, type OaTransport } from '../oaClient.js';
 import type { OaClient } from '../oaClient.js';
 import type { PersonProfile } from '../profile.js';
 import { createHrOaSessionManager, type HrOaAuthState } from '../sessionManager.js';
@@ -548,5 +549,198 @@ describe('onDidChange', () => {
     dispose();
     await manager.logout();
     expect(seen).toHaveLength(1);
+  });
+});
+
+/**
+ * 冷启动静默重登 SC-3 回归（计划 Task 1 两条，profile-menu §4.3）。
+ *
+ * 四项说明：
+ * - 生产入口与可观察结果：`createHrOaSessionManager().startup()` 组合**真实**
+ *   `createOaClient` + 建模蓝凌 cookie 合同的 portal-jar transport，并让凭证层
+ *   secret IO 复现真机冷启动条件（密文在盘、首读读不出——safeStorage 后端未就绪 /
+ *   解密瞬时失败，真机日志 `credential encryption backend unavailable`）：
+ *   (a) 钥匙串有未过期凭证、cookie jar 为空（OA 会话 cookie 是 session cookie，
+ *   应用退出即失效，冷启动恒此态）→ 重试读到凭证后必须落 `signed-in`、
+ *   `commitSession('hr', accountKey)`，绝不落 `signed-out` 回 S1；
+ *   (b) 凭证在、门户网络不可达 → 落 `offline` + `commitSession('hr', accountKey)`
+ *   且钥匙串凭证保留（`loadOaLogin()` 仍非 null、不调 clearOaLogin）。
+ * - Bug／规则依据：FR-SESSION-01 / SC-3「下次启动校验有效则直接进首页，不出现
+ *   S1、S2」；§4.4 实测 OA 会话 cookie 无 Max-Age，重启后 jar 必空——启动不得依赖
+ *   cookie 存在；失败分流 Ruling 6：网络类失败保留凭证、离线进首页。根因（真机
+ *   2026-11-01 日志 + 「凭证在盘却回 S1、welcome_view from=launch」签名）：
+ *   `loadOaLoginDetailed` 把「密文在盘但暂时读不出」折成 `{status:'none'}`（无凭证
+ *   首启），`startup()` 因此根本走不到 `silentRelogin`；读出垃圾时更折成 `expired`
+ *   并**顺手删密文**（清凭证）。authManager 早已为此立过界（#1687：只有「加密可用
+ *   且文件确实不在」才能当凭证被清，其余按瞬时失败）。
+ * - 现有覆盖缺口：表驱动 startup 六行走 fake client + 恒可读的内存 IO，既不经过
+ *   oaClient 的 clearCookies → 提交 → 判定链，也建模不了「密文在盘、首读读不出」
+ *   这一真机冷启动态；SC-3（重启直接进首页、cookie 不在 / 首读抖动仍能进首页）
+ *   此前无任何用例钉住。
+ * - 最小失败输入：seed 凭证后让 secret IO 首读回 null（后端未就绪）或垃圾（解密
+ *   异常）一次、次读回正本；(a) 叠 `initialSessionAlive:false` 的 portal-jar
+ *   transport + 正确口令 → 断言 `signed-in` / `commitSession('hr', accountKey)`；
+ *   (b) 叠 transport 全拒（网络不可达）→ 断言 `offline` + `commitSession('hr',
+ *   accountKey)` + `loadOaLogin()` 非 null。旧实现首读抖动即判无凭证 → 落
+ *   `signed-out`（垃圾首读还清凭证）。tier：unit（无真实网络，transport 注入 fake，
+ *   凭证层真实模块 + 内存 IO）。实测耗时：单文件 ~1.5s。
+ */
+describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar）', () => {
+  const OA_BASE = 'http://oa.test';
+  const SM2_PUBKEY =
+    '04' +
+    '32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7' +
+    'bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0';
+
+  type PortalRequest = {
+    method: 'GET' | 'POST';
+    path: string;
+    params?: Record<string, string>;
+    form?: Record<string, string>;
+  };
+
+  /**
+   * 真机冷启动的凭证读条件（2026-11-01 日志：每个启动都出现
+   * `credential encryption backend unavailable { appReady:false }`）：密文在盘
+   * （`list()` 认得），但**首读**读不出——后端未就绪回 null，或解密瞬时异常回
+   * 垃圾；**次读**恢复正常。旧实现把首读结果直接当终局。
+   */
+  function blipFirstRead(kind: 'null' | 'garbage'): void {
+    const original = testDeps.secretIo.read.bind(testDeps.secretIo);
+    let calls = 0;
+    testDeps.secretIo.read = (key: string) => {
+      calls += 1;
+      if (calls === 1) return kind === 'null' ? null : '{not-json';
+      return original(key);
+    };
+  }
+
+  /**
+   * 蓝凌 cookie 合同的 jar 建模（真机 2026-11-01 实证 + §4.4 会话 cookie 测量）：
+   * `sessionAlive` = jar 里是否有存活会话。登录 POST 现场 jar 空（冷启动恒此态，
+   * session cookie 退出即失效）就按本次口令判成败；jar 有存活会话则 302 `/`
+   * （掩码形态）。资料 GET 需要存活会话，否则弹 anonym.jsp。
+   */
+  function makePortalJarTransport(opts: {
+    initialSessionAlive: boolean;
+    unreachable?: boolean;
+  }): {
+    transport: OaTransport;
+    jar: { sessionAlive: boolean };
+    clearCookies: () => Promise<void>;
+  } {
+    const jar = { sessionAlive: opts.initialSessionAlive };
+    const respond = (input: PortalRequest): OaResponse => {
+      if (input.method === 'GET' && input.path.includes('session.jsp')) {
+        return {
+          status: 200,
+          headers: {},
+          body: `window.getSM2PubKey = function(){ return "${SM2_PUBKEY}"; }`,
+          finalUrl: `${OA_BASE}/resource/js/session.jsp`,
+        };
+      }
+      if (input.method === 'POST' && input.path.includes('j_acegi_security_check')) {
+        if (jar.sessionAlive) {
+          // 旧会话掩码形态：无视口令直接 302 `/`（P0 账号隔离实证）。
+          return { status: 302, headers: { location: '/' }, body: '', finalUrl: input.path };
+        }
+        // fresh jar：按本次凭证判成败。本用例只喂正确口令——登录成功种下会话。
+        jar.sessionAlive = true;
+        return { status: 302, headers: { location: '/' }, body: '', finalUrl: input.path };
+      }
+      if (input.method === 'GET' && input.path.includes('setting.do')) {
+        if (!jar.sessionAlive) {
+          return {
+            status: 200,
+            headers: {},
+            body: '<html>login</html>',
+            finalUrl: `${OA_BASE}/resource/jsp/anonym.jsp`,
+          };
+        }
+        return {
+          status: 200,
+          headers: {},
+          body: [
+            '<script>',
+            "var userName = '张三';",
+            "var loginName = 'u1';",
+            '</script>',
+            '<input type="hidden" name="fdPersonId" value="p-seed">',
+          ].join('\n'),
+          finalUrl: `${OA_BASE}/sys/person/setting.do`,
+        };
+      }
+      throw new Error(`unexpected ${input.method} ${input.path}`);
+    };
+    return {
+      jar,
+      clearCookies: async () => {
+        jar.sessionAlive = false;
+      },
+      transport: {
+        clearCookies: async () => {
+          jar.sessionAlive = false;
+        },
+        request(input: PortalRequest): Promise<OaResponse> {
+          if (opts.unreachable) {
+            return Promise.reject(new TypeError('net::ERR_INTERNET_DISCONNECTED'));
+          }
+          return Promise.resolve(respond(input));
+        },
+      },
+    };
+  }
+
+  function makeRealClientManager(transport: OaTransport, clearCookies: () => Promise<void>) {
+    return createHrOaSessionManager({
+      client: createOaClient({ baseUrl: OA_BASE, transport, timeoutMs: 200 }),
+      credentials,
+      commitSession,
+      now: () => clock,
+      clearCookies,
+    });
+  }
+
+  it('启动时钥匙串有凭证但 cookie jar 为空 → 仍落 signed-in（不出现 S1）', async () => {
+    // OA 会话 cookie 是 session cookie，应用一退出就没了——冷启动 jar 必空。SC-3
+    // 要求这种真态下凭钥匙串凭证静默重登直接进首页；真机另证：启动期 safeStorage
+    // 后端可能未就绪（首读回 null），一抖就把密文误判成「无凭证」回 S1（from=launch）。
+    await seedStoredLogin();
+    blipFirstRead('null');
+    const portal = makePortalJarTransport({ initialSessionAlive: false });
+
+    const manager = makeRealClientManager(portal.transport, portal.clearCookies);
+    const state = await manager.startup();
+
+    // 资料页解析结果：name/loginName/personId 来自门户 HTML；账号键按冻结键 'p-seed'。
+    const portalProfile = profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    expect(state).toEqual({ status: 'signed-in', accountKey: 'p-seed', profile: portalProfile });
+    expect(manager.getState()).toEqual(state);
+    // 落定即认领 hr 会话（首页外层门禁据 commitSession 的会话放行）。
+    expect(commitSession.mock.calls).toEqual([['hr', 'p-seed']]);
+    // 静默重登必须喂钥匙串里那份凭证；成功后凭证仍在（滑动刷新，不被误清）。
+    expect(await loadOaLogin(clock, testDeps)).not.toBeNull();
+    expect(clearOaLoginSpy).not.toHaveBeenCalled();
+  });
+
+  it('启动时凭证在、门户网络不可达 → 落 offline 且凭证保留（不落 signed-out、不清凭证）', async () => {
+    // Ruling 6：网络类失败保留凭证、离线进首页——VPN 抖动绝不能把人锁在门外。
+    // 首读垃圾（解密瞬时异常）在旧实现走 `expired` 分支：落 signed-out **且顺手删
+    // 密文**——「落 signed-out / 清凭证」正是此缺陷的可观察签名。
+    await seedStoredLogin();
+    blipFirstRead('garbage');
+    const portal = makePortalJarTransport({ initialSessionAlive: false, unreachable: true });
+
+    const manager = makeRealClientManager(portal.transport, portal.clearCookies);
+    const state = await manager.startup();
+
+    expect(state.status).toBe('offline');
+    expect(state).toMatchObject({ accountKey: 'p-seed' });
+    // offline 同样认领 hr 会话（home 可读），不是 signed-out。
+    expect(commitSession.mock.calls).toEqual([['hr', 'p-seed']]);
+    // 不落 signed-out、不清凭证：重试读回正本后凭证仍在。
+    expect(manager.getState().status).toBe('offline');
+    expect(clearOaLoginSpy).not.toHaveBeenCalled();
+    expect(await loadOaLogin(clock, testDeps)).not.toBeNull();
   });
 });

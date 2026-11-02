@@ -8,7 +8,7 @@
  *   - 资料拉取失败不阻断登录，账号键退化用已缓存的冻结键（键按缓存，不回空）。
  *
  * signed-out 的 `reason`（Finding 1 / 4，FR-SESSION-02 的失效 toast 判据）：
- *   - `expired`：**曾有**凭证但已失效——凭证类失败 / TTL 过期 / 密文损坏。渲染层
+ *   - `expired`：**曾有**凭证但已失效——凭证类失败 / TTL 过期。渲染层
  *     弹「登录已过期，请重新登录」，**冷启动也弹**（不再依赖 in-process 落差）。
  *   - `logout`：主动登出（logout() 是唯一自愿来源），兄弟窗口据此一并抑制失效 toast。
  *   - 缺省：无凭证首启 / 显式登录前——不是失效，不弹。
@@ -43,7 +43,7 @@ import type { OaStoredLogin } from './credentialStore.js';
 
 /**
  * signed-out 的来源分类（FR-SESSION-02）：`expired` = 曾有凭证的失效（凭证类失败 /
- * TTL 过期 / 损坏）→ 冷启动也弹「登录已过期」；`logout` = 主动登出 → 抑制 toast；
+ * TTL 过期）→ 冷启动也弹「登录已过期」；`logout` = 主动登出 → 抑制 toast；
  * 缺省 = 无凭证首启，不是失效。
  */
 export type HrOaSignedOutReason = 'logout' | 'expired';
@@ -52,6 +52,13 @@ export type HrOaAuthState =
   | { status: 'signed-out'; reason?: HrOaSignedOutReason }
   | { status: 'offline'; accountKey: string; profile: PersonProfile }
   | { status: 'signed-in'; accountKey: string; profile: PersonProfile };
+
+/**
+ * 密文「暂时读不出」的重试次数（不含首次）。真机启动期 safeStorage 后端未就绪是
+ * 一次性抖动（同一次启动内稍后即可读写），轻量重试即可恢复；仍读不出则按离线
+ * 契约落定，绝不落 signed-out（凭证还在）。
+ */
+const LOAD_RETRY_ATTEMPTS = 2;
 
 export interface HrOaSessionManager {
   /** 冷启动静默重登（有凭证才打网络）；返回落定后的状态。 */
@@ -212,8 +219,42 @@ export function createHrOaSessionManager(deps: {
     return settle({ status: 'signed-in', accountKey, profile });
   }
 
+  /**
+   * 密文在盘但暂时读不出（safeStorage 后端未就绪 / 解密瞬时异常，真机启动期常态）：
+   * **绝不**落 signed-out 回 S1、更不清凭证——凭证还在，只是这一刻读不到。按离线
+   * 契约用资料缓存认领账号键进 offline home；钥匙串恢复后（networkRecovered / 12h
+   * 刷新）静默重登转 signed-in。缓存缺失认领不了数据分区时才退回 signed-out（仍
+   * 不清凭证、不弹失效）。
+   */
+  async function settleCredentialUnavailable(): Promise<HrOaAuthState> {
+    const cache = await credentials.loadOaProfileCache();
+    if (!cache?.accountKey) {
+      log.warn('[hr-oa] credential unreadable and no profile cache owner; staying signed-out');
+      return notifyOnly({ status: 'signed-out' });
+    }
+    return settle({ status: 'offline', accountKey: cache.accountKey, profile: cache.profile });
+  }
+
+  /**
+   * 分流版 load + 瞬时读抖动重试：`unavailable`（密文在盘、暂时读不出）不立即
+   * 当终局——真机启动期 safeStorage 后端未就绪是一次性抖动（同一次启动内稍后即可
+   * 读写），重试几次仍读不出才转 offline 落定。
+   */
+  async function loadStoredLoginWithRetry(): Promise<
+    Awaited<ReturnType<typeof credentials.loadOaLoginDetailed>>
+  > {
+    let loaded = await credentials.loadOaLoginDetailed(now());
+    for (let attempt = 0; attempt < LOAD_RETRY_ATTEMPTS && loaded.status === 'unavailable'; attempt += 1) {
+      loaded = await credentials.loadOaLoginDetailed(now());
+    }
+    return loaded;
+  }
+
   async function startup(): Promise<HrOaAuthState> {
-    const loaded = await credentials.loadOaLoginDetailed(now());
+    const loaded = await loadStoredLoginWithRetry();
+    if (loaded.status === 'unavailable') {
+      return settleCredentialUnavailable();
+    }
     if (loaded.status === 'none') {
       // 无凭证：保持 signed-out、不 commit——ensureLoaded 的启动归一已经把会话放在
       // signed-out/local，HR 不该在这里踩掉 local。无 reason = 首启，不是失效。
@@ -221,7 +262,7 @@ export function createHrOaSessionManager(deps: {
       return dropToSignedOut(undefined, true);
     }
     if (loaded.status === 'expired') {
-      // TTL 过期 / 密文损坏：曾有凭证的失效（FR-SESSION-02）→ reason:'expired'，
+      // TTL 过期：曾有凭证的失效（FR-SESSION-02）→ reason:'expired'，
       // 渲染层冷启动也弹「登录已过期」；load 侧已顺手清掉密文。门户 cookie 同口径收口。
       return dropToSignedOut('expired', false);
     }
@@ -279,7 +320,12 @@ export function createHrOaSessionManager(deps: {
     if (reconnectInFlight) return reconnectInFlight;
     reconnectInFlight = (async () => {
       try {
-        const loaded = await credentials.loadOaLoginDetailed(now());
+        const loaded = await loadStoredLoginWithRetry();
+        if (loaded.status === 'unavailable') {
+          // 密文在盘但暂时读不出：凭证还在，留在 offline 等下一次恢复信号，不得
+          // 按失效清人（误清 = 真机「清凭证」签名）。
+          return state;
+        }
         if (loaded.status !== 'ok') {
           // 离线期间凭证到期 / 消失（含外部清钥匙串）：曾有会话却回不去 → 按失效处理
           // （FR-SESSION-02 的「凭证过期」分支），不把人无解释地丢回 S1。
