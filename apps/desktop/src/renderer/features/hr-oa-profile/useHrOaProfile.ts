@@ -25,8 +25,11 @@
  * 重取）。残留缓存由登出清理清单（Task 5 `clearOaAvatarCache`）收掉。跟进项：在 main
  * 侧从资料页解析真 `s_time` 并经 PersonProfile 携带，即可精确「换头像即换键」。
  *
- * 隐私红线：`mobile` / `sex` 不进本模块的任何输出面（展示层同样不取）；`licenseId`
- * 不提取（Task 2 解析层已排除）。
+ * 隐私边界（最终评审 Finding 4 收口，修正「不进任何输出面」的过强说法）：
+ * `snapshot.profile = { ...profile }` 会把完整 `PersonProfile`（含 `mobile` / `sex` /
+ * `personId`）在内存整体透传给订阅方——真实边界是**不渲染、不落盘、不进日志、
+ * 不进埋点**（展示层同样不取），不是「不进任何输出面」；`licenseId` 不提取
+ * （Task 2 解析层已排除）。
  */
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';

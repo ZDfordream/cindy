@@ -15,7 +15,9 @@
  * - 最小失败输入：见表驱动失败分流四行（network_error / timeout / 挂起 10s / rejected）与
  *   退避 1→5→15→15 序列；周期两行（未到期不刷 / 错过 3 周期只补 1 次）；单飞并发两触发；
  *   静默一行（onDidChange 零调用）；闸一行（刷新中 whenRefreshIdle 不放行）；文件 persist
- *   两行（save→load→clear 重启可恢复 / 损坏按无计划）。
+ *   两行（save→load→clear 重启可恢复 / 损坏按无计划）；代次守卫三行（迟到凭证类失败不
+ *   清新凭证 / 不翻 reason:logout / 迟到成功清 cookie）+ TOCTOU 一行（rejected 分支
+ *   clearOaLogin IO 窗口内自愿登出落地，迟到收口不得翻成 expired，FR-HOME-03）。
  * - tier：unit（无真实网络、无真实等待——vi.useFakeTimers + 注入 now；client/凭证全 fake，
  *   调度器用真实 tokenRefresh 模块）。
  * - 实测耗时：单文件 ~0.5s 墙钟（pnpm --dir apps/desktop exec vitest run src/main/hr-oa/__tests__/tokenRefresh.test.ts）。
@@ -650,6 +652,51 @@ describe('sessionManager 接调度器（FR-TOKEN-03/04/05/07）', () => {
     expect(listener).not.toHaveBeenCalled();
     expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
     expect(clearOaLoginSpy).toHaveBeenCalledTimes(1); // 只有 logout 自己那次
+  });
+
+  it('TOCTOU：rejected 分支 clearOaLogin 的 IO 窗口内自愿登出落地，迟到收口不得翻成 expired（FR-HOME-03）', async () => {
+    seedDuePlan();
+    let releaseZombie: (o: OaLoginOutcome) => void = () => {};
+    const zombieLogin = new Promise<OaLoginOutcome>((resolve) => (releaseZombie = resolve));
+    vi.mocked(client.login).mockImplementationOnce(() => zombieLogin);
+
+    // 只闸刷新 rejected 分支那次 clearOaLogin（logout 自己那次立即完成）：制造
+    // 「superseded() 检查已过、正卡在 clearOaLogin IO」的窗口（Finding 2 的 TOCTOU）。
+    let clearEntered: () => void = () => {};
+    const clearEnteredP = new Promise<void>((resolve) => (clearEntered = resolve));
+    let releaseClear: () => void = () => {};
+    const clearGate = new Promise<void>((resolve) => (releaseClear = resolve));
+    let clearCalls = 0;
+    clearOaLoginSpy.mockImplementation(async () => {
+      clearCalls += 1;
+      if (clearCalls === 1) {
+        clearEntered();
+        await clearGate;
+      }
+      stored = { ...stored, expiresAt: 0 };
+    });
+
+    const due = manager.tokenRefreshDue('timer');
+    await flushAsync();
+    expect(client.login).toHaveBeenCalledTimes(1);
+
+    // 凭证被拒 → 进入 rejected 分支，挂进 clearOaLogin 的 IO。
+    releaseZombie({ ok: false, kind: 'wrong_credentials' });
+    await clearEnteredP;
+
+    // 该 IO 窗口内自愿登出完整落地（logout 路径的 clearOaLogin 不受闸）。
+    await manager.logout();
+    expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
+
+    const listener = vi.fn();
+    manager.onDidChange(listener);
+    releaseClear();
+    await flushAsync();
+    await due;
+    // 迟到的 rejected 只回分类：不得再 dropToSignedOut('expired') 覆盖 reason:'logout'
+    // 重arm「登录已过期」toast（FR-HOME-03）。
+    expect(listener).not.toHaveBeenCalled();
+    expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
   });
 
   it('登出后迟到的刷新成功不得留下门户 cookie（persist:hr-oa 账号隔离）', async () => {

@@ -11,18 +11,21 @@
  * **store 自登记（同步可停的装入合同）**：makerChatStore 装入时调
  * `registerRunningTaskStore` 自登记（makerChatStore → 本模块的单向运行时依赖；本模块
  * 对 makerChatStore 只有 `typeof import()` 类型引用，零运行时边）。因此
- * `stopRunningAgentRuns()` 可在 `landHrOaState` 落 signed-out 时**同步**执行（Ruling F
- * 的「先停后落」顺序合同），不会像动态 import 那样把 S1 落定拖在重模块装入/失败之后
- * （污染环境下 makerChatStore 链的失败延迟是秒级）。未登记（本窗从未装入会话 store）
- * = 本窗无投影中的在途轮，零动作——真正持有这些轮的窗口装着 store，会在同一推送的
- * 落定里停掉（多窗口同响，stop 幂等）。
+ * `stopRunningAgentRuns()` 可在 `landHrOaState` 落 signed-out 时**同步**执行（同步
+ * 可停，不因动态 import 把落定拖后），不会像动态 import 那样把 S1 落定拖在重模块
+ * 装入/失败之后（污染环境下 makerChatStore 链的失败延迟是秒级）。未登记（本窗从未
+ * 装入会话 store）= 本窗无投影中的在途轮，零动作——真正持有这些轮的窗口装着 store，
+ * 会在同一推送的落定里停掉（多窗口同响，stop 幂等）。
  *
- * **先停后落（Ruling B / Ruling F / Review Focus #1）**：凡**进入** signed-out 的落定
- * （手动确认 / 失效强退 FR-LOGOUT-05 / 冷启动发现失效）都必须先真停这些工作再落——
- * 只靠 UI 卸载 / owner 边界的 renderer 收口（forceFinalize，不发 input.stop）会留下
- * 「登出后旧进程仍往旧 owner 分区写、用旧凭证发请求」的账号隔离漏洞。真停走用户
- * Stop 的同一生产路径（`makerChatStore.stopSession`：renderer 立即收口 +
- * `input.stop` 中断在途轮 / 伙伴轮）。
+ * **停轮顺序合同（Controller Ruling K，修正 Ruling B/F「先停后落」的普适说法）**：
+ * **主动登出先停后落**（确认路径 requestHrOaLogout 在 logout IPC 前真停这些工作）；
+ * **强制登出先清凭证与 cookie 并落 `signed-out`，renderer 随后即发 `stop`**
+ * （landHrOaState 的落地停轮）。只靠 UI 卸载 / owner 边界的 renderer 收口
+ * （forceFinalize，不发 input.stop）会留下「登出后旧进程仍往旧 owner 分区写、用旧
+ * 凭证发请求」的账号隔离漏洞——隔离结果由「凭证/cookie 已清 + owner 纪元守卫 +
+ * 落地时停轮」共同保证，不靠强退路径的停先于落。真停走用户 Stop 的同一生产路径
+ * （`makerChatStore.stopSession`：renderer 立即收口 + `input.stop` 中断在途轮 /
+ * 伙伴轮）。
  */
 
 import { getDataOwnerGeneration } from '@/contexts/dataOwnerGeneration';
@@ -56,7 +59,8 @@ export function countRunningAgentRuns(): number {
 
 /**
  * 真停当前账号下所有在途 Agent 轮（Stop 同路径）。幂等：停完再调零动作；未登记
- * 零动作。调用方合同：必须在落 `signed-out` **之前**（顺序不可反，见文件头）。
+ * 零动作。调用方合同（Ruling K，见文件头）：主动登出必须在落 `signed-out` **之前**
+ * 调本函数（先停后落）；强制登出在落定后由 renderer 随即补调（落地时停轮）。
  */
 export function stopRunningAgentRuns(): void {
   const { dataOwnerId } = getDataOwnerGeneration();

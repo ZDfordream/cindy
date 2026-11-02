@@ -252,6 +252,14 @@ export function createHrOaSessionManager(deps: {
    * 顺序合同：状态落定后渲染层可立即发起下一次登录，迟到落地的清 cookie 会误删
    * 新登录种下的会话；所以清 cookie 是落定前的同步门，不是落定后的旁路通知。
    *
+   * 停轮顺序合同（Controller Ruling K，与渲染层 landHrOaState / runningTasks 头注
+   * 同文——不是「凡落 signed-out 都先停」）：**主动登出先停后落**（requestHrOaLogout
+   * 在 logout IPC 前已 stopRunningAgentRuns，停先于本函数的落定）；**强制登出**（FR-
+   * LOGOUT-05 凭证类失效 / token_refresh rejected / TTL 过期）**先清凭证与 cookie
+   * 并落 `signed-out`（本函数），renderer 随后即发 `stop`**（landHrOaState 的落地停轮）。
+   * 隔离结果由「凭证/cookie 已清 + owner 纪元守卫 + 落地时停轮」共同保证，不靠强退
+   * 路径的停先于落。
+   *
    * FR-LOGOUT-03/05 清理清单：自愿登出（`logout`）与失效强退（`expired`）同样清
    * **个人信息缓存与头像缓存**——两者都落在 userData 根（不在 owner 分区内），不清
    * 会跨账号残留上一人的资料/头像。首启无凭证（reason 缺省）不属清理动作，不动。
@@ -407,6 +415,10 @@ export function createHrOaSessionManager(deps: {
       if (loaded.status !== 'ok') {
         // 凭证已不在 / TTL 过期：刷新失去意义，同凭证被拒强退（FR-TOKEN-05）。
         await credentials.clearOaLogin();
+        // TOCTOU 复查（Finding 2）：clearOaLogin 是 IO，期间自愿登出/新登录可能已落定
+        // （代次推进）——被取代就地回 rejected，不得再 drop 把 reason:'logout' 翻成
+        // 'expired'（FR-HOME-03）。
+        if (superseded()) return 'rejected';
         client.resetSession();
         await dropToSignedOut('expired', false, { keepTokenScheduler: true, logoutEntry: 'token_refresh' });
         return 'rejected';
@@ -425,6 +437,9 @@ export function createHrOaSessionManager(deps: {
       if (outcome.ok) return 'success';
       if (outcome.kind === 'wrong_credentials' || outcome.kind === 'locked') {
         await credentials.clearOaLogin();
+        // TOCTOU 复查（Finding 2，同上）：clearOaLogin 的 IO 窗口内会话边界可能已落地，
+        // 被取代就地回 rejected，不得 drop 覆盖 reason:'logout'（FR-HOME-03）。
+        if (superseded()) return 'rejected';
         client.resetSession();
         await dropToSignedOut('expired', false, { keepTokenScheduler: true, logoutEntry: 'token_refresh' });
         return 'rejected';

@@ -135,9 +135,13 @@ function publishGateMemory(): void {
 }
 
 /**
- * 真停当前账号的在途 Agent 轮（Ruling F：**凡落 signed-out 先停**，不只确认路径）。
- * 见 runningTasks 头注：stop 同步执行（store 自登记），失败吞掉只记 warn——停失败
- * 不得拦住落定，否则用户被卡在半失效态；顺序合同仍是**停的尝试先于落定**。
+ * 真停当前账号的在途 Agent 轮（Ruling B/F 的停轮面）。见 runningTasks 头注：stop
+ * 同步执行（store 自登记），失败吞掉只记 warn——停失败不得拦住落定，否则用户被卡在
+ * 半失效态。顺序合同（Controller Ruling K，**不是**「凡落 signed-out 先停」）：
+ * **主动登出先停后落**（requestHrOaLogout 在 logout IPC 前调本函数）；**强制登出先清
+ * 凭证与 cookie 并落 `signed-out`，renderer 随后即发 `stop`**（landHrOaState 的落地
+ * 停轮调本函数）。隔离结果由「凭证/cookie 已清 + owner 纪元守卫 + 落地时停轮」共同
+ * 保证。
  */
 function stopInFlightAgentRunsSafely(): void {
   try {
@@ -165,9 +169,12 @@ function stopInFlightAgentRunsSafely(): void {
  */
 function landHrOaState(next: HrOaAuthState): void {
   const previous = gateMemory.lastStatus;
-  // Ruling F：**先停后落**——凡**进入** signed-out 的落定（手动 / 失效强退 FR-LOGOUT-05 /
-  // 冷启动发现失效 / 多窗口推送）都先真停在途 Agent 轮（幂等）。同步执行、失败吞掉：
-  // 不得把 S1 落定拖在停任务的异步装入之后（顺序合同 = 停的尝试先于落定）。
+  // 停轮（Controller Ruling K，修正 Ruling F「先停后落」的普适说法）：主动登出先停
+  // 后落（requestHrOaLogout 在 logout IPC 前已停，此处再调幂等）；强制登出（FR-LOGOUT-05 /
+  // token_refresh rejected / 冷启动发现失效 / 多窗口推送）是 main 先清凭证与 cookie
+  // 并落 signed-out，renderer 收到推送后**在这里**落地停轮发 stop——隔离由「凭证/
+  // cookie 已清 + owner 纪元守卫 + 落地时停轮」共同保证。同步执行、失败吞掉：不得把
+  // S1 落定拖在停任务的异步装入之后（停的尝试先于本函数的落定记账）。
   if (next.status === 'signed-out' && previous !== 'signed-out') {
     stopInFlightAgentRunsSafely();
   }
@@ -382,8 +389,9 @@ export function useHrOaAuth(): HrOaAuthApi {
       void window.electronAPI.hrOa
         .getState()
         .then((next) => {
-          // 失效强退等所有进入 signed-out 的落定由 landHrOaState 统一「先停后落」
-          // （Ruling F，见该函数头注），此处不另拦——单一收口点。
+          // 失效强退等进入 signed-out 的落定由 landHrOaState 统一收口（落地时停轮；
+          // 主动登出的先停后落在 requestHrOaLogout——Ruling K 见该函数头注），此处
+          // 不另拦——单一收口点。
           if (!cancelled) {
             landHrOaState(next);
             setState(next);

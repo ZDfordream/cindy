@@ -18744,9 +18744,10 @@ export const makerChatStore = {
   },
 };
 
-// 「进行中任务」计数/真停的自登记（Ruling B / Ruling F，runningTasks 头注）：装入本
-// store 即登记，让 hrOaAuthStore 落 signed-out 时能**同步**先停在途 Agent 轮。依赖
-// 方向 makerChatStore → runningTasks 单向；runningTasks 对本模块仅类型引用。
+// 「进行中任务」计数/真停的自登记（Ruling B / Ruling K，runningTasks 头注）：装入本
+// store 即登记，让 hrOaAuthStore 能**同步**停在途 Agent 轮——主动登出先停后落；
+// 强制登出落 signed-out 后 renderer 随即落地停轮（顺序合同见 runningTasks 头注）。
+// 依赖方向 makerChatStore → runningTasks 单向；runningTasks 对本模块仅类型引用。
 registerRunningTaskStore(makerChatStore);
 
 // ---------------------------------------------------------------------------

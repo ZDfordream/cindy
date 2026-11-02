@@ -84,9 +84,11 @@ export function createProfileService(deps: {
 
   /**
    * 可信缓存身份（缓存回落与头像 personId 共用）：资料缓存**只有在当前凭证可读且
-   * accountKey 对得上**时才采信。凭证读不出（含登出后——凭证清了、缓存按 Task 1 裁决
-   * **故意保留**）一律不采信：那正是上一账号残骸，采信 = 把别人的资料/头像当成当前人
-   * （Review Finding 1）。Task 1 的离线认领（钥匙串读不出时用缓存冻结键落 offline）在
+   * accountKey 对得上**时才采信。凭证读不出（含登出后——凭证清了）一律不采信：那正是
+   * 上一账号残骸，采信 = 把别人的资料/头像当成当前人（Review Finding 1）。缓存本身
+   * 已非 Task 1 时代的「故意保留」——Task 5 的 `dropToSignedOut` 清理清单随
+   * logout/expired 清资料与头像缓存；本防线防的是清理前残骸 / 清理失败的漏网 / 键串号。
+   * Task 1 的离线认领（钥匙串读不出时用缓存冻结键落 offline）在
    * sessionManager 里**直接读缓存**、不经过本函数，不受此收紧影响。
    */
   async function verifiedCachedProfile(): Promise<PersonProfile | null> {
