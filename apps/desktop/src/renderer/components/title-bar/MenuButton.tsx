@@ -1,3 +1,14 @@
+/**
+ * MenuButton — 标题栏 ≡（应用内菜单）。
+ *
+ * **≡ 已下线（profile-menu PRD FR-MENU-08 / D2，藏不删）**：菜单项已迁入侧栏
+ * 个人弹层（`features/hr-oa-profile/ProfileMenu`，§6.2 迁移对照表），HR 模式下
+ * 标题栏不再挂本按钮——挂载位 `ChromeActions` 随 Cindy 账号层的
+ * `SHOW_CINDY_ACCOUNT_UI` 一起收起（legacyVisibility 单一恢复开关；恢复 ≡ 翻开关
+ * 即回，不重接线）。本文件保留全部原实现作恢复面；其挂载的共享任务轮询与
+ * 「已结束」提示已随 ≡ 下线上移至 ChromeActions（与 ≡ 可见性无关）。
+ * 菜单项常量（文案 key）以 `ProfileMenu` 的 `PROFILE_MENU_ITEMS` 为准（埋点复用）。
+ */
 import { Menu } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,18 +26,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tip } from '@/components/ui/tooltip';
-import { useSharedTaskTasks } from '@/features/device-link/useSharedTaskTasks';
-import { SharedTaskEndedNotice } from '@/features/device-link/SharedTaskEndedNotice';
 
 export function MenuButton({ onExitFullscreen }: { onExitFullscreen?: () => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
-  useSharedTaskTasks();
 
   return (
-    <><DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger asChild>
         <Tip text={t('titleBar.menu')} side="bottom" controlledOpen={menuOpen ? false : undefined}>
           {/* 尺寸与 ChromeActions 的折叠按钮同规格(h-7 / 图标 15 / rounded-md),
@@ -111,7 +119,5 @@ export function MenuButton({ onExitFullscreen }: { onExitFullscreen?: () => void
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-    <SharedTaskEndedNotice onReturnToTasks={() => navigate('/')} />
-    </>
   );
 }

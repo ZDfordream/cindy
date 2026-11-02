@@ -13,6 +13,9 @@ export const CHROME_ACTIONS_GEOMETRY = {
   /**
    * 四个 28px 按钮加 4px 间距的总宽度：折叠、菜单、浏览历史后退与前进。
    * 加删按钮时同步改这里，挖洞与占位都跟着它。
+   * ≡（菜单）随 SHOW_CINDY_ACCOUNT_UI 收起（FR-MENU-08 / D2）后默认只渲染三颗——
+   * 本值**保持恢复口径 124**：隐藏期 no-drag 挖洞比按钮簇宽 32px 只是拖拽区略收
+   * （无功能影响），恢复 ≡ 翻开关即回原几何，不需两套值重接线。
    */
   clusterWidth: 124,
 } as const;

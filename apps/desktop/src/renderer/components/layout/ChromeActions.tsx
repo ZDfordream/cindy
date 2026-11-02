@@ -12,8 +12,10 @@
  *   触发钮(折叠按钮)因此有稳定的触发区域。唯一的位移是 mac 进出全屏
  *   （78 ↔ 8）,保留 250ms 过渡与红绿灯出现/消失同步。
  *
- * 顺序：折叠按钮在左（紧贴红绿灯,对齐 Codex）,菜单（三横杠）在其右,
- * 再往右是任务浏览历史的「后退 / 前进」（见 SessionHistoryButtons）。
+ * 顺序：折叠按钮在左（紧贴红绿灯,对齐 Codex）,其右是任务浏览历史的
+ * 「后退 / 前进」（见 SessionHistoryButtons）。菜单（三横杠 ≡）随 Cindy 账号层
+ * 的 SHOW_CINDY_ACCOUNT_UI 收起（D2：菜单项迁入侧栏个人弹层 ProfileMenu，
+ * 恢复 ≡ 翻开关即回）。
  *
  * 尺寸：按钮 h-7 w-7(28px)+ 图标 15 + rounded-md —— 与折叠态标题行的
  * 「…」按钮(SessionContentHeader,h-7 w-7 / Ellipsis 15 / rounded-md)同一
@@ -35,6 +37,7 @@
 
 import { ArrowLeft, ArrowRight, PanelLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 
 import { MenuButton } from '@/components/title-bar/MenuButton';
 import { ChromeIconButton } from '@/components/title-bar/ChromeIconButton';
@@ -42,6 +45,9 @@ import { Tip } from '@/components/ui/tooltip';
 import { useMacFullscreen } from '@/hooks/useMacFullscreen';
 import { useAppShortcutDisplay } from '@/hooks/useAppShortcut';
 import type { SessionBrowseNavigation } from '@/features/cc-agent/useSessionBrowseHistory';
+import { useSharedTaskTasks } from '@/features/device-link/useSharedTaskTasks';
+import { SharedTaskEndedNotice } from '@/features/device-link/SharedTaskEndedNotice';
+import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
 import { cn } from '@/lib/utils';
 
 import type { SidebarPeekTriggerProps } from '@/hooks/useSidebarPeek';
@@ -69,7 +75,11 @@ export function ChromeActions({
   peekTriggerProps,
 }: ChromeActionsProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { isMac, isFullscreen } = useMacFullscreen();
+  // 共享任务轮询与「已结束」提示原挂在 MenuButton（≡）里；≡（D2）收起后必须随
+  // 常驻 chrome 留存（否则 HR 模式整段失联）。与 ≡ 的可见性无关，恒挂。
+  useSharedTaskTasks();
 
   // 钉死左上角:mac 非全屏让位红绿灯(78),其余 8。不随侧栏状态变化。
   const x =
@@ -109,15 +119,22 @@ export function ChromeActions({
           <PanelLeft size={15} />
         </button>
       </Tip>
-      <MenuButton
-        onExitFullscreen={
-          isMac && isFullscreen ? () => window.electronAPI?.windowExitFullscreen() : undefined
-        }
-      />
+      {/* ≡（D2）：HR 模式下标题栏不再显示，菜单项已迁入侧栏个人弹层（ProfileMenu）。
+          「藏不删」与 Cindy 账号层同一收起口径——恢复 ≡ 只需把
+          SHOW_CINDY_ACCOUNT_UI 翻回 true（legacyVisibility 单一开关），不需重接线。 */}
+      {isCindyAccountUiVisible() && (
+        <MenuButton
+          onExitFullscreen={
+            isMac && isFullscreen ? () => window.electronAPI?.windowExitFullscreen() : undefined
+          }
+        />
+      )}
       {/* 任务浏览历史：与浏览器同惯例，左键后退、右键前进；到边界置灰并把
           tooltip 换成「为什么不可用」。尺寸与相邻的菜单/折叠按钮同为 28px，
           圆角走 ChromeIconButton 默认的控件 pill（DESIGN §5）。 */}
       <SessionHistoryButtons {...browseHistory} />
+      {/* 共享任务被收回时的结束提示：常驻 chrome 挂载（离开被收回任务不随之卸载）。 */}
+      <SharedTaskEndedNotice onReturnToTasks={() => navigate('/')} />
     </div>
   );
 }

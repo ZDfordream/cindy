@@ -28,14 +28,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/lib/toast';
+import { checkForUpdateWithToast } from '@/lib/checkForUpdateWithToast';
+import { createLogger } from '@/lib/logger';
 import type { DesktopSavedAccount } from '@/lib/authService';
 import { ProfileAvatar } from '@/features/hr-oa-profile/ProfileAvatar';
 import { ProfileEntry } from '@/features/hr-oa-profile/ProfileEntry';
+import { ProfileMenu, type ProfileMenuItem } from '@/features/hr-oa-profile/ProfileMenu';
 import { useHrOaProfile } from '@/features/hr-oa-profile/useHrOaProfile';
+import { requestHrOaLogout } from '@/features/hr-oa-auth/hrOaAuthStore';
 import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
 import { CURRENT_CINDY_REGION } from '../../../shared/brandRegion';
 import { shouldLabelRegion } from '../../../shared/regionCode';
 import { MobileDownloadDialog } from './MobileDownloadDialog';
+
+const userInfoLog = createLogger('UserInfoSection');
 
 interface UserInfoSectionProps {
   isCollapsed: boolean;
@@ -85,38 +91,127 @@ function HrProfileRailEntry({
   const { t } = useTranslation();
   const failed = state === 'error';
   const name = profile?.name ?? '';
+  const ariaLabel =
+    state === 'loading'
+      ? t('hrOa.profile.entryAriaLoading')
+      : failed
+        ? t('hrOa.profile.entryAriaError')
+        : t('hrOa.profile.entryAriaName', { name });
   return (
     <div className="mt-auto flex h-[66px] flex-col items-center justify-center gap-1 px-3">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={expanded}
-        aria-label={
-          state === 'loading'
-            ? t('hrOa.profile.entryAriaLoading')
-            : failed
-              ? t('hrOa.profile.entryAriaError')
-              : t('hrOa.profile.entryAriaName', { name })
-        }
-        onClick={() => onOpen({ focus: 'first' })}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
-            event.preventDefault();
-            onOpen({ focus: 'first' });
-          } else if (event.key === 'ArrowUp') {
-            event.preventDefault();
-            onOpen({ focus: 'last' });
-          }
-        }}
-        className={cn(
-          'flex items-center justify-center rounded-[10px] p-1',
-          'transition-colors duration-[var(--motion-fast)] hover:bg-[var(--sidebar-user-card-bg-hover)]',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]',
-        )}
-      >
-        <ProfileAvatar size={28} profile={failed ? null : profile} src={failed ? null : avatarUrl} />
-      </button>
+      {/* 窄栏形态只有头像（icon-only），按 BUG-TOOLTIP-01 挂受管 Tip（随资料状态变）。 */}
+      <Tip text={ariaLabel} side="right">
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={expanded}
+          aria-label={ariaLabel}
+          onClick={() => onOpen({ focus: 'first' })}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+              event.preventDefault();
+              onOpen({ focus: 'first' });
+            } else if (event.key === 'ArrowUp') {
+              event.preventDefault();
+              onOpen({ focus: 'last' });
+            }
+          }}
+          className={cn(
+            'flex items-center justify-center rounded-[10px] p-1',
+            'transition-colors duration-[var(--motion-fast)] hover:bg-[var(--sidebar-user-card-bg-hover)]',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]',
+          )}
+        >
+          <ProfileAvatar size={28} profile={failed ? null : profile} src={failed ? null : avatarUrl} />
+        </button>
+      </Tip>
     </div>
+  );
+}
+
+/**
+ * HR 模式侧栏底部：个人入口（展开 / 窄栏）+ 个人弹层（FR-PROFILE-01 / FR-MENU-01）。
+ * 开层意图：点击/Enter/Space/↓ 焦点首项、↑ 焦点末项（经 initialFocus 交给
+ * ProfileMenu）；再点入口收起（原型 profileBtn 的开/收语义）。弹层锚点 = 入口按钮
+ * 的几何（左下对齐 + 6px，FR-MENU-01）。独立成组件只为让 `useHrOaProfile` 的订阅
+ * 随 HR 子树挂/卸（Cindy 恢复配置不触发 HR 取数）。
+ */
+function HrProfileFooter({ isCollapsed }: { isCollapsed: boolean }) {
+  // 个人弹层的展示状态（Ruling A 的 ProfileState）：与 ProfileEntry 共用同一镜像。
+  const { state: profileState } = useHrOaProfile();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { t } = useTranslation();
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [profileMenuFocus, setProfileMenuFocus] = useState<'first' | 'last'>('first');
+  const [profileAnchor, setProfileAnchor] = useState<DOMRect | null>(null);
+  const profileEntryHostRef = useRef<HTMLDivElement>(null);
+
+  const handleProfileOpen = useCallback((options?: { focus?: 'first' | 'last' }) => {
+    setProfileMenuFocus(options?.focus ?? 'first');
+    const entry = profileEntryHostRef.current?.querySelector('button');
+    setProfileAnchor(entry?.getBoundingClientRect() ?? null);
+    setProfileMenuOpen((open) => !open);
+  }, []);
+  const handleProfileClose = useCallback(() => setProfileMenuOpen(false), []);
+  // 菜单动作沿用改版前 ≡ 同名项行为（§6.2 迁移对照表「行为不变」列）。
+  const handleProfileAction = useCallback(
+    (item: ProfileMenuItem) => {
+      switch (item) {
+        case 'settings':
+          userInfoLog.info('Settings clicked');
+          // 与 ≡ / MainLayout 'open-settings' 同一判定（pathname + search）：
+          // 已在设置默认页不重复导航；在 /settings?tab=xxx 子页回到设置默认页。
+          if (`${location.pathname}${location.search}` !== '/settings') {
+            navigate('/settings');
+          }
+          break;
+        case 'resource_monitor':
+          void window.electronAPI.resourceUsageWindow.open().catch((err: unknown) => {
+            userInfoLog.error('Failed to open resource usage window', err);
+          });
+          break;
+        case 'help':
+          userInfoLog.info('Help clicked');
+          navigate('/settings?tab=help');
+          break;
+        case 'feedback':
+          userInfoLog.info('Issues clicked');
+          navigate('/issues');
+          break;
+        case 'check_update':
+          // OQ-5：检查更新结果走 toast（≡ 下线后不得再锚到 ≡ / 标题栏）。
+          void checkForUpdateWithToast(t);
+          break;
+        case 'logout':
+          // PRD 迁移对照表：退出登录迁入弹层末项；确认弹窗（D3）由 Task 5 接入。
+          void requestHrOaLogout();
+          break;
+      }
+    },
+    [location.pathname, location.search, navigate, t],
+  );
+
+  return (
+    <>
+      {/* display:contents：wrapper 只作入口按钮的几何/焦点查询锚，不进 flex 布局
+          （ProfileEntry / HrProfileRailEntry 自带 mt-auto 底部沉底）。 */}
+      <div ref={profileEntryHostRef} className="contents">
+        {isCollapsed ? (
+          <HrProfileRailEntry expanded={profileMenuOpen} onOpen={handleProfileOpen} />
+        ) : (
+          <ProfileEntry expanded={profileMenuOpen} onOpen={handleProfileOpen} />
+        )}
+      </div>
+      <ProfileMenu
+        open={profileMenuOpen}
+        anchor={profileAnchor}
+        profileState={profileState}
+        initialFocus={profileMenuFocus}
+        onClose={handleProfileClose}
+        onAction={handleProfileAction}
+      />
+    </>
   );
 }
 
@@ -173,25 +268,12 @@ export function UserInfoSection({ isCollapsed, onOpenUpdateNotice }: UserInfoSec
     setSwitchingAccountKey(null);
   }, [accountsOwnerKey]);
 
-  // HR 模式个人入口的开层意图（FR-PROFILE-01：点击/Enter/Space/↓ 焦点首项，↑ 焦点
-  // 最后一项）。弹层本体是 Task 4 的 ProfileMenu（自入口向上弹）；本步先把入口与
-  // expanded（aria-expanded）接线，Task 4 在同处挂 ProfileMenu 消费 open + focus 意图。
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const handleProfileOpen = useCallback((options?: { focus?: 'first' | 'last' }) => {
-    setProfileMenuOpen(true);
-    // focus:'last'（↑ 开层聚焦最后一项）留给 Task 4 的 ProfileMenu 初始焦点策略。
-    void options;
-  }, []);
-
-  // HR 模式（mode === 'hr'）：侧栏底部改挂个人信息入口；Cindy 账号行随
+  // HR 模式（mode === 'hr'）：侧栏底部改挂个人信息入口 + 个人弹层；Cindy 账号行随
   // SHOW_CINDY_ACCOUNT_UI「藏不删」收起（HR 会话无 Cindy user，恢复开关打开时也
-  // 回到旧行为：不渲染）。收起形态见 OQ-4（28px 头像固定窄栏底部）。
+  // 回到旧行为：不渲染）。收起形态见 OQ-4（28px 头像固定窄栏底部）。资料镜像
+  // （useHrOaProfile）只在 HR 子树订阅——恢复配置下不触发 HR 取数。
   if (mode === 'hr' && !isCindyAccountUiVisible()) {
-    return isCollapsed ? (
-      <HrProfileRailEntry expanded={profileMenuOpen} onOpen={handleProfileOpen} />
-    ) : (
-      <ProfileEntry expanded={profileMenuOpen} onOpen={handleProfileOpen} />
-    );
+    return <HrProfileFooter isCollapsed={isCollapsed} />;
   }
 
   if (!user && !isLocal) return null;

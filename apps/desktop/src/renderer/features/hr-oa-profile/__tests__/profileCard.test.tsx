@@ -146,7 +146,7 @@ describe('ProfileCard · 状态面（FR-PROFILE-04/05）', () => {
     expect(screen.getByText('登录名')).toBeTruthy();
     expect(screen.getByText('信息更新失败')).toBeTruthy();
 
-    const retry = screen.getByRole('button', { name: '重试' });
+    const retry = screen.getByRole('menuitem', { name: '重试' });
     await user.click(retry);
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
@@ -161,14 +161,14 @@ describe('ProfileCard · 状态面（FR-PROFILE-04/05）', () => {
         }),
     );
     render(<ProfileCard profile={makeProfile()} state="refresh-error" onRetry={onRetry} />);
-    await user.click(screen.getByRole('button', { name: '重试' }));
+    await user.click(screen.getByRole('menuitem', { name: '重试' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: '重试中…' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '重试中…' })).toBeTruthy();
 
     // 同一失败态再落定（state 未变）也必须回「重试」，不得卡在「重试中…」。
     resolveRetry();
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+      expect(screen.getByRole('menuitem', { name: '重试' })).toBeTruthy();
     });
   });
 
@@ -180,7 +180,7 @@ describe('ProfileCard · 状态面（FR-PROFILE-04/05）', () => {
     expect(screen.getByText('未获取到信息')).toBeTruthy();
     expect(screen.getByText('个人信息获取失败，请稍后重试')).toBeTruthy();
     // 失败初始焦点目标是「重试」（PRD §5.4 错误态初始焦点在重试）。
-    const retry = screen.getByRole('button', { name: '重试' });
+    const retry = screen.getByRole('menuitem', { name: '重试' });
     await user.click(retry);
     expect(onRetry).toHaveBeenCalledTimes(1);
   });

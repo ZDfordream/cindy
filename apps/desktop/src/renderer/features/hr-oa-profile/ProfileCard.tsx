@@ -82,6 +82,9 @@ export function ProfileCard(props: {
             </p>
             <button
               type="button"
+              // 失败面「重试」是弹层焦点环的第 1 个可用项（FR-MENU-07；原型 #pfRetry
+              // 同为 role=menuitem，进 `popItems` 的 ↑↓ 循环）。
+              role="menuitem"
               onClick={handleRetry}
               aria-disabled={retrying || undefined}
               className={cn(
@@ -189,6 +192,8 @@ export function ProfileCard(props: {
                 <span>{t('hrOa.profile.refreshFailed')}</span>
                 <button
                   type="button"
+                  // 更新失败面的「重试」同进弹层焦点环（原型 #pfStaleRetry / popItems）。
+                  role="menuitem"
                   onClick={handleRetry}
                   aria-disabled={retrying || undefined}
                   className={cn(

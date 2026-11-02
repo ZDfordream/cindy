@@ -76,6 +76,8 @@ let fetchSeq = 0;
 let avatarSeq = 0;
 /** 会话内稳定的头像版本戳（见文件头 sTime 说明）：按 personId 生成一次、复用。 */
 let avatarStamp: { personKey: string; sTime: string } | null = null;
+/** FR-PROFILE-07 R5：上次成功取数时刻（成功含非缓存回落的接口结果；signed-out 清空）。 */
+let lastSuccessAt: number | null = null;
 
 function emit(next: Partial<Snapshot>): void {
   snapshot = { ...snapshot, ...next };
@@ -164,6 +166,8 @@ function applySuccess(result: Extract<ProfileResult, { ok: true }>): void {
     applyFailure();
     return;
   }
+  // FR-PROFILE-07 R5 的时间锚：上次**成功**取数时刻（缓存回落不算成功）。
+  lastSuccessAt = Date.now();
   const changedPerson = personKeyOf(snapshot.profile) !== personKeyOf(profile);
   emit({
     profile: { ...profile },
@@ -281,11 +285,27 @@ function refresh(source: ProfileSource): void | Promise<void> {
   return runFetch(source);
 }
 
+/**
+ * FR-PROFILE-07 R5 的 stale 阈值：距上次成功取数超过 30 分钟，打开个人弹层时
+ * 后台刷新（source='stale'，不回骨架）。阈值依据见 PRD FR-PROFILE-07。
+ */
+export const PROFILE_STALE_MS = 30 * 60 * 1000;
+
+/**
+ * 是否已 stale（无成功历史 = 仍由 login/launch 常规取数覆盖，不算 stale）。
+ * 消费方：`ProfileMenu` 开层时调 `refresh('stale')`（原型 openPop 的
+ * `cache && now - fetchedAt > STALE_MS` 分流）。
+ */
+export function isProfileStale(now: number = Date.now()): boolean {
+  return lastSuccessAt !== null && now - lastSuccessAt > PROFILE_STALE_MS;
+}
+
 /** 清资料面（signed-out 投影 / 测试复位共用）：在途结果作废，头像 blob 释放。 */
 function clearData(): void {
   fetchSeq += 1;
   avatarSeq += 1;
   avatarStamp = null;
+  lastSuccessAt = null;
   if (snapshot.avatarUrl && typeof URL.revokeObjectURL === 'function') {
     URL.revokeObjectURL(snapshot.avatarUrl);
   }
@@ -313,4 +333,8 @@ export function useHrOaProfile(): HrOaProfileView {
 
 export const __testing = {
   resetHrOaProfileStore: resetStore,
+  /** 把上次成功时刻拨旧（FR-PROFILE-07 R5 stale 判定的用例缝；不走 vi.resetModules）。 */
+  ageLastSuccess(ms: number): void {
+    if (lastSuccessAt !== null) lastSuccessAt -= ms;
+  },
 };

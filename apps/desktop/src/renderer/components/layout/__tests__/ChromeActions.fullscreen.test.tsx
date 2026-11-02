@@ -60,6 +60,14 @@ const remoteRemovals = vi.hoisted(() => {
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
+// ≡（MenuButton）默认随 SHOW_CINDY_ACCOUNT_UI 收起（FR-MENU-08 / D2）。本文件是
+// ≡ 在场时的恢复配置回归面（全屏兜底项在 ≡ 菜单里），fixture 把单一恢复开关置回
+// true，不删断言、不弱化——「≡ 默认不渲染」的下线回归见 hr-oa-profile
+// __tests__/profileMenu.test.tsx（同一开关的收起侧）。
+vi.mock('@/features/hr-oa-auth/legacyVisibility', () => ({
+  SHOW_CINDY_ACCOUNT_UI: true,
+  isCindyAccountUiVisible: () => true,
+}));
 vi.mock('@/hooks/useMacFullscreen', () => ({
   useMacFullscreen: () => fullscreenState,
 }));
