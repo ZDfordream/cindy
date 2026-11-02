@@ -29,7 +29,7 @@
  */
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import i18n from '@/i18n';
@@ -50,18 +50,33 @@ import { HrOaMoreMenuItems } from '@/features/hr-oa-auth/HrOaMoreMenuItems';
 import {
   HR_OA_LOGOUT_CONFIRM_BEAT_MS,
   __testing as hrOaStoreTesting,
+  useHrOaAuth,
 } from '@/features/hr-oa-auth/hrOaAuthStore';
 import { ProfileMenu, type ProfileMenuItem } from '../ProfileMenu';
 import { LogoutConfirmDialog, useHrOaLogoutConfirm } from '../LogoutConfirmDialog';
-import { countRunningAgentRuns } from '../runningTasks';
+import { countRunningAgentRuns, registerRunningTaskStore } from '../runningTasks';
+// 仅类型引用（vi.mock 的模块拿类型不受影响；运行时打桩见下）。
+import type { SessionStatusInfo } from '@/lib/makerChatStore';
 
 // ── makerChatStore 打桩（AccountSwitcherDialog.test 同口径）：可观察运行快照 +
 //    stopSession 调用序，钉「先停后落」的顺序合同。─────────────────────────────
 const maker = vi.hoisted(() => ({
-  running: new Map<string, { isRunning: boolean }>(),
+  running: new Map<string, SessionStatusInfo>(),
   stopSession: vi.fn(),
   order: [] as string[],
 }));
+
+/** 标一条在途 Agent 轮（SessionStatusInfo 的必填面 + isRunning）。 */
+function markRunning(sessionId: string): void {
+  maker.running.set(sessionId, {
+    isRunning: true,
+    hasError: false,
+    hasPendingAskUser: false,
+    hasPendingPermission: false,
+    hasPendingPlanReview: false,
+    hasPendingPluginSetup: false,
+  });
+}
 
 vi.mock('@/lib/makerChatStore', () => ({
   makerChatStore: {
@@ -241,6 +256,18 @@ function FlowHarness() {
 const dialog = () => screen.queryByRole('dialog');
 const dialogPanel = () => screen.getByRole('dialog');
 
+/**
+ * signed-out 落定探针：消费生产 `useHrOaAuth` 的状态镜像，状态真正落成 signed-out
+ * （= 用户可见的 S1 切换边界）时记一笔 'settled'，供顺序合同断言与 stop 对照。
+ */
+function SettleProbe() {
+  const { state } = useHrOaAuth();
+  useEffect(() => {
+    if (state?.status === 'signed-out') maker.order.push('settled');
+  }, [state]);
+  return null;
+}
+
 async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
@@ -276,6 +303,16 @@ beforeEach(async () => {
   setComposerDraftOwner('P100');
   discardDraft(DRAFT_KEY);
   setDataOwnerGeneration('P100', 1);
+  // runningTasks 的 store 自登记缝（makerChatStore 装入即自登记；本用例打桩不装入）：
+  // 登记可观察 fake，钉「先停后落」的顺序合同（stop 记进 maker.order）。
+  registerRunningTaskStore({
+    getRunningSnapshot: () => maker.running,
+    stopSession: (sessionId: string) => {
+      maker.order.push(`stop:${sessionId}`);
+      maker.running.delete(sessionId);
+      maker.stopSession(sessionId);
+    },
+  });
   fullscreenState.isMac = true;
   fullscreenState.isFullscreen = false;
 });
@@ -301,8 +338,8 @@ describe('LogoutConfirmDialog · 几何与文案（FR-LOGOUT-02）', () => {
   });
 
   it('有 N 个进行中任务时增一行「当前有 N 个任务正在运行，退出将中断该任务。」（N=实际数）', async () => {
-    maker.running.set('sess-a', { isRunning: true });
-    maker.running.set('sess-b', { isRunning: true });
+    markRunning('sess-a');
+    markRunning('sess-b');
     render(<FlowHarness />);
     fireEvent.click(screen.getByTestId('entry'));
     expect(countRunningAgentRuns()).toBe(2);
@@ -384,8 +421,8 @@ describe('确认执行 · T15 拍与任务中断（FR-LOGOUT-02 / Review Focus #
 
   it('落 signed-out 前先真停在途 Agent 轮（含伙伴后台轮）：停任务先于 hrOa.logout', async () => {
     vi.useFakeTimers();
-    maker.running.set('sess-a', { isRunning: true });
-    maker.running.set('sess-b', { isRunning: true });
+    markRunning('sess-a');
+    markRunning('sess-b');
     render(<MenuHarness />);
     await flush();
 
@@ -449,6 +486,31 @@ describe('草稿分流与失效强退（FR-SESSION-02/03 · FR-LOGOUT-05）', ()
     });
     await flush();
     expect(getDraft(DRAFT_KEY)).toBeTruthy();
+  });
+
+  it('登录态失效强退同样先真停在途 Agent 轮再落 signed-out（Ruling F 顺序合同）', async () => {
+    // 失效强退（FR-LOGOUT-05「同样清理」/ Ruling F：凡落 signed-out 先停）此前只走
+    // owner 边界的 renderer 收口（不发 input.stop）——旧轮会继续写旧 owner 分区、
+    // 用旧凭证发请求。与确认路径同一顺序钉：stop 必须发生在 signed-out 落定之前。
+    markRunning('sess-a');
+    markRunning('sess-b');
+    render(
+      <>
+        <SettleProbe />
+        <MenuHarness />
+      </>,
+    );
+    await flush();
+    expect(countRunningAgentRuns()).toBe(2);
+
+    bridge.getState.mockResolvedValue(SIGNED_OUT_EXPIRED);
+    await act(async () => {
+      for (const listener of bridge.listeners) listener({});
+    });
+    await flush();
+
+    // 顺序合同：['stop:*' …, 'settled']——反序（先 settled 后 stop）或漏 stop 即失败。
+    expect(maker.order).toEqual(['stop:sess-a', 'stop:sess-b', 'settled']);
   });
 
   it('确认弹窗开着时登录态失效 → 弹窗一并关闭（FR-LOGOUT-05）', async () => {

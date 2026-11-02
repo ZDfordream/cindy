@@ -29,6 +29,10 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { captureActiveOwnerComposerDrafts } from '@/lib/composerDraftStore';
 import { createLogger } from '@/lib/logger';
 import { clearHrOaHomeArrival, noteHrOaHomeArrival, trackHrOaEvent } from '@/lib/hrOaTelemetry';
+// Ruling B / F 把「进行中任务」的计数/真停放在 hr-oa-profile/runningTasks.ts（跨 feature
+// 引用是裁决指定位置的结果，不是层级倒置）。该模块对 makerChatStore 仅类型引用
+// （store 自登记，见其头注），静态 import 无重模块装入代价，可在落定处同步调用。
+import { stopRunningAgentRuns } from '../hr-oa-profile/runningTasks';
 
 import type { OaLoginFailure } from '../../../main/hr-oa/errors';
 import type { PersonProfile } from '../../../main/hr-oa/profile';
@@ -131,6 +135,19 @@ function publishGateMemory(): void {
 }
 
 /**
+ * 真停当前账号的在途 Agent 轮（Ruling F：**凡落 signed-out 先停**，不只确认路径）。
+ * 见 runningTasks 头注：stop 同步执行（store 自登记），失败吞掉只记 warn——停失败
+ * 不得拦住落定，否则用户被卡在半失效态；顺序合同仍是**停的尝试先于落定**。
+ */
+function stopInFlightAgentRunsSafely(): void {
+  try {
+    stopRunningAgentRuns();
+  } catch (err) {
+    log.warn('stop in-flight agent runs failed', err);
+  }
+}
+
+/**
  * 落定一个登录态：记录 had-session 落差与 signed-out 原因（跨重挂载存活）。
  *
  * 失效通知（FR-SESSION-02 的 toast）两类来源（Finding 1/4）：
@@ -148,6 +165,12 @@ function publishGateMemory(): void {
  */
 function landHrOaState(next: HrOaAuthState): void {
   const previous = gateMemory.lastStatus;
+  // Ruling F：**先停后落**——凡**进入** signed-out 的落定（手动 / 失效强退 FR-LOGOUT-05 /
+  // 冷启动发现失效 / 多窗口推送）都先真停在途 Agent 轮（幂等）。同步执行、失败吞掉：
+  // 不得把 S1 落定拖在停任务的异步装入之后（顺序合同 = 停的尝试先于落定）。
+  if (next.status === 'signed-out' && previous !== 'signed-out') {
+    stopInFlightAgentRunsSafely();
+  }
   gateMemory.lastStatus = next.status;
   const wasActive = previous === 'signed-in' || previous === 'offline';
   if (next.status === 'signed-out') {
@@ -310,12 +333,9 @@ export async function requestHrOaLogout(options?: { confirmBeatMs?: number }): P
     // Ruling B / Review Focus #1：**先停后落**。真停走用户 Stop 的同一生产路径
     // （stopSession：renderer 立即收口 + input.stop 中断在途轮 / 伙伴轮），必须
     // 发生在 hrOa.logout（落 signed-out 的 commit）之前；定时任务（自动化）的
-    // 在途执行轮同形态计入并一并停（runningTasks 口径）。
-    // 动态 import：makerChatStore（及其 @/i18n 链）不进 hrOaAuthStore 的静态图——
-    // 本模块被 OnboardingSessionHost / LocalDbGate 等轻量宿主静态引用（同
-    // UserInfoSection 账号切换 `await import('@/lib/makerChatStore')` 先例）。
-    const { stopRunningAgentRuns } = await import('../hr-oa-profile/runningTasks');
-    stopRunningAgentRuns();
+    // 在途执行轮同形态计入并一并停（runningTasks 口径）。幂等——随后
+    // landHrOaState 的进入 signed-out 停（Ruling F）会再调一次，零动作。
+    stopInFlightAgentRunsSafely();
     const fadeMs = leaveFadeMs();
     const beatMs = options?.confirmBeatMs ?? 0;
     // 确认拍（T15）与首页淡出并行，取较长者：确认路径「正在退出…」≥400ms 才落定。
@@ -357,6 +377,8 @@ export function useHrOaAuth(): HrOaAuthApi {
       void window.electronAPI.hrOa
         .getState()
         .then((next) => {
+          // 失效强退等所有进入 signed-out 的落定由 landHrOaState 统一「先停后落」
+          // （Ruling F，见该函数头注），此处不另拦——单一收口点。
           if (!cancelled) {
             landHrOaState(next);
             setState(next);

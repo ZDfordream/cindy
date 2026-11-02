@@ -54,6 +54,7 @@ import {
   isDataOwnerPushStampCurrent,
   type DataOwnerGeneration,
 } from '@/contexts/dataOwnerGeneration';
+import { registerRunningTaskStore } from '@/features/hr-oa-profile/runningTasks';
 import { isDataOwnerPushStamp } from '../../shared/dataOwnerPush';
 import { dbToMakerAgentKind } from '../../shared/agentKindConversion';
 import {
@@ -18742,6 +18743,11 @@ export const makerChatStore = {
     },
   },
 };
+
+// 「进行中任务」计数/真停的自登记（Ruling B / Ruling F，runningTasks 头注）：装入本
+// store 即登记，让 hrOaAuthStore 落 signed-out 时能**同步**先停在途 Agent 轮。依赖
+// 方向 makerChatStore → runningTasks 单向；runningTasks 对本模块仅类型引用。
+registerRunningTaskStore(makerChatStore);
 
 // ---------------------------------------------------------------------------
 // Helpers (verbatim from old hook)

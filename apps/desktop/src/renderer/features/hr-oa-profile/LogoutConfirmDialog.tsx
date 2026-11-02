@@ -34,6 +34,7 @@ import {
   requestHrOaLogout,
   useHrOaAuth,
 } from '../hr-oa-auth/hrOaAuthStore';
+import { countRunningAgentRuns } from './runningTasks';
 
 /** 弹窗内可聚焦控件（确认拍禁用后自动退出焦点环，与 disabled 语义一致）。 */
 function focusablesIn(root: HTMLElement): HTMLElement[] {
@@ -186,14 +187,11 @@ export function useHrOaLogoutConfirm(): {
   }, [state]);
 
   const openConfirm = useCallback(() => {
+    // N 的快照口径（Ruling B）：开弹窗瞬间「当前账号下有在途 Agent 轮的会话数」。
+    // 同步读取（store 自登记，见 runningTasks 头注——不引入重模块装入依赖）。
+    setRunningTaskCount(countRunningAgentRuns());
     setConfirming(false);
     setDialogOpen(true);
-    // N 的快照口径（Ruling B）：开弹窗瞬间「当前账号下有在途 Agent 轮的会话数」。
-    // 动态 import：makerChatStore 不进本模块的静态图（轻量宿主 / 旧用例的
-    // 部分 mock 环境不得被 @/i18n 链拖下水）；已加载时一个微任务内落定。
-    void import('./runningTasks').then(({ countRunningAgentRuns }) => {
-      setRunningTaskCount(countRunningAgentRuns());
-    });
   }, []);
 
   const cancelConfirm = useCallback(() => {
