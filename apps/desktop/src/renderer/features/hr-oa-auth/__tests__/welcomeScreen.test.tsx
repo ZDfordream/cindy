@@ -4,8 +4,9 @@
  * 测试价值
  * - 生产入口与可观察结果：`WelcomeScreen`（S1 欢迎门禁，PRD §6.1 FR-WELCOME-01~03）。
  *   断言页面可感知内容只有吉祥物 + 标题 + 「登录」三件套（无任何进首页入口）、
- *   「登录」默认获焦且 Enter/Space 触发 onLogin、以及 `prefers-reduced-motion: reduce`
- *   时吉祥物不挂浮动/眨眼动效类（FR-WELCOME-01）。
+ *   「登录」默认获焦且 Enter/Space 触发 onLogin、`prefers-reduced-motion: reduce`
+ *   时吉祥物不挂浮动/眨眼动效类（FR-WELCOME-01），以及欢迎页淡入 keyframe
+ *   `hr-oa-screen-in` 从透明起始（11-01 登记 `.hr-oa-screen-enter` 动效合同）。
  * - Bug／规则依据：login-onboarding PRD §6.1 FR-WELCOME-01~03（含 G1 门禁：
  *   未登录不得出现首页入口）；任务简报 Step 3 用例矩阵。
  * - 现有覆盖缺口：S1 是新屏，仓库无 hr-oa-auth 测试；旧 LoginPage/品牌屏测试
@@ -19,6 +20,8 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import i18n from '@/i18n';
 import { WelcomeScreen } from '../WelcomeScreen';
@@ -95,5 +98,16 @@ describe('WelcomeScreen 门禁收口（FR-WELCOME-01~03）', () => {
     const normal = render(<WelcomeScreen onLogin={() => {}} />);
     expect(normal.container.querySelector('.hr-oa-mascot-float')).toBeTruthy();
     expect(normal.container.querySelector('.hr-oa-mascot-blink')).toBeTruthy();
+  });
+
+  it('出现动效「淡入」：hr-oa-screen-in keyframe 从透明起始（欢迎页淡入契约）', () => {
+    // jsdom 不执行 CSS 动画：钉 keyframe 起始态契约（decision log 2026-11-01
+    // 登记的 `.hr-oa-screen-enter` = T2/T9/T10「欢迎页淡入」，S1/T9/T10 唯一
+    // 消费者）。缺 `opacity: 0` 时欢迎页与登出回归全程不透明滑入，回归登记动效。
+    const css = readFileSync(resolve(__dirname, '../../../styles/globals.css'), 'utf8');
+    const from = css.match(/@keyframes\s+hr-oa-screen-in\s*\{[^}]*from[^}]*\{([^}]*)\}/);
+    expect(from).toBeTruthy();
+    expect(from![1]).toContain('opacity: 0');
+    expect(from![1]).toContain('translateY(8px)');
   });
 });

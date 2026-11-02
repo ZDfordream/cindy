@@ -2404,17 +2404,20 @@ body[data-hr-leave='leaving'] [data-hr-home-root] {
 }
 @keyframes hr-oa-screen-in {
   from {
+    opacity: 0;
     transform: translateY(8px);
   }
 }
 
 /* HRBuddy 首页未配置横幅出现（profile-menu PRD FR-HOME-BANNER 动效「淡入并上移 8px」）：
    冷启动（首挂 visible=true）没有可过渡的起始态，淡入必须由本 keyframe 的
-   `opacity: 0` 起步（同 hr-oa-screen-in 的做法）——只写 translate 会让卡片全程
-   不透明地滑入。后续可见性翻转时 wrapper 的 opacity 过渡与本动画同向叠加。
-   挂载即播放一次，时长/曲线走 §14.4 登记 token（--motion-home-banner-enter +
-   --motion-ease-out），reduce 下 token 归零瞬时终态（收起是 wrapper 的 collapse
-   语义，不走本动画）。 */
+   `opacity: 0` 起步——只写 translate 会让卡片全程不透明地滑入。同一契约适用于
+   `hr-oa-screen-in`（欢迎页淡入）：两个 keyframe 的 `from` **都必须**含
+   `opacity: 0` + `translateY(8px)`，分别由 `homeBanner.test.tsx` 与
+   `welcomeScreen.test.tsx` 的 keyframe 起始态断言钉住（jsdom 不跑 CSS 动画）。
+   后续可见性翻转时 wrapper 的 opacity 过渡与本动画同向叠加。挂载即播放一次，
+   时长/曲线走 §14.4 登记 token（--motion-home-banner-enter + --motion-ease-out），
+   reduce 下 token 归零瞬时终态（收起是 wrapper 的 collapse 语义，不走本动画）。 */
 .hr-banner-rise {
   animation: hr-banner-rise var(--motion-home-banner-enter) var(--motion-ease-out);
 }
