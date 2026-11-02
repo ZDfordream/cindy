@@ -2256,6 +2256,16 @@ const whenHrOaSessionSettled: Promise<unknown> = app
     return hrOaSessionManager.getState();
   });
 registerHrOaIpc({ manager: hrOaSessionManager, whenSettled: whenHrOaSessionSettled });
+// 凭证读不出的环境恢复触发（review Finding 1）：startup 落过「密文在盘、读不出」的
+// offline 后，仅靠渲染层 `window 'online'` → networkRecovered 会在「钥匙串恢复但网络
+// 没抖」时会话级楔死。窗口聚焦是最便宜的 main 侧恢复信号（12h 刷新调度器是 Task 8，
+// 尚不存在，不得假定它兜底）；retryCredentialLoad 有待恢复标记才动作，聚焦高频也不
+// 会重打网络。fire-and-forget：恢复重试失败留在 offline 等下一次信号，不构成异常面。
+app.on('browser-window-focus', () => {
+  void hrOaSessionManager.retryCredentialLoad().catch((err: unknown) => {
+    hrOaLog.warn('[hr-oa] credential retry on focus failed (non-fatal)', err);
+  });
+});
 // 埋点通用属性（PRD §10.1）：app/os 版本与「应用会话 ID」在 main 初始化一次注入。
 // session_id = 一次应用运行（launch）的随机 UUID；account 经 registerHrOaIpc 的
 // 状态投影更新（冻结账号键），renderer 只发触发事实。

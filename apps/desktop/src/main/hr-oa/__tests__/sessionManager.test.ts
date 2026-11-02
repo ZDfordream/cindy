@@ -582,8 +582,13 @@ describe('onDidChange', () => {
  *   transport + 正确口令 → 断言 `signed-in` / `commitSession('hr', accountKey)`；
  *   (b) 叠 transport 全拒（网络不可达）→ 断言 `offline` + `commitSession('hr',
  *   accountKey)` + `loadOaLogin()` 非 null。旧实现首读抖动即判无凭证 → 落
- *   `signed-out`（垃圾首读还清凭证）。tier：unit（无真实网络，transport 注入 fake，
- *   凭证层真实模块 + 内存 IO）。实测耗时：单文件 ~1.5s。
+ *   `signed-out`（垃圾首读还清凭证）。review Finding 1 补三类：(c) 读不出**持续**
+ *   整轮重试 → 仍必须按资料缓存冻结键落 `offline` + `commitSession('hr', key)`
+ *   （缓存缺失才退 signed-out 且不 commit、不清凭证）；(d) 重试之间必须有**非零
+ *   退避**（注入 `wait` 记录，零间隔连打盖不住钥匙串未就绪窗口）；(e) 窗口聚焦触发
+ *   `retryCredentialLoad`——钥匙串恢复后从 offline 回 `signed-in`，无待恢复时零动作。
+ *   tier：unit（无真实网络，transport 注入 fake，凭证层真实模块 + 内存 IO）。
+ *   实测耗时：单文件 ~1.5s。
  */
 describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar）', () => {
   const OA_BASE = 'http://oa.test';
@@ -598,6 +603,9 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
     params?: Record<string, string>;
     form?: Record<string, string>;
   };
+
+  /** 注入 `wait` 的调用记录（ms）：重试退避合同的可观察面；测试里不做真实等待。 */
+  let waitCalls: number[];
 
   /**
    * 真机冷启动的凭证读条件（2026-11-01 日志：每个启动都出现
@@ -616,6 +624,18 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
   }
 
   /**
+   * 读不出**持续**到整轮重试耗尽（钥匙串未就绪窗口长于退避预算的形态）；`down`
+   * 翻回 false 即恢复可读——聚焦恢复用例用它模拟「稍后钥匙串回来了」。
+   */
+  function holdReads(flag: { down: boolean }, kind: 'null' | 'garbage'): void {
+    const original = testDeps.secretIo.read.bind(testDeps.secretIo);
+    testDeps.secretIo.read = (key: string) => {
+      if (flag.down) return kind === 'null' ? null : '{not-json';
+      return original(key);
+    };
+  }
+
+  /**
    * 蓝凌 cookie 合同的 jar 建模（真机 2026-11-01 实证 + §4.4 会话 cookie 测量）：
    * `sessionAlive` = jar 里是否有存活会话。登录 POST 现场 jar 空（冷启动恒此态，
    * session cookie 退出即失效）就按本次口令判成败；jar 有存活会话则 302 `/`
@@ -628,8 +648,10 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
     transport: OaTransport;
     jar: { sessionAlive: boolean };
     clearCookies: () => Promise<void>;
+    loginPosts: () => number;
   } {
     const jar = { sessionAlive: opts.initialSessionAlive };
+    let loginPostCount = 0;
     const respond = (input: PortalRequest): OaResponse => {
       if (input.method === 'GET' && input.path.includes('session.jsp')) {
         return {
@@ -640,6 +662,7 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
         };
       }
       if (input.method === 'POST' && input.path.includes('j_acegi_security_check')) {
+        loginPostCount += 1;
         if (jar.sessionAlive) {
           // 旧会话掩码形态：无视口令直接 302 `/`（P0 账号隔离实证）。
           return { status: 302, headers: { location: '/' }, body: '', finalUrl: input.path };
@@ -674,6 +697,7 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
     };
     return {
       jar,
+      loginPosts: () => loginPostCount,
       clearCookies: async () => {
         jar.sessionAlive = false;
       },
@@ -692,12 +716,18 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
   }
 
   function makeRealClientManager(transport: OaTransport, clearCookies: () => Promise<void>) {
+    waitCalls = [];
     return createHrOaSessionManager({
       client: createOaClient({ baseUrl: OA_BASE, transport, timeoutMs: 200 }),
       credentials,
       commitSession,
       now: () => clock,
       clearCookies,
+      // 退避可观察、测试内零真实等待（性能预算：不得 ≥100ms 真实等待）。
+      wait: (ms: number) => {
+        waitCalls.push(ms);
+        return Promise.resolve();
+      },
     });
   }
 
@@ -742,5 +772,98 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
     expect(manager.getState().status).toBe('offline');
     expect(clearOaLoginSpy).not.toHaveBeenCalled();
     expect(await loadOaLogin(clock, testDeps)).not.toBeNull();
+  });
+
+  it('凭证持续读不出 → 仍落 offline 且按资料缓存冻结键认领（不落 signed-out、不清凭证）', async () => {
+    // review Finding 1 的主路径：读不出持续到重试耗尽（钥匙串未就绪窗口长于退避
+    // 预算）。密文还在——落 signed-out = 把有凭证的人锁回 S1（FR-SESSION-01 破口）；
+    // 按资料缓存的冻结键落 offline 才能 home 可读、等钥匙串恢复后静默转 signed-in。
+    await seedStoredLogin();
+    const cached = profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    await credentialStoreNs.saveOaProfileCache(
+      { accountKey: 'p-seed', loginName: 'u1', profile: cached },
+      testDeps,
+    );
+    const held = { down: true };
+    holdReads(held, 'null');
+    const portal = makePortalJarTransport({ initialSessionAlive: false, unreachable: true });
+
+    const manager = makeRealClientManager(portal.transport, portal.clearCookies);
+    const state = await manager.startup();
+
+    expect(state).toEqual({ status: 'offline', accountKey: 'p-seed', profile: cached });
+    // offline 认领 hr 会话（home 可读），不是 signed-out 首启。
+    expect(commitSession.mock.calls).toEqual([['hr', 'p-seed']]);
+    // 不清凭证：密文原样留在 secret IO（读不出 ≠ 不存在）。
+    expect(clearOaLoginSpy).not.toHaveBeenCalled();
+    expect(testDeps.secretIo.list()).toContain('hr_oa_login');
+  });
+
+  it('凭证持续读不出且资料缓存缺失 → 退 signed-out 但保留凭证（不 commit、不清凭证）', async () => {
+    // 无缓存认领不了数据分区，只能退 signed-out（既有边角行为，本用例钉住）：但
+    // **不** commit（不踩启动归一）、**不**清凭证——密文还在，钥匙串恢复后仍可救。
+    // 旧实现读出垃圾直接走 expired：commit signed-out 且顺手删密文（误判失效 + 清凭证）。
+    await seedStoredLogin();
+    const held = { down: true };
+    holdReads(held, 'garbage');
+    const portal = makePortalJarTransport({ initialSessionAlive: false, unreachable: true });
+
+    const manager = makeRealClientManager(portal.transport, portal.clearCookies);
+    const state = await manager.startup();
+
+    expect(state).toEqual({ status: 'signed-out' });
+    expect(commitSession).not.toHaveBeenCalled();
+    expect(clearOaLoginSpy).not.toHaveBeenCalled();
+    expect(testDeps.secretIo.list()).toContain('hr_oa_login');
+  });
+
+  it('读不出的重试必须带非零退避（不许零间隔连打）', async () => {
+    // review Finding 1：零延迟三连读盖不住毫秒级以上的钥匙串未就绪窗口——退避是
+    // 重试有意义的前提。注入 wait 记录调用（测试内不真实等待）。
+    await seedStoredLogin();
+    const held = { down: true };
+    holdReads(held, 'null');
+    const portal = makePortalJarTransport({ initialSessionAlive: false, unreachable: true });
+
+    const manager = makeRealClientManager(portal.transport, portal.clearCookies);
+    await manager.startup();
+
+    // 两次重试 = 两次退避；每次都必须 > 0（零间隔 = 退化回零延迟连打）。
+    expect(waitCalls.length).toBeGreaterThanOrEqual(2);
+    for (const ms of waitCalls) expect(ms).toBeGreaterThan(0);
+  });
+
+  it('窗口聚焦触发 retryCredentialLoad：钥匙串恢复后从 offline 回 signed-in；无待恢复零动作', async () => {
+    // review Finding 1：落 offline 之后若无任何恢复触发，钥匙串恢复也永远停在离线
+    // 楔死（网络没抖就永远不走 networkRecovered）。main 侧窗口聚焦是最便宜的触发。
+    await seedStoredLogin();
+    const cached = profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    await credentialStoreNs.saveOaProfileCache(
+      { accountKey: 'p-seed', loginName: 'u1', profile: cached },
+      testDeps,
+    );
+    const held = { down: true };
+    holdReads(held, 'null');
+    const portal = makePortalJarTransport({ initialSessionAlive: false });
+
+    const manager = makeRealClientManager(portal.transport, portal.clearCookies);
+    await manager.startup();
+    expect(manager.getState().status).toBe('offline');
+
+    // 钥匙串恢复（后端就绪）→ 聚焦触发重试 → 静默重登转 signed-in。
+    held.down = false;
+    const state = await manager.retryCredentialLoad();
+    expect(state).toEqual({
+      status: 'signed-in',
+      accountKey: 'p-seed',
+      profile: profile({ name: '张三', loginName: 'u1', personId: 'p-seed' }),
+    });
+    expect(commitSession.mock.calls.at(-1)).toEqual(['hr', 'p-seed']);
+
+    // 无待恢复时零动作：signed-in 态聚焦不得重打网络（不得误清、不得重复登录）。
+    const postsBefore = portal.loginPosts();
+    await manager.retryCredentialLoad();
+    expect(portal.loginPosts()).toBe(postsBefore);
+    expect(manager.getState().status).toBe('signed-in');
   });
 });

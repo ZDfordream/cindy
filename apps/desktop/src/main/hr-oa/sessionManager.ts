@@ -54,11 +54,12 @@ export type HrOaAuthState =
   | { status: 'signed-in'; accountKey: string; profile: PersonProfile };
 
 /**
- * 密文「暂时读不出」的重试次数（不含首次）。真机启动期 safeStorage 后端未就绪是
- * 一次性抖动（同一次启动内稍后即可读写），轻量重试即可恢复；仍读不出则按离线
- * 契约落定，绝不落 signed-out（凭证还在）。
+ * 密文「暂时读不出」的重试退避（毫秒，每次重试前等待；次数 = 数组长度）。
+ * 真机启动期 safeStorage 后端未就绪的窗口是**秒级**（`appReady:false` 时探测失败、
+ * ready 后才恢复），零间隔连读盖不住——退避让重试真正跨过未就绪窗口；预算封顶约
+ * 1s，不拖长冷启动门禁。窗口更长的恢复由 `retryCredentialLoad`（聚焦触发）兜住。
  */
-const LOAD_RETRY_ATTEMPTS = 2;
+const LOAD_RETRY_DELAYS_MS = [250, 750];
 
 export interface HrOaSessionManager {
   /** 冷启动静默重登（有凭证才打网络）；返回落定后的状态。 */
@@ -72,6 +73,13 @@ export interface HrOaSessionManager {
    * `offline`，凭证类失败落 `signed-out` + `reason:'expired'`。
    */
   networkRecovered(): Promise<HrOaAuthState>;
+  /**
+   * 环境恢复后的凭证读重试（main 侧窗口聚焦信号触发；12h 刷新调度器是 Task 8 的
+   * 交付物、此处尚不存在）：只在 startup 曾落「密文在盘但读不出」的 offline（或
+   * 该边角的 signed-out 退化）时动作——读回正本即静默重登转 `signed-in`；无待恢复
+   * 零动作（聚焦高频，不得重打网络）。与 `networkRecovered` 同一条单飞链。
+   */
+  retryCredentialLoad(): Promise<HrOaAuthState>;
   getState(): HrOaAuthState;
   onDidChange(listener: (state: HrOaAuthState) => void): () => void;
 }
@@ -87,15 +95,23 @@ export function createHrOaSessionManager(deps: {
    * signed-out 收口不动作，旧门户会话会跨账号残留（P0 账号隔离）。
    */
   clearCookies?: () => Promise<void> | void;
+  /**
+   * 重试退避的等待原语（缺省真实 setTimeout）。测试注入假实现记录时长，避免
+   * 单测里出现真实等待（性能预算）。
+   */
+  wait?: (ms: number) => Promise<void> | void;
 }): HrOaSessionManager {
   const { client, credentials, commitSession } = deps;
   const now = deps.now ?? Date.now;
   const clearCookies = deps.clearCookies;
+  const wait = deps.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const log = createLogger('hr-oa');
   let state: HrOaAuthState = { status: 'signed-out' };
   const listeners = new Set<(s: HrOaAuthState) => void>();
-  /** networkRecovered 的单飞闸：多窗口同响 `online` 只跑一轮静默重登。 */
+  /** networkRecovered / retryCredentialLoad 的单飞闸：并发触发只跑一轮静默重登。 */
   let reconnectInFlight: Promise<HrOaAuthState> | null = null;
+  /** startup 曾落「密文在盘但读不出」：待钥匙串恢复后由 retryCredentialLoad 收口。 */
+  let credentialLoadPending = false;
 
   function blankProfile(): PersonProfile {
     return {
@@ -222,11 +238,14 @@ export function createHrOaSessionManager(deps: {
   /**
    * 密文在盘但暂时读不出（safeStorage 后端未就绪 / 解密瞬时异常，真机启动期常态）：
    * **绝不**落 signed-out 回 S1、更不清凭证——凭证还在，只是这一刻读不到。按离线
-   * 契约用资料缓存认领账号键进 offline home；钥匙串恢复后（networkRecovered / 12h
-   * 刷新）静默重登转 signed-in。缓存缺失认领不了数据分区时才退回 signed-out（仍
-   * 不清凭证、不弹失效）。
+   * 契约用资料缓存认领账号键进 offline home。恢复触发（当前只有这两条，12h 凭证
+   * 刷新调度器是 Task 8 的交付物、**此处尚不存在**，不得假定它兜底）：
+   * `networkRecovered`（渲染层 `window 'online'`）与 `retryCredentialLoad`（main 侧
+   * 窗口聚焦）——钥匙串恢复后静默重登转 `signed-in`。缓存缺失认领不了数据分区时才
+   * 退回 signed-out（仍不清凭证、不弹失效）。
    */
   async function settleCredentialUnavailable(): Promise<HrOaAuthState> {
+    credentialLoadPending = true;
     const cache = await credentials.loadOaProfileCache();
     if (!cache?.accountKey) {
       log.warn('[hr-oa] credential unreadable and no profile cache owner; staying signed-out');
@@ -236,15 +255,17 @@ export function createHrOaSessionManager(deps: {
   }
 
   /**
-   * 分流版 load + 瞬时读抖动重试：`unavailable`（密文在盘、暂时读不出）不立即
-   * 当终局——真机启动期 safeStorage 后端未就绪是一次性抖动（同一次启动内稍后即可
-   * 读写），重试几次仍读不出才转 offline 落定。
+   * 分流版 load + 带退避的瞬时读抖动重试：`unavailable`（密文在盘、暂时读不出）不
+   * 立即当终局——真机启动期 safeStorage 后端未就绪是**秒级**窗口，重试之间按
+   * `LOAD_RETRY_DELAYS_MS` 等待（零间隔连读盖不住），仍读不出才按离线契约落定。
    */
   async function loadStoredLoginWithRetry(): Promise<
     Awaited<ReturnType<typeof credentials.loadOaLoginDetailed>>
   > {
     let loaded = await credentials.loadOaLoginDetailed(now());
-    for (let attempt = 0; attempt < LOAD_RETRY_ATTEMPTS && loaded.status === 'unavailable'; attempt += 1) {
+    for (const delayMs of LOAD_RETRY_DELAYS_MS) {
+      if (loaded.status !== 'unavailable') break;
+      await wait(delayMs);
       loaded = await credentials.loadOaLoginDetailed(now());
     }
     return loaded;
@@ -315,17 +336,19 @@ export function createHrOaSessionManager(deps: {
     await dropToSignedOut('logout', false);
   }
 
-  async function networkRecovered(): Promise<HrOaAuthState> {
-    if (state.status !== 'offline') return state;
+  /** offline / 待恢复态的静默重登共用链（单飞：并发触发只跑一轮）。 */
+  function runOfflineReconnect(): Promise<HrOaAuthState> {
     if (reconnectInFlight) return reconnectInFlight;
     reconnectInFlight = (async () => {
       try {
         const loaded = await loadStoredLoginWithRetry();
         if (loaded.status === 'unavailable') {
-          // 密文在盘但暂时读不出：凭证还在，留在 offline 等下一次恢复信号，不得
-          // 按失效清人（误清 = 真机「清凭证」签名）。
+          // 密文在盘但暂时读不出：凭证还在，留在 offline 等下一次恢复信号（聚焦），
+          // 不得按失效清人（误清 = 真机「清凭证」签名）。pending 保持，等下次触发。
           return state;
         }
+        // 读得出正本（或确证无凭证 / 过期）：读不出的待恢复状态到此收口。
+        credentialLoadPending = false;
         if (loaded.status !== 'ok') {
           // 离线期间凭证到期 / 消失（含外部清钥匙串）：曾有会话却回不去 → 按失效处理
           // （FR-SESSION-02 的「凭证过期」分支），不把人无解释地丢回 S1。
@@ -339,6 +362,17 @@ export function createHrOaSessionManager(deps: {
     return reconnectInFlight;
   }
 
+  async function networkRecovered(): Promise<HrOaAuthState> {
+    if (state.status !== 'offline') return state;
+    return runOfflineReconnect();
+  }
+
+  async function retryCredentialLoad(): Promise<HrOaAuthState> {
+    // 聚焦高频：只有 startup 落过「读不出」才动作，其余零成本返回（不打网络）。
+    if (!credentialLoadPending) return state;
+    return runOfflineReconnect();
+  }
+
   function getState(): HrOaAuthState {
     return state;
   }
@@ -350,5 +384,5 @@ export function createHrOaSessionManager(deps: {
     };
   }
 
-  return { startup, login, logout, networkRecovered, getState, onDidChange };
+  return { startup, login, logout, networkRecovered, retryCredentialLoad, getState, onDidChange };
 }
