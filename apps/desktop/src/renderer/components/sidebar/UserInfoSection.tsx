@@ -99,8 +99,10 @@ function HrProfileRailEntry({
         : t('hrOa.profile.entryAriaName', { name });
   return (
     <div className="mt-auto flex h-[66px] flex-col items-center justify-center gap-1 px-3">
-      {/* 窄栏形态只有头像（icon-only），按 BUG-TOOLTIP-01 挂受管 Tip（随资料状态变）。 */}
-      <Tip text={ariaLabel} side="right">
+      {/* 窄栏形态只有头像（icon-only），按 BUG-TOOLTIP-01 挂受管 Tip（随资料状态变）。
+          弹层打开时强制关闭提示（≡ 同款 `controlledOpen={open ? false : undefined}`），
+          否则 hover/聚焦会让提示与弹层并排常驻（TT-09/TT-10）。 */}
+      <Tip text={ariaLabel} side="right" controlledOpen={expanded ? false : undefined}>
         <button
           type="button"
           aria-haspopup="menu"

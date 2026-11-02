@@ -319,6 +319,18 @@ describe('icon-only button tooltip coverage', () => {
     );
   });
 
+  it('force-closes the collapsed-rail profile entry tip while its popup is open', () => {
+    // BUG-TOOLTIP-01（TT-09/TT-10）：窄栏个人入口开弹层时提示必须随弹层强制关闭——
+    // 与 ≡ 的 `controlledOpen={menuOpen ? false : undefined}` 同一受管 Tip 合同。
+    // 缺这个 prop，hover/聚焦入口会让提示与弹层并排常驻（Task 4 review 遗留缺口）；
+    // Tip 的抑制窗只认 controlledOpen=false，无 prop 即无抑制。
+    const source = rendererSource('components/sidebar/UserInfoSection.tsx');
+
+    expect(source).toContain(
+      '<Tip text={ariaLabel} side="right" controlledOpen={expanded ? false : undefined}>',
+    );
+  });
+
   it('does not exempt session-row icon actions from visible tips', () => {
     const sessionItem = rendererSource('features/cc-agent/sidebar/SessionItem.tsx');
     const sessionCard = rendererSource('features/cc-agent/sidebar/SessionCard.tsx');
