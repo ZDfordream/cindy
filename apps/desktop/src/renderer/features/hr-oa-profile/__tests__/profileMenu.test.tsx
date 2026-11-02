@@ -11,6 +11,8 @@
  *   Enter·Space 执行）、`role="menu"/"menuitem"/"separator"`、设置行 ⌘, 提示、
  *   打开时结果提示全收（FR-MENU-01）、打开时距上次成功 >30 分钟触发 stale 刷新
  *   （FR-PROFILE-07 R5）、以及 HR 模式标题栏不渲染 ≡（D2）而恢复开关一开即回。
+ *   另钉 FR-MENU-08 未列项同迁（Ruling E）：mac 全屏「退出全屏」为弹层首项且
+ *   选择触发 `exit_fullscreen` 动作，非全屏不显示（≡ 同条件显隐）。
  * - Bug／规则依据：profile-menu PRD FR-MENU-01~08 / FR-PROFILE-07 R5 / FR-WELCOME-03 /
  *   AC-04 / §6.2 迁移对照表；集成设计 §4.6（D2 / OQ-5）；「问题反馈」不改名是 PRD
  *   明文红线；≡ 收起口径 = `SHOW_CINDY_ACCOUNT_UI` 单一恢复开关（legacyVisibility）。
@@ -22,7 +24,7 @@
  *   失败态初始焦点不在「重试」即失败；默认配置下 ChromeActions 仍渲染 ≡ 即失败。
  * - tier：unit（jsdom + RTL；IPC 以 window.electronAPI 桩注入；无真实网络、无
  *   ≥100ms 真实等待）。
- * - 实测耗时：单文件墙钟约 2.9s（vitest Duration 2.17s / tests 332ms，15 例）。
+ * - 实测耗时：单文件墙钟约 2.8s（vitest Duration 2.07s / tests 363ms，17 例）。
  */
 
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -50,9 +52,15 @@ const bridge = vi.hoisted(() => ({
 /** ≡ 收起 / 恢复的单一开关（legacyVisibility）：默认 HRBuddy 收起，恢复配置 = 翻回 true。 */
 const visibility = vi.hoisted(() => ({ showCindy: false }));
 
+/** macOS 全屏状态（≡ 的 onExitFullscreen 条目随全屏条件显隐，Ruling E）。 */
+const fullscreenState = vi.hoisted(() => ({ isMac: true, isFullscreen: false }));
+
 vi.mock('@/features/hr-oa-auth/legacyVisibility', () => ({
   SHOW_CINDY_ACCOUNT_UI: visibility.showCindy,
   isCindyAccountUiVisible: () => visibility.showCindy,
+}));
+vi.mock('@/hooks/useMacFullscreen', () => ({
+  useMacFullscreen: () => fullscreenState,
 }));
 vi.mock('@/features/device-link/useSharedTaskTasks', () => ({ useSharedTaskTasks: vi.fn() }));
 vi.mock('@/features/device-link/SharedTaskEndedNotice', () => ({ SharedTaskEndedNotice: () => null }));
@@ -115,6 +123,8 @@ beforeEach(async () => {
   bridge.getState.mockReset();
   bridge.listeners.clear();
   visibility.showCindy = false;
+  fullscreenState.isMac = true;
+  fullscreenState.isFullscreen = false;
   bridge.getState.mockResolvedValue({ status: 'signed-out' });
   bridge.getAvatar.mockResolvedValue(null);
   bridge.fetchProfile.mockResolvedValue({ ok: false, kind: 'error' } satisfies ProfileResult);
@@ -383,6 +393,36 @@ describe('ProfileMenu · 打开收口（FR-MENU-01）与 stale 刷新（FR-PROFI
 
     await userEvent.click(screen.getByTestId('entry'));
     expect(bridge.fetchProfile).toHaveBeenCalledWith('stale');
+  });
+});
+
+describe('≡ 未列项同迁（FR-MENU-08 / Ruling E）：mac 全屏「退出全屏」', () => {
+  it('全屏时「退出全屏」为弹层首项（保持 ≡ 相对顺序，先于设置），选择触发 exit_fullscreen 动作', async () => {
+    fullscreenState.isFullscreen = true;
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(<Harness onAction={onAction} />);
+    await user.click(screen.getByTestId('entry'));
+
+    const items = within(screen.getByRole('menu')).getAllByRole('menuitem');
+    expect(items.map((el) => el.textContent)).toEqual([
+      '退出全屏',
+      '设置⌘,',
+      '资源监视器',
+      '帮助',
+      '问题反馈',
+      '检查更新',
+      '退出登录',
+    ]);
+
+    await user.click(items[0]);
+    expect(onAction).toHaveBeenCalledWith('exit_fullscreen');
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('非全屏不显示「退出全屏」（与 ≡ 的 onExitFullscreen 条件显隐一致）', async () => {
+    await openMenu();
+    expect(screen.queryByRole('menuitem', { name: '退出全屏' })).toBeNull();
   });
 });
 

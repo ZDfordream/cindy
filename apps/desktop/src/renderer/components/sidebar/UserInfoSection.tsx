@@ -154,10 +154,14 @@ function HrProfileFooter({ isCollapsed }: { isCollapsed: boolean }) {
     setProfileMenuOpen((open) => !open);
   }, []);
   const handleProfileClose = useCallback(() => setProfileMenuOpen(false), []);
-  // 菜单动作沿用改版前 ≡ 同名项行为（§6.2 迁移对照表「行为不变」列）。
+  // 菜单动作沿用改版前 ≡ 同名项行为（§6.2 迁移对照表「行为不变」列；未列项同迁
+  // FR-MENU-08 / Ruling E：`exit_fullscreen` 走 ≡ 原 `onExitFullscreen` 同一动作）。
   const handleProfileAction = useCallback(
     (item: ProfileMenuItem) => {
       switch (item) {
+        case 'exit_fullscreen':
+          window.electronAPI?.windowExitFullscreen();
+          break;
         case 'settings':
           userInfoLog.info('Settings clicked');
           // 与 ≡ / MainLayout 'open-settings' 同一判定（pathname + search）：

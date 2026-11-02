@@ -9,10 +9,12 @@
  *
  * 结构（FR-MENU-01）：身份卡（`ProfileCard`，含失败面「重试」）+ 分隔线 +
  * 迁入的 ≡ 菜单项（§6.2 迁移对照表顺序：设置 / 资源监视器 / 帮助 / 问题反馈 /
- * 检查更新）+ 分隔线 + `退出登录`。**「问题反馈」不得改名**（FR-MENU-05 明文
- * 红线，不改成 WorkBuddy 的「意见反馈」）；文案 key 沿用 ≡ 的 `titleBar.menuItems.*`
- * 与 `hrOa.more.logout`，五语逐字不变。菜单项常量（`PROFILE_MENU_ITEMS`，文案 key）
- * 由本文件导出，供埋点复用。
+ * 检查更新）+ 分隔线 + `退出登录`。FR-MENU-08「未列出的项同样迁入并保持相对
+ * 顺序」（Ruling E）：≡ 里设置之前的条件项「退出全屏」同迁为首项，仅 macOS
+ * 全屏窗口显示（同 ≡ `onExitFullscreen` 的显隐判定）。**「问题反馈」不得改名**
+ * （FR-MENU-05 明文红线，不改成 WorkBuddy 的「意见反馈」）；文案 key 沿用 ≡ 的
+ * `titleBar.menuItems.*` / `contentHeader.exitFullscreen` 与 `hrOa.more.logout`，
+ * 五语逐字不变。菜单项常量（`PROFILE_MENU_ITEMS`，文案 key）由本文件导出，供埋点复用。
  *
  * 键盘（FR-MENU-07 / 原型 popEl keydown）：打开后焦点在第 1 个可用项（获取失败时
  * 为「重试」；↑ 开层聚焦末项经可选超集 `initialFocus` 传入，同 Task 3 `onOpen` 的
@@ -49,11 +51,13 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import { useAppShortcutDisplay } from '@/hooks/useAppShortcut';
+import { useMacFullscreen } from '@/hooks/useMacFullscreen';
 import { ProfileCard } from './ProfileCard';
 import { isProfileStale, useHrOaProfile, type ProfileState } from './useHrOaProfile';
 
-/** 弹层动作项（≡ 迁移对照表 + 退出登录）；埋点复用本并集与常量表。 */
+/** 弹层动作项（≡ 全部菜单项 + 退出登录）；埋点复用本并集与常量表。 */
 export type ProfileMenuItem =
+  | 'exit_fullscreen'
   | 'settings'
   | 'resource_monitor'
   | 'help'
@@ -62,14 +66,24 @@ export type ProfileMenuItem =
   | 'logout';
 
 /**
- * 菜单项常量（≡ 的文案 key 迁到本文件，供埋点复用）。顺序 = PRD §6.2 迁移对照表，
- * 与渲染序一致；`labelKey` 沿用 ≡ 原 key，五语文案逐字不变。
+ * 菜单项常量（≡ 的文案 key 迁到本文件，供埋点复用）。顺序 = ≡ 原相对顺序
+ * （FR-MENU-08「未列出的项同样迁入并保持相对顺序」——`exit_fullscreen` 是 ≡ 里
+ * 设置之前的条件项），与渲染序一致；`labelKey` 沿用 ≡ 原 key，五语文案逐字不变。
  */
 export const PROFILE_MENU_ITEMS: ReadonlyArray<{
   id: Exclude<ProfileMenuItem, 'logout'>;
   labelKey: string;
-  icon: LucideIcon;
+  /** ≡ 原条目无图标（`onExitFullscreen` 文本项）；迁入项照原型带图标。 */
+  icon: LucideIcon | null;
+  /** 条件显隐：`mac-fullscreen` = 仅 macOS 全屏窗口显示（同 ≡ 的 onExitFullscreen）。 */
+  when?: 'mac-fullscreen';
 }> = [
+  {
+    id: 'exit_fullscreen',
+    labelKey: 'contentHeader.exitFullscreen',
+    icon: null,
+    when: 'mac-fullscreen',
+  },
   { id: 'settings', labelKey: 'titleBar.menuItems.settings', icon: Settings },
   { id: 'resource_monitor', labelKey: 'titleBar.menuItems.resourceUsage', icon: Activity },
   { id: 'help', labelKey: 'titleBar.menuItems.help', icon: CircleHelp },
@@ -113,6 +127,11 @@ export function ProfileMenu(props: {
   const { t } = useTranslation();
   const { profile, avatarUrl, refresh } = useHrOaProfile();
   const settingsShortcut = useAppShortcutDisplay('open-settings');
+  // ≡ 的 `onExitFullscreen` 条目条件显隐（Ruling E / FR-MENU-08 未列项同迁）：
+  // 与 MenuButton 的挂载判定同源——ChromeActions 仅在 `isMac && isFullscreen` 时传
+  // 该回调，条目随之显示。
+  const { isMac, isFullscreen } = useMacFullscreen();
+  const exitFullscreenVisible = isMac && isFullscreen;
   const menuRef = useRef<HTMLDivElement>(null);
   /** 焦点归还目标：开层瞬间持有焦点的个人入口（Esc / 选中项后归还）。 */
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -243,7 +262,7 @@ export function ProfileMenu(props: {
     >
       <ProfileCard profile={profile} state={profileState} onRetry={onRetry} avatarUrl={avatarUrl} />
       <div role="separator" className="-mx-1.5 my-1 h-px bg-[var(--cmd-palette-border)]" />
-      {PROFILE_MENU_ITEMS.map((item) => {
+      {PROFILE_MENU_ITEMS.filter((item) => !item.when || exitFullscreenVisible).map((item) => {
         const Icon = item.icon;
         return (
           <button
@@ -260,7 +279,7 @@ export function ProfileMenu(props: {
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]',
             )}
           >
-            <Icon size={16} strokeWidth={1.8} aria-hidden="true" className="shrink-0" />
+            {Icon ? <Icon size={16} strokeWidth={1.8} aria-hidden="true" className="shrink-0" /> : null}
             <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
             {/* 设置右侧快捷键提示（FR-MENU-02）；跟随改绑/平台格式化（mac ⌘,）。 */}
             {item.id === 'settings' && settingsShortcut ? (
