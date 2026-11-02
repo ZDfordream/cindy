@@ -29,6 +29,7 @@ import path from 'node:path';
 
 import { createLogger } from '../logger.js';
 import type { SecretStorageIo } from '../secrets/providerSecretStore.js';
+import type { AvatarCache } from './avatar.js';
 import { accountKeyFor, type PersonProfile } from './profile.js';
 
 /** 门户登录时效：距最近一次成功登录 14 天。 */
@@ -378,6 +379,10 @@ export async function clearOaLogin(deps: OaCredentialDeps = defaultDeps()): Prom
 // ── 资料缓存（设计 §4.2：账号键与个人资料落一份本地缓存，离线启动靠它定位数据分区）──
 // 与凭证/映射表同住 userData 根（不在 owner 分区内）。**明文 JSON、绝不含口令**：
 // 只存展示字段 + 冻结账号键，登录成功覆盖更新。
+//
+// 隐私边界（PRD §7.2 不展示 = 不落盘，Task 2）：`mobile` / `sex` **绝不写入**缓存文件，
+// `licenseId` 更是从未提取（profile.ts 排除裁决）。落盘键集由 profileService.test.ts
+// 的 JSON 键集断言钉死；load 侧同样不回填这两项——缓存不充当它们的第二落点。
 
 export interface OaProfileCache {
   accountKey: string;
@@ -391,6 +396,18 @@ function profileCachePath(deps: OaCredentialDeps): string {
   return path.join(path.dirname(deps.mappingFilePath), OA_PROFILE_CACHE_FILE);
 }
 
+/** 可落盘的资料字段（隐私边界）：展示字段 + personId（账号键/头像来源）；**键集**里就没有 mobile/sex。 */
+function cacheableProfile(profile: PersonProfile): Omit<PersonProfile, 'mobile' | 'sex'> {
+  return {
+    name: profile.name,
+    loginName: profile.loginName,
+    dept: profile.dept,
+    email: profile.email,
+    title: profile.title,
+    personId: profile.personId,
+  };
+}
+
 /** 登录成功落一份（覆盖写，原子替换）；IO 失败只 warn，不阻断登录。 */
 export async function saveOaProfileCache(
   input: OaProfileCache,
@@ -400,7 +417,12 @@ export async function saveOaProfileCache(
   const tmp = `${file}.tmp`;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, JSON.stringify(input), 'utf-8');
+    // 隐私边界：只序列化 cacheableProfile——mobile/sex 字段键不进 JSON。
+    fs.writeFileSync(
+      tmp,
+      JSON.stringify({ accountKey: input.accountKey, loginName: input.loginName, profile: cacheableProfile(input.profile) }),
+      'utf-8',
+    );
     fs.renameSync(tmp, file);
   } catch (err) {
     log.warn('oa profile cache write failed', { err: errorText(err) });
@@ -434,14 +456,93 @@ export async function loadOaProfileCache(
         name: text('name'),
         loginName: text('loginName'),
         dept: text('dept'),
-        mobile: text('mobile'),
+        // 隐私边界：即使旧缓存文件里残留这两项也丢弃，不回填。
+        mobile: '',
         email: text('email'),
         title: text('title'),
-        sex: text('sex'),
+        sex: '',
         personId: text('personId'),
       },
     };
   } catch {
     return null;
+  }
+}
+
+// ── 头像缓存（FR-PROFILE-02：缓存键 = personId + s_time，换 s_time 即换键）──
+// 与资料缓存同住 userData 根下 `hr-oa-avatar-cache/`（不在 owner 分区内），每键一份
+// JSON（contentType + base64 字节），原子替换写入。文件名 = key 的 hex：外部输入
+// （personId / s_time）不直接进文件名，防路径注入；key 本身只出现在载荷里供校验。
+
+const OA_AVATAR_CACHE_DIR = 'hr-oa-avatar-cache';
+
+function avatarCacheDir(deps: OaCredentialDeps): string {
+  return path.join(path.dirname(deps.mappingFilePath), OA_AVATAR_CACHE_DIR);
+}
+
+function avatarCacheFile(deps: OaCredentialDeps, key: string): string {
+  return path.join(avatarCacheDir(deps), `${Buffer.from(key, 'utf-8').toString('hex')}.json`);
+}
+
+/** 落一份头像（覆盖写）；IO 失败只 warn，不阻断取图回包。 */
+export async function saveOaAvatarCache(
+  input: AvatarCache,
+  deps: OaCredentialDeps = defaultDeps(),
+): Promise<void> {
+  const file = avatarCacheFile(deps, input.key);
+  const tmp = `${file}.tmp`;
+  try {
+    fs.mkdirSync(avatarCacheDir(deps), { recursive: true });
+    fs.writeFileSync(
+      tmp,
+      JSON.stringify({
+        key: input.key,
+        contentType: input.contentType,
+        bytes: Buffer.from(input.bytes).toString('base64'),
+      }),
+      'utf-8',
+    );
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    log.warn('oa avatar cache write failed', { err: errorText(err) });
+  }
+}
+
+/** 按缓存键读头像；缺失 / 损坏 / 键不符返回 null。 */
+export async function loadOaAvatarCache(
+  key: string,
+  deps: OaCredentialDeps = defaultDeps(),
+): Promise<AvatarCache | null> {
+  if (!key) return null;
+  let raw: string;
+  try {
+    raw = fs.readFileSync(avatarCacheFile(deps, key), 'utf-8');
+  } catch {
+    return null;
+  }
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    // 载荷键必须与请求键一致（防串键读到别人的图）。
+    if (record.key !== key) return null;
+    if (typeof record.contentType !== 'string' || !record.contentType) return null;
+    if (typeof record.bytes !== 'string') return null;
+    return {
+      key,
+      contentType: record.contentType,
+      bytes: new Uint8Array(Buffer.from(record.bytes, 'base64')),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 清空头像缓存（登出清理清单；键空间 = person_id+s_time，换号不得留上一人的图）。 */
+export async function clearOaAvatarCache(deps: OaCredentialDeps = defaultDeps()): Promise<void> {
+  try {
+    fs.rmSync(avatarCacheDir(deps), { recursive: true, force: true });
+  } catch (err) {
+    log.warn('oa avatar cache clear failed', { err: errorText(err) });
   }
 }

@@ -88,7 +88,13 @@ const LOCK_RE = /\block(ed)?\b/i;
 // window.getSM2PubKey = function(){ return "04...hex..."; }（同 oa_client.py::_SM2_PUBKEY_RE）
 const SM2_PUBKEY_RE = /getSM2PubKey\s*=\s*function\s*\([^)]*\)\s*\{\s*return\s*"([0-9a-fA-F]+)"/;
 const DEFAULT_TIMEOUT_MS = 10_000;
-const SESSION_RECOVERY_FAIL_MSG = 'session could not be restored after re-login';
+/**
+ * 会话失效（anonym.jsp 弹回且静默重登未恢复）的固定文案——**OaLoginError 的会话语义
+ * 标记**（Ruling 4 复用 network_error、不新增失败种类，语义只由这条文案承载）。
+ * profileService 据此归 `ProfileResult.kind:'expired'`（FR-LOGOUT-05 强退源），与普通
+ * 网络类失败（`'error'` / 缓存回落）分流。改文案 = 改协议，两侧同改。
+ */
+export const SESSION_RECOVERY_FAIL_MSG = 'session could not be restored after re-login';
 
 /** 本端超时哨兵：transport 拒绝一律算网络错误，只有超时竞速赢了才算 timeout。 */
 class RequestTimeout extends Error {

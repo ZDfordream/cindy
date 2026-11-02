@@ -1120,6 +1120,7 @@ import * as hrOaCredentials from './hr-oa/credentialStore.js';
 import { createHrOaSessionTransport, resolveHrOaBaseUrl } from './hr-oa/electronTransport.js';
 import { registerHrOaIpc } from './hr-oa/ipc.js';
 import { createOaClient } from './hr-oa/oaClient.js';
+import { createProfileService } from './hr-oa/profileService.js';
 import { createHrOaSessionManager } from './hr-oa/sessionManager.js';
 import { setHrOaTelemetryContext } from './hr-oa/telemetry.js';
 import {
@@ -2230,8 +2231,11 @@ authManager.setProjectionRepairTeardown(teardownGhostProjectionBoundary);
 // 两条缺一不可；窗口在落定前保持加载态（HR 门禁 state===null 不判决）。
 const hrOaLog = createLogger('hr-oa');
 const hrOaTransport = createHrOaSessionTransport();
+// 登录态 manager 与个人资料/头像服务共用同一 OaClient / transport（同一 OA 会话与
+// cookie jar：资料与头像必须是登录人自己的会话直连门户，不走 HRMcp MCP）。
+const hrOaClient = createOaClient({ baseUrl: resolveHrOaBaseUrl(), transport: hrOaTransport });
 const hrOaSessionManager = createHrOaSessionManager({
-  client: createOaClient({ baseUrl: resolveHrOaBaseUrl(), transport: hrOaTransport }),
+  client: hrOaClient,
   credentials: hrOaCredentials,
   // 与 authManager 的 cloud commit 同口径：共享 userData 的 passive 实例只 commit
   // 进程态，不写持久 mode（否则会踩掉 primary 实例的 local/cloud 启动意图）。
@@ -2255,7 +2259,16 @@ const whenHrOaSessionSettled: Promise<unknown> = app
     hrOaLog.error('hr-oa startup failed; continuing with current state', err);
     return hrOaSessionManager.getState();
   });
-registerHrOaIpc({ manager: hrOaSessionManager, whenSettled: whenHrOaSessionSettled });
+const hrOaProfileService = createProfileService({
+  client: hrOaClient,
+  cache: hrOaCredentials,
+  avatar: { baseUrl: resolveHrOaBaseUrl(), transport: hrOaTransport },
+});
+registerHrOaIpc({
+  manager: hrOaSessionManager,
+  profiles: hrOaProfileService,
+  whenSettled: whenHrOaSessionSettled,
+});
 // 凭证读不出的环境恢复触发（review Finding 1）：startup 落过「密文在盘、读不出」的
 // offline 后，仅靠渲染层 `window 'online'` → networkRecovered 会在「钥匙串恢复但网络
 // 没抖」时会话级楔死。窗口聚焦是最便宜的 main 侧恢复信号（12h 刷新调度器是 Task 8，

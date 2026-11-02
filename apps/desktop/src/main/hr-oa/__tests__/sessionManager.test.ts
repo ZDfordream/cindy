@@ -121,6 +121,9 @@ function makeCredentials(): typeof import('../credentialStore.js') {
     loadOaLoginDetailed: (now?: number) => credentialStoreNs.loadOaLoginDetailed(now, testDeps),
     saveOaProfileCache: (input) => credentialStoreNs.saveOaProfileCache(input, testDeps),
     loadOaProfileCache: () => credentialStoreNs.loadOaProfileCache(testDeps),
+    saveOaAvatarCache: (input) => credentialStoreNs.saveOaAvatarCache(input, testDeps),
+    loadOaAvatarCache: (key) => credentialStoreNs.loadOaAvatarCache(key, testDeps),
+    clearOaAvatarCache: () => credentialStoreNs.clearOaAvatarCache(testDeps),
     clearOaLogin: clearOaLoginSpy as typeof clearOaLogin,
     resolveAccountKey: (loginName, forProfile) => resolveAccountKey(loginName, forProfile, testDeps),
   };

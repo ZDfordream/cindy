@@ -152,6 +152,12 @@ export function createHrOaSessionTransport(): HrOaSessionTransport {
     res.headers.forEach((value, key) => {
       headers[key.toLowerCase()] = value;
     });
+    // 二进制安全（头像取图）：image/* 与 application/octet-stream 的响应体走 latin1
+    // 往返（arrayBuffer → latin1 string），消费方 charCodeAt & 0xff 可无损还原字节。
+    // 不能用 res.text()：UTF-8 解码会把 JPEG/PNG 字节糊成 U+FFFD，头像必然花屏。
+    // 文本类（text/*、JSON、XML…）仍走 res.text()——HTML 资料解析（UTF-8 中文）不回归。
+    const contentType = headers['content-type'] ?? '';
+    const binaryBody = /^image\//i.test(contentType) || /^application\/octet-stream/i.test(contentType);
     // OaResponse 合同：headers.location 只来自**末跳** 3xx（isLoginErrorBounce /
     // isAnonymBounce 判据），无跳转时不带 location——与「不跟跳、暴露 3xx+location」
     // 的 transport 形态对齐（那时 3xx 之外的响应同样没有 location 可看）。
@@ -161,7 +167,9 @@ export function createHrOaSessionTransport(): HrOaSessionTransport {
     return {
       status: res.status,
       headers,
-      body: await res.text(),
+      body: binaryBody
+        ? Buffer.from(await res.arrayBuffer()).toString('latin1')
+        : await res.text(),
       finalUrl: lastHop ? lastHop.target : target,
     };
   }
