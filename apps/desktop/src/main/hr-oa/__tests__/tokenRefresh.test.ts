@@ -37,7 +37,7 @@ vi.mock('../telemetry.js', () => ({
 }));
 
 import type { OaLoginOutcome } from '../errors.js';
-import type { OaClient } from '../oaClient.js';
+import { createOaClient, type OaClient, type OaTransport } from '../oaClient.js';
 import type { PersonProfile } from '../profile.js';
 import {
   TOKEN_REFRESH_PERIOD_MS,
@@ -438,6 +438,7 @@ describe('sessionManager 接调度器（FR-TOKEN-03/04/05/07）', () => {
   let client: OaClient;
   let credentials: typeof CredentialStoreNs;
   let commitSession: ReturnType<typeof vi.fn>;
+  let clearCookiesSpy: ReturnType<typeof vi.fn>;
   let persist: ReturnType<typeof makePersist>;
   let manager: ReturnType<typeof createHrOaSessionManager>;
 
@@ -483,13 +484,14 @@ describe('sessionManager 接调度器（FR-TOKEN-03/04/05/07）', () => {
       clearOaAvatarCache: vi.fn(async () => {}),
     } as unknown as typeof CredentialStoreNs;
     commitSession = vi.fn();
+    clearCookiesSpy = vi.fn(async () => {});
     persist = makePersist(null);
     manager = createHrOaSessionManager({
       client,
       credentials,
       commitSession,
       now: () => Date.now(),
-      clearCookies: vi.fn(async () => {}),
+      clearCookies: clearCookiesSpy,
       tokenRefreshPersist: persist,
     });
   });
@@ -590,6 +592,120 @@ describe('sessionManager 接调度器（FR-TOKEN-03/04/05/07）', () => {
     expect(persist2.store).toEqual({
       last: start,
       next: start + TOKEN_REFRESH_PERIOD_MS,
+    });
+  });
+
+  // ── Review Important 1：被弃/被取代的刷新尝试不得执行会话副作用（生命周期合同）──
+  // 调度器的 settled 只护计划回写；runTokenRefresh 的 clearOaLogin / dropToSignedOut
+  // 需要会话代次守卫。两条最小失败序列（登出→新登录被迟到的凭证类失败清掉；登出后
+  // 迟到的失败翻掉 reason:'logout' 误弹「登录已过期」）先红后绿。
+
+  it('迟到的凭证类失败不得清掉新登录的凭证、不得把人踢回 S1（代次守卫）', async () => {
+    seedDuePlan();
+    let releaseZombie: (o: OaLoginOutcome) => void = () => {};
+    const zombieLogin = new Promise<OaLoginOutcome>((resolve) => (releaseZombie = resolve));
+    vi.mocked(client.login).mockImplementationOnce(() => zombieLogin);
+
+    const due = manager.tokenRefreshDue('timer');
+    await flushAsync();
+    expect(client.login).toHaveBeenCalledTimes(1);
+
+    // 会话边界：登出 → 以新口令重新登录（新凭证落钥匙串、新会话落定）。
+    await manager.logout();
+    clearOaLoginSpy.mockClear();
+    await manager.login('u1', 'new-password');
+    expect(manager.getState().status).toBe('signed-in');
+
+    // 被弃的刷新尝试迟到落定 wrong_credentials：不得清凭证、不得把新登录踢出。
+    releaseZombie({ ok: false, kind: 'wrong_credentials' });
+    await flushAsync();
+    await due;
+    expect(clearOaLoginSpy).not.toHaveBeenCalled();
+    expect(manager.getState().status).toBe('signed-in');
+  });
+
+  it('登出后迟到的失败不得翻掉 reason:logout 误弹「登录已过期」（FR-HOME-03 Break B）', async () => {
+    seedDuePlan();
+    let releaseZombie: (o: OaLoginOutcome) => void = () => {};
+    const zombieLogin = new Promise<OaLoginOutcome>((resolve) => (releaseZombie = resolve));
+    vi.mocked(client.login).mockImplementationOnce(() => zombieLogin);
+
+    const due = manager.tokenRefreshDue('timer');
+    await flushAsync();
+    await manager.logout();
+    expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
+    const listener = vi.fn();
+    manager.onDidChange(listener);
+
+    releaseZombie({ ok: false, kind: 'wrong_credentials' });
+    await flushAsync();
+    await due;
+    // 自愿登出后不得再落 expired（toast「登录已过期」唯一来源），reason 必须停在 logout。
+    expect(listener).not.toHaveBeenCalled();
+    expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
+    expect(clearOaLoginSpy).toHaveBeenCalledTimes(1); // 只有 logout 自己那次
+  });
+
+  it('登出后迟到的刷新成功不得留下门户 cookie（persist:hr-oa 账号隔离）', async () => {
+    seedDuePlan();
+    let releaseZombie: (o: OaLoginOutcome) => void = () => {};
+    const zombieLogin = new Promise<OaLoginOutcome>((resolve) => (releaseZombie = resolve));
+    vi.mocked(client.login).mockImplementationOnce(() => zombieLogin);
+
+    const due = manager.tokenRefreshDue('timer');
+    await flushAsync();
+    await manager.logout();
+    clearCookiesSpy.mockClear();
+
+    // 迟到的成功把旧会话 cookie 重新种进 jar——必须收口清掉，旧账号会话不得滞留。
+    releaseZombie({ ok: true });
+    await flushAsync();
+    await due;
+    expect(clearCookiesSpy).toHaveBeenCalled();
+    expect(persist.store).toBeNull(); // 计划仍随 logout 删除，不被迟到成功复活
+  });
+
+  it('失败分流表补 5xx 行：网关 5xx → network_error 保计划退避、不强退（FR-TOKEN-06）', async () => {
+    seedDuePlan();
+    // 端到端：真 OaClient + 假 transport——登录 POST 回 502（网关错误、无 login_error
+    // 信号）→ 判 network_error（保凭证）→ 调度器按退避收口，不进 rejected 强退。
+    const transport: OaTransport = {
+      request: (input) =>
+        Promise.resolve(
+          input.path.includes('session.jsp')
+            ? {
+                status: 200,
+                headers: {},
+                body: 'window.getSM2PubKey = function(){ return "00"; }',
+                finalUrl: input.path,
+              }
+            : { status: 502, headers: {}, body: 'Bad Gateway', finalUrl: input.path },
+        ),
+    };
+    const gateway5xx = createOaClient({
+      baseUrl: 'http://oa.test',
+      transport,
+      fetchPubkey: async () => null,
+    });
+    const manager5xx = createHrOaSessionManager({
+      client: gateway5xx,
+      credentials,
+      commitSession,
+      now: () => Date.now(),
+      clearCookies: clearCookiesSpy,
+      tokenRefreshPersist: persist,
+    });
+    const listener = vi.fn();
+    manager5xx.onDidChange(listener);
+
+    await manager5xx.tokenRefreshDue('timer');
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(clearOaLoginSpy).not.toHaveBeenCalled();
+    expect(persist.clearSpy).not.toHaveBeenCalled();
+    expect(persist.store).toEqual({
+      last: start - TOKEN_REFRESH_PERIOD_MS,
+      next: start + MINUTE_MS, // 1 分钟退避，而不是「成功」推 12h
     });
   });
 });

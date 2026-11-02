@@ -171,6 +171,24 @@ describe('createOaClient().login', () => {
     await expect(client.login(USER, PASSWORD)).resolves.toEqual({ ok: true });
   });
 
+  it('5xx login response without a login_error bounce maps to network_error (keep-credential)', async () => {
+    // FR-TOKEN-06 的 5xx 腿（失败分流表）：网关/代理 5xx 不是凭证信号（Ruling 6 只有
+    // wrong_credentials/locked 才清钥匙串）。此前「没落 login_error 即成功」把 5xx 判
+    // 成功——静默刷新据此把刷新周期推 12h，会话却根本没建立（凭证刷新时钟漂移）。
+    const { transport } = makeTransport((input) => {
+      if (isSessionJs(input)) return sessionJs();
+      return {
+        status: 502,
+        headers: {},
+        body: 'Bad Gateway',
+        finalUrl: `${BASE}/j_acegi_security_check`,
+      };
+    });
+    const client = createOaClient({ baseUrl: BASE, transport });
+
+    await expect(client.login(USER, PASSWORD)).resolves.toEqual({ ok: false, kind: 'network_error' });
+  });
+
   it('transport rejection maps to network_error and leaves exactly one scrubbed warn', async () => {
     const { transport } = makeTransport((input) => {
       if (isSessionJs(input)) return sessionJs();

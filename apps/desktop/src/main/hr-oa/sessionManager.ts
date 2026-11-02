@@ -159,6 +159,15 @@ export function createHrOaSessionManager(deps: {
   let tokenScheduler: TokenRefreshScheduler | null = null;
   /** 刷新进行中标记（FR-TOKEN-04 业务闸）；runTokenRefresh 自带 10s 超时封顶。 */
   let refreshInFlight: Promise<void> | null = null;
+  /**
+   * 会话代次（生命周期合同，同 credentialLoadPending）：凡会话边界——显式登录成功 /
+   * logout / 落 signed-out（含强退）——都推进代次。`runTokenRefresh` 记住开始时的代次，
+   * 收口前发现已变 = 本尝试已被会话边界取代：**绝不**执行 clearOaLogin / dropToSignedOut
+   * / 收 cookie 这类副作用——迟到的凭证类失败不得清掉后来登录的凭证、不得把人踢回 S1、
+   * 不得翻掉自愿登出的 reason:'logout' 误弹「登录已过期」（FR-HOME-03 Break B）。
+   * 调度器的 settled 只护计划回写，护不住这些副作用（Review Important 1）。
+   */
+  let sessionGeneration = 0;
 
   function ensureTokenScheduler(): void {
     if (!deps.tokenRefreshPersist || tokenScheduler) return;
@@ -248,6 +257,9 @@ export function createHrOaSessionManager(deps: {
     // 抢成 `cancelled`（计划由调度器的 rejected 分支清除，实例留给下次登录播种）。
     opts?: { keepTokenScheduler?: boolean },
   ): Promise<HrOaAuthState> {
+    // 会话边界：在途刷新尝试即刻失效（副作用守卫）。刷新自身的 rejected 走到这里时
+    // 已过守卫检查，代次推进不影响本次收口。
+    sessionGeneration += 1;
     // FR-TOKEN-07：凡落 signed-out（登出 / 凭证类失效 / TTL 过期 / 无凭证首启）都取消
     // 刷新计划并删除两个时间戳（cancel 是终态）；下次登录成功重建调度器、起新周期。
     if (!opts?.keepTokenScheduler) {
@@ -339,6 +351,11 @@ export function createHrOaSessionManager(deps: {
 
   /** 显式登录成功 = 用户手工解决登录态 → 无条件起新周期（FR-TOKEN-07）。 */
   function noteLoginSuccess(): void {
+    sessionGeneration += 1;
+    // 登录成功即新会话边界：作废旧调度器（cancel 是终态；在途尝试的回包被丢弃，
+    // 副作用由代次守卫收口）——旧尝试的 rejected 回包不得再清掉新周期的计划。
+    tokenScheduler?.cancel();
+    tokenScheduler = null;
     const at = now();
     deps.tokenRefreshPersist?.save({ last: at, next: at + TOKEN_REFRESH_PERIOD_MS });
     ensureTokenScheduler();
@@ -351,10 +368,25 @@ export function createHrOaSessionManager(deps: {
    * FR-LOGOUT-05 强退（清凭证/会话/资料缓存/cookie，落 `expired` 供渲染层弹
    * 「登录已过期，请重新登录」）。挂起超过 10s 按 timeout 放弃本次（FR-TOKEN-04，
    * 与调度器的超时哨兵同刻；业务闸随之放行）。
+   *
+   * 会话代次守卫（Review Important 1）：收口前发现本尝试已被会话边界取代（登录成功 /
+   * logout / 落 signed-out）就**只回分类、不做任何副作用**——迟到的凭证类失败不清凭证
+   * 不踢人；迟到的成功若重种了门户 cookie 而当下无人持有会话（登出后未再登录），收口
+   * 清掉（旧账号会话不得滞留 persist:hr-oa，账号隔离 P0）。被弃尝试的回包会被已作废的
+   * 调度器丢弃（会话边界都 cancel 旧调度器，cancel 是终态）。
    */
   async function runTokenRefresh(): Promise<TokenRefreshOutcome> {
+    const startedGeneration = sessionGeneration;
+    const superseded = (): boolean => startedGeneration !== sessionGeneration;
     const run = (async (): Promise<TokenRefreshOutcome> => {
       const loaded = await credentials.loadOaLoginDetailed(now());
+      if (superseded()) {
+        return loaded.status === 'ok'
+          ? 'success'
+          : loaded.status === 'unavailable'
+            ? 'network_error'
+            : 'rejected';
+      }
       if (loaded.status === 'unavailable') {
         // 密文在盘但暂时读不出：暂态（钥匙串抖动），保留凭证与计划、走网络类退避。
         return 'network_error';
@@ -369,6 +401,14 @@ export function createHrOaSessionManager(deps: {
       const outcome = await withTimeout(
         client.login(loaded.record.username, loaded.record.password),
       );
+      if (superseded()) {
+        if (outcome.ok && state.status === 'signed-out') await clearPortalCookies();
+        return outcome.ok
+          ? 'success'
+          : outcome.kind === 'wrong_credentials' || outcome.kind === 'locked'
+            ? 'rejected'
+            : outcome.kind;
+      }
       if (outcome.ok) return 'success';
       if (outcome.kind === 'wrong_credentials' || outcome.kind === 'locked') {
         await credentials.clearOaLogin();
@@ -512,6 +552,9 @@ export function createHrOaSessionManager(deps: {
   }
 
   async function logout(): Promise<void> {
+    // 会话边界最先推进（Review Important 1）：在途刷新尝试即刻失效——迟到的失败不得
+    // 清凭证 / 不得把 reason:'logout' 翻成 'expired'（FR-HOME-03 Break B）。
+    sessionGeneration += 1;
     // 主动登出同时收口读出楔子（生命周期合同）：否则下一次聚焦会把 load 的 'none'
     // 落成 reason:'expired'，违背 FR-HOME-03「主动登出不得弹登录已过期」。
     credentialLoadPending = false;

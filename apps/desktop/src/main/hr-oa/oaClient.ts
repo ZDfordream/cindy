@@ -10,7 +10,9 @@
  *   3. 公钥取不到才降级为**恰好一次**明文提交，并留一条不含口令的 warn（不重试明文）。
  *
  * 判据（同 HRMcp/oa_client.py）：
- *   - 登录成功 = POST 没有落到 login_error（location 头或 finalUrl），没落就是成功、到此为止；
+ *   - 登录成功 = POST 没有落到 login_error（location 头或 finalUrl）**且最终响应非
+ *     4xx/5xx**，到此为止（FR-TOKEN-06 的 5xx 腿对 Ruling 6 的显式收紧：网关/代理
+ *     5xx 归 network_error 保凭证，不得判成功——否则静默刷新把周期推 12h 而会话未建立）；
  *     锁定映射**只在 login_error 弹回内**判（Ruling 6）：location/query 或 body 命中
  *     /\block(ed)?\b/i 才是 locked，否则 wrong_credentials；
  *   - 会话失效 = location 或 finalUrl 含 anonym.jsp（3xx 弹回与跟随重定向后的 200 两种形态
@@ -151,6 +153,14 @@ function isAnonymBounce(res: OaResponse): boolean {
 }
 
 function classifyLoginResponse(res: OaResponse): OaLoginOutcome {
+  // 4xx/5xx 最终响应不是成功、也不是凭证信号（FR-TOKEN-06 的 5xx 腿）：**显式收紧**
+  // Ruling 6 的「没落到 login_error 就是成功」为「没落到 login_error **且**最终响应
+  // 非 4xx/5xx 才是成功」——否则网关/代理 5xx 被判成功，静默刷新据此把周期推 12h 而
+  // 会话根本没建立（凭证刷新时钟漂移）。按 Ruling 6 保凭证精神归 network_error
+  // （只有 wrong_credentials/locked 才清钥匙串）。真门户两形态原判不变：302→`/`
+  // （不跟跳 transport 的 3xx+location 形态与跟跳后的 200 形态）仍是成功；302→
+  // login_error（同两形态）继续走下方锁定/口令分流。
+  if (res.status >= 400) return { ok: false, kind: 'network_error' };
   // 成功判据优先（Ruling 6）：没落到 login_error 就是成功，到此为止——锁定映射只在
   // login_error 弹回内判，防 body/URL 里的 "lock" 子串把成功翻成 locked（会误清凭证）。
   if (!isLoginErrorBounce(res)) return { ok: true };
