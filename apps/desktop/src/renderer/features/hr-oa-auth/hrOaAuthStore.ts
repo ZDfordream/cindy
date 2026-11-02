@@ -52,6 +52,13 @@ export const HR_OA_SUCCESS_BEAT_MS = 500;
  */
 export const HR_OA_LEAVE_LOCK_MS = 600;
 
+/**
+ * T15 确认拍时长（PRD §9.2，FR-LOGOUT-02）：确认后「正在退出…」按钮至少保持
+ * 400ms 再落 signed-out（可感反馈，不闪断）。确认链经
+ * `requestHrOaLogout({ confirmBeatMs })` 传入；LocalDbGate 等无确认路径不带拍。
+ */
+export const HR_OA_LOGOUT_CONFIRM_BEAT_MS = 400;
+
 // ── 门禁记忆（模块级）────────────────────────────────────────────────────────
 // `OwnerScopedRouter` 用 `${dataOwnerId}:${ownerGeneration}` 作 RouterProvider 的 key，
 // 每次 hr 落定（登录 commit 冻结账号键 / 登出 commit null）都会改 ownerKey、**重挂载
@@ -271,17 +278,23 @@ function leaveFadeMs(): number {
 }
 
 /**
- * 「更多 → 退出登录」（FR-HOME-03 / FR-SESSION-03 / T9）的单一入口。
+ * 退出登录（FR-LOGOUT-01~05 / FR-HOME-03 / FR-SESSION-03 / T9）的单一入口：
+ * 个人弹层末项的确认弹窗（Task 5）与 LocalDbGate 的 fatal-DB 离开路径共用。
  *
- * 顺序照 PRD §9.2 T9：首页淡出（`data-hr-leave`）→ 清登录态与未发送草稿（**保留**
- * 该账号模型配置——模型配置不在这条链上动）→ 落 signed-out 回 S1。主动登出**不**弹
- * 「登录已过期」（voluntary 抑制）；转场锁内重复触发直接丢弃（防重入）。
- * LocalDbGate 的 fatal-DB 离开路径同样走这里，不再裸调 `hrOa.logout`。
+ * 顺序合同（PRD §9.2 T9/T15 + owner 裁定 Ruling B / Review Focus #1）：
+ *   1. **先真停**当前账号的在途 Agent 轮（含伙伴后台轮）——只靠 UI 卸载会留下
+ *      「登出后旧进程仍往旧 owner 分区写、用旧凭证发请求」的账号隔离漏洞；
+ *   2. 首页淡出（`data-hr-leave`）与确认拍（`confirmBeatMs`，FR-LOGOUT-02 的
+ *      「正在退出…」≥400ms）并行计时，取较长者；
+ *   3. 清登录态与未发送草稿（**保留**该账号模型配置——模型配置不在这条链上动）
+ *      → 落 signed-out 回 S1。
+ * 主动登出**不**弹「登录已过期」（voluntary 抑制）；转场锁内重复触发直接丢弃
+ * （防重入）。
  *
  * 回 true = 登出已落定（调用方可切 UI）；回 false = 链路失败（登录态未变，标志位
  * 已收回，留在原界面等下一次触发）。**不抛错**——失败是可恢复状态，不是异常面。
  */
-export async function requestHrOaLogout(): Promise<boolean> {
+export async function requestHrOaLogout(options?: { confirmBeatMs?: number }): Promise<boolean> {
   if (gateMemory.leaveInFlight) return false;
   gateMemory.leaveInFlight = true;
   gateMemory.voluntaryLogout = true;
@@ -294,8 +307,20 @@ export async function requestHrOaLogout(): Promise<boolean> {
   // 同账号重新登录恢复草稿）。
   const destroyDrafts = captureActiveOwnerComposerDrafts();
   try {
+    // Ruling B / Review Focus #1：**先停后落**。真停走用户 Stop 的同一生产路径
+    // （stopSession：renderer 立即收口 + input.stop 中断在途轮 / 伙伴轮），必须
+    // 发生在 hrOa.logout（落 signed-out 的 commit）之前；定时任务（自动化）的
+    // 在途执行轮同形态计入并一并停（runningTasks 口径）。
+    // 动态 import：makerChatStore（及其 @/i18n 链）不进 hrOaAuthStore 的静态图——
+    // 本模块被 OnboardingSessionHost / LocalDbGate 等轻量宿主静态引用（同
+    // UserInfoSection 账号切换 `await import('@/lib/makerChatStore')` 先例）。
+    const { stopRunningAgentRuns } = await import('../hr-oa-profile/runningTasks');
+    stopRunningAgentRuns();
     const fadeMs = leaveFadeMs();
-    if (fadeMs > 0) await new Promise((resolve) => window.setTimeout(resolve, fadeMs));
+    const beatMs = options?.confirmBeatMs ?? 0;
+    // 确认拍（T15）与首页淡出并行，取较长者：确认路径「正在退出…」≥400ms 才落定。
+    const waitMs = Math.max(fadeMs, beatMs);
+    if (waitMs > 0) await new Promise((resolve) => window.setTimeout(resolve, waitMs));
     await window.electronAPI.hrOa.logout();
     destroyDrafts();
     // reason:'logout' 随后到的推送同款（main 的 logout() 落的也是它）：重复落定不再

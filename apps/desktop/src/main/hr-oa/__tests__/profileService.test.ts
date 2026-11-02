@@ -111,6 +111,7 @@ function makeCache(): typeof import('../credentialStore.js') {
     resolveAccountKey: (loginName, forProfile) => resolveAccountKey(loginName, forProfile, testDeps),
     saveOaProfileCache: (input) => saveOaProfileCache(input, testDeps),
     loadOaProfileCache: () => credentialStoreNs.loadOaProfileCache(testDeps),
+    clearOaProfileCache: () => credentialStoreNs.clearOaProfileCache(testDeps),
     saveOaAvatarCache: (input) => credentialStoreNs.saveOaAvatarCache(input, testDeps),
     loadOaAvatarCache: (key) => credentialStoreNs.loadOaAvatarCache(key, testDeps),
     clearOaAvatarCache: () => credentialStoreNs.clearOaAvatarCache(testDeps),
@@ -241,10 +242,13 @@ describe('fetchProfile 单飞与 epoch 取消', () => {
     lateFetch.resolve(profile({ name: '李四', loginName: 'u2', personId: 'p-other' }));
 
     expect(await inFlight).toEqual({ ok: false, kind: 'cancelled' });
-    // 不写缓存：登录时落的缓存不得被迟到结果覆盖（更不得落成另一账号）。
+    // 不写缓存：登出本身清资料缓存（FR-LOGOUT-03 清理清单）；迟到结果不得再落盘——
+    // 若 epoch 没被认证边界推进（Ruling D 回归），这里会写成「李四」（换号窗口串台）。
     const cacheAfterLate = await cache.loadOaProfileCache();
-    expect(cacheAfterLate?.profile.name).toBe(cacheAfterLogin?.profile.name);
+    expect(cacheAfterLate).toBeNull();
     expect(cacheAfterLate?.profile.name).not.toBe('李四');
+    // 登录时那份同样不得以任何形式复活（清除是 FR-LOGOUT-03 的收口，不是隐藏）。
+    expect(cacheAfterLogin?.profile.name).toBe('张三');
   });
 });
 

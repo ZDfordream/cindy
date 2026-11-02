@@ -291,14 +291,18 @@ export function ProfileMenu(props: {
         );
       })}
       <div role="separator" className="-mx-1.5 my-1 h-px bg-[var(--cmd-palette-border)]" />
+      {/* 退出登录（FR-LOGOUT-01）：末项、上方分隔线；hover/聚焦时文字变红（语义
+          token `--error-fg`，PRD 原型 #e0302d 的语义映射）；点击 → onAction('logout')
+          → 宿主打开确认弹窗（FR-LOGOUT-02）。默认态与其它菜单项同色。 */}
       <button
         type="button"
         role="menuitem"
         onClick={() => select('logout')}
         className={cn(
           'flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left',
-          'text-14 leading-[1.43] text-[var(--error-fg)]',
-          'transition-[background-color,font-weight] duration-[var(--motion-instant)] ease-[var(--motion-ease-out)]',
+          'text-14 leading-[1.43] text-[var(--cmd-palette-item-text)]',
+          'hover:text-[var(--error-fg)] focus-visible:text-[var(--error-fg)]',
+          'transition-[background-color,color,font-weight] duration-[var(--motion-instant)] ease-[var(--motion-ease-out)]',
           'hover:bg-[var(--sidebar-item-hover)] focus-visible:bg-[var(--sidebar-item-hover)]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]',
         )}

@@ -193,12 +193,22 @@ export function createHrOaSessionManager(deps: {
    * signed-out 收口（设计 §4.2，账号隔离）：**先清门户 cookie、再落状态**。
    * 顺序合同：状态落定后渲染层可立即发起下一次登录，迟到落地的清 cookie 会误删
    * 新登录种下的会话；所以清 cookie 是落定前的同步门，不是落定后的旁路通知。
+   *
+   * FR-LOGOUT-03/05 清理清单：自愿登出（`logout`）与失效强退（`expired`）同样清
+   * **个人信息缓存与头像缓存**——两者都落在 userData 根（不在 owner 分区内），不清
+   * 会跨账号残留上一人的资料/头像。首启无凭证（reason 缺省）不属清理动作，不动。
+   * 映射表不在这一步（clearOaLogin 的键不漂移承诺）；模型配置不在这条链上。
    */
   async function dropToSignedOut(
     reason: HrOaSignedOutReason | undefined,
     notify: boolean,
   ): Promise<HrOaAuthState> {
     await clearPortalCookies();
+    if (reason === 'logout' || reason === 'expired') {
+      // 非致命（同 clearPortalCookies）：收口失败不得拦住状态落定。
+      await credentials.clearOaProfileCache();
+      await credentials.clearOaAvatarCache();
+    }
     const next: HrOaAuthState = reason ? { status: 'signed-out', reason } : { status: 'signed-out' };
     return notify ? notifyOnly(next) : settle(next);
   }

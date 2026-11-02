@@ -364,8 +364,10 @@ export async function loadOaLogin(
 
 /**
  * 清除登录凭证（登出 / 凭证类失败）。**不动**账号键映射表——登出再登不得换键，
- * 否则本地数据分区会被孤儿化。资料缓存同样保留（下次登录成功覆盖；离线兜底数据
- * 不随登出销毁，但只展示不认证）。
+ * 否则本地数据分区会被孤儿化。本函数也不动资料缓存（离线兜底共用这份读路径）；
+ * 自愿登出 / 失效强退的**资料与头像缓存清理**是清理清单的独立一步（FR-LOGOUT-03/05，
+ * `clearOaProfileCache` + `clearOaAvatarCache`，由 sessionManager 的 signed-out 收口
+ * 对 `logout` / `expired` 落定执行）。
  */
 export async function clearOaLogin(deps: OaCredentialDeps = defaultDeps()): Promise<void> {
   try {
@@ -426,6 +428,15 @@ export async function saveOaProfileCache(
     fs.renameSync(tmp, file);
   } catch (err) {
     log.warn('oa profile cache write failed', { err: errorText(err) });
+  }
+}
+
+/** 清资料缓存（FR-LOGOUT-03/05 清理清单）：换号不得留上一人的资料；IO 失败只 warn。 */
+export async function clearOaProfileCache(deps: OaCredentialDeps = defaultDeps()): Promise<void> {
+  try {
+    fs.rmSync(profileCachePath(deps), { force: true });
+  } catch (err) {
+    log.warn('oa profile cache clear failed', { err: errorText(err) });
   }
 }
 

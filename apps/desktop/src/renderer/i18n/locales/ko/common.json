@@ -17969,6 +17969,12 @@
     "more": {
       "customize": "사용자 지정",
       "logout": "로그아웃"
+    },
+    "logout": {
+      "title": "로그아웃할까요?",
+      "body": "로그아웃한 후 HRBuddy를 사용하려면 다시 로그인해야 합니다.",
+      "runningTasks": "현재 {{count}}개의 작업이 실행 중입니다. 로그아웃하면 중단됩니다.",
+      "confirming": "로그아웃 중…"
     }
   }
 }

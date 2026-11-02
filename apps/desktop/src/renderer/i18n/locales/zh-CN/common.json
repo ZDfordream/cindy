@@ -17969,6 +17969,12 @@
     "more": {
       "customize": "自定义",
       "logout": "退出登录"
+    },
+    "logout": {
+      "title": "确定退出登录？",
+      "body": "退出后需要重新登录才能使用 HRBuddy。",
+      "runningTasks": "当前有 {{count}} 个任务正在运行，退出将中断该任务。",
+      "confirming": "正在退出…"
     }
   }
 }

@@ -1,13 +1,16 @@
 /**
- * HrOaMoreMenuItems — 「更多」浮层的 HRBuddy 会话条目（PRD FR-HOME-02 / FR-HOME-03）。
+ * HrOaMoreMenuItems — 「更多」浮层的 HRBuddy 会话条目（PRD FR-HOME-02）。
  *
- * 两个条目（PRD 飞层就是这组）：
+ * 条目（Task 5 迁移后）：
  * - 「自定义」→ 打开「添加模型」弹窗（origin=home：无跳过按钮、无底部提示）。首页
  *   （S4）在挂时经 `requestHomeCustomizeDialog()` 递给首页宿主，与两态共用同一份
  *   网关条目表（保存成功即入列表并成为当前模型）；首页不在（会话页等）无人认领 →
  *   回落 `HrOaCustomizeFallbackHost` 自带的同一弹窗，关闭回原界面（AC-14）。
- * - 「退出登录」→ `requestHrOaLogout()`（T9 转场回 S1）：**无二次确认**（PRD
- *   FR-HOME-03），清登录态与未发送草稿、保留该账号模型配置，且不弹「登录已过期」。
+ *
+ * 「退出登录」已按迁移对照表迁入个人弹层末项（FR-MENU-01 / FR-LOGOUT-01，Task 5
+ * 确认弹窗落地后收口双入口）——本浮层**不再承载**退出登录；该动作现在经
+ * `ProfileMenu` → `LogoutConfirmDialog` 确认执行（原 FR-HOME-03 的「无二次确认」
+ * 随之被 FR-LOGOUT-02 的确认弹窗取代）。
  *
  * 由 `SidebarTopNav` 的「更多」浮层在 hr 会话下渲染；Cindy 账号层的导航自定义条目
  * 在 hr 会话让位给「自定义」（PRD 侧栏本期导航为占位，「自定义」= 模型配置）。
@@ -19,17 +22,15 @@
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LogOut, SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
 
 import {
   DropdownMenuItem,
-  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 
 import { OnboardingModelDialog } from '../model-gateway/OnboardingModelDialog';
 import { ModelGatewayScope } from '../model-gateway/ModelGatewayStore';
 import { trackHomeGateTrigger } from '../model-gateway/homeOnboardingGate';
-import { requestHrOaLogout } from './hrOaAuthStore';
 import { requestHomeCustomizeDialog } from './OnboardingSessionHost';
 
 // ── 回落弹窗的模块级开关（菜单内容卸载不丢；宿主见 HrOaCustomizeFallbackHost）────
@@ -136,29 +137,15 @@ export function HrOaCustomizeFallbackHost() {
 export function HrOaMoreMenuItems() {
   const { t } = useTranslation();
   return (
-    <>
-      <DropdownMenuItem
-        onSelect={() => {
-          // 首页宿主认领（共享 store，保存即翻两态）；不在首页时走回落宿主。
-          if (!requestHomeCustomizeDialog()) openCustomizeFallback();
-        }}
-        className="gap-2.5"
-      >
-        <SlidersHorizontal size={16} strokeWidth={1.8} />
-        {t('hrOa.more.customize')}
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem
-        variant="danger"
-        onSelect={() => {
-          // PRD FR-HOME-03：T9 直接执行，无二次确认。
-          void requestHrOaLogout();
-        }}
-        className="gap-2.5"
-      >
-        <LogOut size={16} strokeWidth={1.8} />
-        {t('hrOa.more.logout')}
-      </DropdownMenuItem>
-    </>
+    <DropdownMenuItem
+      onSelect={() => {
+        // 首页宿主认领（共享 store，保存即翻两态）；不在首页时走回落宿主。
+        if (!requestHomeCustomizeDialog()) openCustomizeFallback();
+      }}
+      className="gap-2.5"
+    >
+      <SlidersHorizontal size={16} strokeWidth={1.8} />
+      {t('hrOa.more.customize')}
+    </DropdownMenuItem>
   );
 }

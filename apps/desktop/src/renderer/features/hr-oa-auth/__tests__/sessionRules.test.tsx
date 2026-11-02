@@ -3,6 +3,12 @@
 /**
  * sessionRules — 退出登录 / 登录态失效 / SESSION 规则 + S3 引导宿主（Task 7）。
  *
+ * 退出入口（Task 5 迁移，FR-LOGOUT-01/02）：「更多 → 退出登录」已迁入个人弹层
+ * 末项并加确认弹窗——本文件的登出用例随之**re-aim 到新入口**（个人弹层末项 →
+ * 确认弹窗 → 确认），被保护的行为不变：退出路径存在、经确认执行、清草稿、
+ * 保留模型配置、回 S1、不误弹「登录已过期」、失败不动原状。弹窗本体合同
+ * （几何 / 焦点 / T15 拍 / 停任务顺序）见 hr-oa-profile 的 logoutConfirm.test。
+ *
  * 测试价值
  * - 生产入口与可观察结果：走真实 `HrOaGate` + 真实 `ModelGatewayProvider` +
  *   真实 `HomeOnboardingGateProvider` + 真实 `OnboardingSessionHost`（S3 引导宿主）+
@@ -60,12 +66,19 @@ import { HrOaGate } from '../HrOaGate';
 import { HrOaCustomizeFallbackHost, HrOaMoreMenuItems } from '../HrOaMoreMenuItems';
 import { OnboardingSessionHost } from '../OnboardingSessionHost';
 import { __testing as hrOaStoreTesting } from '../hrOaAuthStore';
+import { ProfileMenu, type ProfileMenuItem } from '@/features/hr-oa-profile/ProfileMenu';
+import {
+  LogoutConfirmDialog,
+  useHrOaLogoutConfirm,
+} from '@/features/hr-oa-profile/LogoutConfirmDialog';
 
 // ── IPC 桥桩（hrOa.* 与 maker.*；推送走 auth:state-change，与生产同链）──────────
 const bridge = vi.hoisted(() => ({
   login: vi.fn(),
   logout: vi.fn(),
   getState: vi.fn(),
+  fetchProfile: vi.fn(),
+  getAvatar: vi.fn(),
   listeners: new Set<(payload: unknown) => void>(),
   // 按账号分区的网关条目（owner 分区在 main 侧由 dataOwnerId 承担；这里按
   // accountKey 分桶模拟同一合同，供断言「换账号看不到上一账号的模型」）。
@@ -75,6 +88,13 @@ const bridge = vi.hoisted(() => ({
   createCustomProvider: vi.fn(),
   testProviderConnection: vi.fn(),
 }));
+
+/** ProfileMenu 的 mac 全屏条件项依赖（与本案无关恒非全屏）。 */
+vi.mock('@/hooks/useMacFullscreen', () => ({
+  useMacFullscreen: () => ({ isMac: true, isFullscreen: false }),
+}));
+vi.mock('@/features/device-link/useSharedTaskTasks', () => ({ useSharedTaskTasks: vi.fn() }));
+vi.mock('@/features/device-link/SharedTaskEndedNotice', () => ({ SharedTaskEndedNotice: () => null }));
 
 const PROFILE_A = {
   name: '张三',
@@ -103,6 +123,19 @@ const LOGOUT_LABEL = '退出登录';
 const MORE_LABEL = '更多';
 const UNCONFIGURED_LABEL = '未配置模型';
 const DRAFT_KEY = 'session-rules-draft';
+
+/** 个人弹层锚点（jsdom 无布局，手造 DOMRect；ProfileMenu 开层几何用）。 */
+const PROFILE_ANCHOR = {
+  left: 20,
+  top: 700,
+  width: 181,
+  height: 44,
+  bottom: 744,
+  right: 201,
+  x: 20,
+  y: 700,
+  toJSON: () => ({}),
+} as DOMRect;
 
 function gatewayEntryProvider(modelId = 'gw-model-alpha', id = 'gw-entry'): ProviderView {
   return {
@@ -147,6 +180,8 @@ function installBridge(): void {
         login: bridge.login,
         logout: bridge.logout,
         getState: bridge.getState,
+        profile: { fetchProfile: bridge.fetchProfile },
+        avatar: { getAvatar: bridge.getAvatar },
       },
       onAuthStateChange: (cb: (payload: unknown) => void) => {
         bridge.listeners.add(cb);
@@ -199,12 +234,15 @@ function GatewayApiProbe() {
   return null;
 }
 
-/** 首页面（与 NewMakerDraftRoute 的宿主接线同构）：横幅两态 + 模型/当前模型标记 + 「更多」浮层。 */
+/** 首页面（与 NewMakerDraftRoute 的宿主接线同构）：横幅两态 + 模型/当前模型标记 + 「更多」浮层 +
+ *  个人入口 / 个人弹层 / 退出确认弹窗（Task 5 起退出登录的生产链路，HrProfileFooter 同款接线）。 */
 function HomeSurface() {
   const surface = useHomeGateSurface();
   const { entries, hydrated } = useModelGateway();
   const { currentId } = useCurrentModel();
   const currentEntry = entries.find((entry) => entry.id === currentId) ?? null;
+  const logoutFlow = useHrOaLogoutConfirm();
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   return (
     <div data-testid="home-surface">
       <OnboardingHomeBanner
@@ -215,6 +253,25 @@ function HomeSurface() {
       <span data-testid="entry-ids">{entries.map((entry) => entry.modelId).join(',')}</span>
       <span data-testid="current-model">{currentEntry?.modelId ?? ''}</span>
       <DraftProbe />
+      <button type="button" data-testid="profile-entry" onClick={() => setProfileMenuOpen((v) => !v)}>
+        entry
+      </button>
+      <ProfileMenu
+        open={profileMenuOpen}
+        anchor={PROFILE_ANCHOR}
+        profileState="ready"
+        onClose={() => setProfileMenuOpen(false)}
+        onAction={(item: ProfileMenuItem) => {
+          if (item === 'logout') logoutFlow.openConfirm();
+        }}
+      />
+      <LogoutConfirmDialog
+        open={logoutFlow.dialogOpen}
+        runningTaskCount={logoutFlow.runningTaskCount}
+        onCancel={logoutFlow.cancelConfirm}
+        onConfirm={() => void logoutFlow.confirmLogout()}
+        confirming={logoutFlow.confirming}
+      />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button">{MORE_LABEL}</button>
@@ -304,6 +361,29 @@ async function openMoreMenu(): Promise<HTMLElement> {
   return screen.getByRole('menu');
 }
 
+/**
+ * 退出登录的生产链路（Task 5 迁移后，FR-LOGOUT-01/02）：个人弹层末项 → 确认弹窗
+ * → 确认。确认后 T15 拍 400ms 才落 signed-out（HR_OA_LOGOUT_CONFIRM_BEAT_MS）。
+ */
+async function confirmLogoutViaProfileMenu(): Promise<void> {
+  fireEvent.click(screen.getByTestId('profile-entry'));
+  await flush();
+  fireEvent.click(screen.getByRole('menuitem', { name: LOGOUT_LABEL }));
+  await flush();
+  // 确认弹窗的「退出登录」按钮（role=button，与弹层 menuitem 同名不同 role）。
+  fireEvent.click(screen.getByRole('button', { name: LOGOUT_LABEL }));
+  // requestHrOaLogout 经动态 import 拉停任务模块（静态图卫生）：先把 import 链的
+  // 微任务放干净（T15 拍计时器到此才起跑），再按拍计时，时序才确定。
+  await act(async () => {
+    await import('@/features/hr-oa-profile/runningTasks');
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  });
+  await act(async () => {
+    vi.advanceTimersByTime(400);
+  });
+  await flush();
+}
+
 beforeEach(async () => {
   await i18n.changeLanguage('zh-CN');
   hrOaStoreTesting.resetHrOaGateMemory();
@@ -311,10 +391,14 @@ beforeEach(async () => {
   bridge.login.mockReset();
   bridge.logout.mockReset();
   bridge.getState.mockReset();
+  bridge.fetchProfile.mockReset();
+  bridge.getAvatar.mockReset();
   bridge.listeners.clear();
   bridge.providersByAccount.clear();
   bridge.currentAccountKey = 'P100';
   bridge.getState.mockResolvedValue(SIGNED_OUT);
+  bridge.fetchProfile.mockResolvedValue({ ok: true, fromCache: false, profile: PROFILE_A });
+  bridge.getAvatar.mockResolvedValue(null);
   installBridge();
   setComposerDraftOwner('P100');
   mockMatchMedia();
@@ -458,11 +542,8 @@ describe('FR-SESSION-04 / SC-6：模型配置绑定账号', () => {
     expect(entryIds()).toContain('gw-model-alpha');
 
     // 退出 → 换账号 B 登录：B 分区为空，不得看到 A 的模型（SC-6），且必经 S3。
-    const menu = await openMoreMenu();
-    await act(async () => {
-      fireEvent.click(within(menu).getByRole('menuitem', { name: LOGOUT_LABEL }));
-    });
-    await flush();
+    // 退出入口 = 个人弹层末项 + 确认弹窗（Task 5 迁移，re-aim 自「更多 → 退出登录」）。
+    await confirmLogoutViaProfileMenu();
     expect(welcomeTitle()).toBeTruthy();
 
     await submitLogin('lisi');
@@ -490,11 +571,8 @@ describe('FR-SESSION-03 / FR-HOME-03：退出登录', () => {
     expect(draftProbe()).toBe('has-draft');
 
     const toastsBefore = getToastSnapshot();
-    const menu = await openMoreMenu();
-    await act(async () => {
-      fireEvent.click(within(menu).getByRole('menuitem', { name: LOGOUT_LABEL }));
-    });
-    await flush();
+    // 退出入口 = 个人弹层末项 + 确认弹窗（Task 5 迁移，re-aim 自「更多 → 退出登录」）。
+    await confirmLogoutViaProfileMenu();
 
     // FR-HOME-03 / FR-SESSION-03：回 S1、草稿清除；主动登出**不得**误弹失效 toast
     // ——锁内不弹还不够：转场锁（600ms）走完后也永远不弹（与 FR-SESSION-02 的分界）。
@@ -537,11 +615,7 @@ describe('FR-SESSION-03 / FR-HOME-03：退出登录', () => {
     // hrOa:logout 失败（keychain / IPC）：登出链承诺「登录态未变、留在原界面」——
     // 草稿也必须跟着留下（FR-SESSION-03 的清草稿只发生在**成功**后）。
     bridge.logout.mockRejectedValueOnce(new Error('keychain unavailable'));
-    const menu = await openMoreMenu();
-    await act(async () => {
-      fireEvent.click(within(menu).getByRole('menuitem', { name: LOGOUT_LABEL }));
-    });
-    await flush();
+    await confirmLogoutViaProfileMenu();
 
     expect(welcomeTitle()).toBeNull();
     expect(homeSurface()).toBeTruthy();

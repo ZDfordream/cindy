@@ -11,6 +11,7 @@
 
 import { net } from 'electron';
 import * as authManager from './authManager';
+import { getActiveAppSession } from './appSessionState.js';
 import { getResolvedMainLocale } from './i18n.js';
 
 import { createLogger } from './logger';
@@ -164,7 +165,11 @@ export async function serverApiFetch<T>(apiPath: string, opts: ApiFetchOptions):
     if (
       !opts.skipSessionInvalidation && result.status === 401 &&
       (errCode === 'ACCOUNT_UNAVAILABLE' ||
-        (refreshedAndRetried && isRefreshableUnauthorizedCode(errCode)))
+        (refreshedAndRetried && isRefreshableUnauthorizedCode(errCode))) &&
+      // FR-LOGOUT-05：HR 会话（mode='hr'）没有 HRBuddy 服务端会话（服务端 401 本期
+      // N/A）。Cindy 通道的 401 不得在 HR 模式里走 authManager.invalidateSession——
+      // 那是 Cindy 的完整本地退登，会把 HR 登录态一起误打掉（跨会话互伤）。
+      getActiveAppSession().mode !== 'hr'
     ) {
       void authManager.invalidateSession(
         errCode === 'ACCOUNT_UNAVAILABLE'

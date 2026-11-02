@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getAccessToken: vi.fn(),
   refresh: vi.fn(),
   invalidateSession: vi.fn(),
+  getActiveAppSession: vi.fn(() => ({ mode: 'cloud', dataOwnerId: 'cindy-user', generation: 1 })),
   logger: {
     debug: vi.fn(),
     error: vi.fn(),
@@ -22,6 +23,9 @@ vi.mock('../authManager', () => ({
   getAccessToken: mocks.getAccessToken,
   refresh: mocks.refresh,
   invalidateSession: mocks.invalidateSession,
+}));
+vi.mock('../appSessionState.js', () => ({
+  getActiveAppSession: mocks.getActiveAppSession,
 }));
 vi.mock('../i18n.js', () => ({
   getResolvedMainLocale: () => 'zh-CN',
@@ -39,6 +43,8 @@ import { readOrganizationAccountUsage } from '../usage/organizationAccountUsage'
 describe('serverApiFetch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 缺省 Cindy 账号态；hr 用例单独覆盖（clearAllMocks 不重置 mockReturnValue）。
+    mocks.getActiveAppSession.mockReturnValue({ mode: 'cloud', dataOwnerId: 'cindy-user', generation: 1 });
   });
 
   // Unit: exercise the real quota reader through the HTTP client. Previously its
@@ -277,6 +283,26 @@ describe('serverApiFetch', () => {
       }),
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED', statusCode: 401 });
     expect(mocks.invalidateSession).toHaveBeenCalledWith('resource-unauthorized-after-refresh');
+  });
+
+  it('hr 会话下 Cindy 401 不触发 Cindy 退登（FR-LOGOUT-05：服务端 401 本期 N/A）', async () => {
+    // HR 模式没有 HRBuddy 服务端会话：Cindy 通道的 401（如 device-link relay / model-access）
+    // 若走 authManager.invalidateSession 会把 HR 登录态误打成 Cindy 退登（跨会话互伤）。
+    mocks.getActiveAppSession.mockReturnValue({ mode: 'hr', dataOwnerId: 'oa-P100', generation: 3 });
+    mocks.getAccessToken.mockReturnValue('cindy-token');
+    mocks.invalidateSession.mockResolvedValue(undefined);
+    mocks.netFetch.mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { code: 'ACCOUNT_UNAVAILABLE' } }),
+    });
+
+    await expect(
+      serverApiFetch('/api/resource', {
+        baseUrl: 'https://resource.example.com',
+      }),
+    ).rejects.toMatchObject({ code: 'ACCOUNT_UNAVAILABLE', statusCode: 401 });
+    expect(mocks.invalidateSession).not.toHaveBeenCalled();
   });
 
   it.each([

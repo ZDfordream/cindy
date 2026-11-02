@@ -34,8 +34,8 @@ import type { DesktopSavedAccount } from '@/lib/authService';
 import { ProfileAvatar } from '@/features/hr-oa-profile/ProfileAvatar';
 import { ProfileEntry } from '@/features/hr-oa-profile/ProfileEntry';
 import { ProfileMenu, type ProfileMenuItem } from '@/features/hr-oa-profile/ProfileMenu';
+import { LogoutConfirmDialog, useHrOaLogoutConfirm } from '@/features/hr-oa-profile/LogoutConfirmDialog';
 import { useHrOaProfile } from '@/features/hr-oa-profile/useHrOaProfile';
-import { requestHrOaLogout } from '@/features/hr-oa-auth/hrOaAuthStore';
 import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
 import { CURRENT_CINDY_REGION } from '../../../shared/brandRegion';
 import { shouldLabelRegion } from '../../../shared/regionCode';
@@ -146,6 +146,17 @@ function HrProfileFooter({ isCollapsed }: { isCollapsed: boolean }) {
   const [profileMenuFocus, setProfileMenuFocus] = useState<'first' | 'last'>('first');
   const [profileAnchor, setProfileAnchor] = useState<DOMRect | null>(null);
   const profileEntryHostRef = useRef<HTMLDivElement>(null);
+  // 退出登录（Task 5，FR-LOGOUT-01/02）：弹层末项 → 确认弹窗 → 确认执行。
+  // 确认弹窗的焦点归还由 LogoutConfirmDialog 按开弹窗瞬间的持有者处理（入口）。
+  // 回调取稳定引用（hook 的 useCallback），别把整包返回值塞进下方 memo deps。
+  const {
+    openConfirm: openLogoutConfirm,
+    dialogOpen: logoutDialogOpen,
+    confirming: logoutConfirming,
+    runningTaskCount: logoutRunningTaskCount,
+    cancelConfirm: cancelLogoutConfirm,
+    confirmLogout,
+  } = useHrOaLogoutConfirm();
 
   const handleProfileOpen = useCallback((options?: { focus?: 'first' | 'last' }) => {
     setProfileMenuFocus(options?.focus ?? 'first');
@@ -188,12 +199,13 @@ function HrProfileFooter({ isCollapsed }: { isCollapsed: boolean }) {
           void checkForUpdateWithToast(t);
           break;
         case 'logout':
-          // PRD 迁移对照表：退出登录迁入弹层末项；确认弹窗（D3）由 Task 5 接入。
-          void requestHrOaLogout();
+          // PRD 迁移对照表：退出登录迁入弹层末项；确认弹窗（FR-LOGOUT-02）在此打开，
+          // 确认后经 useHrOaLogoutConfirm → requestHrOaLogout（先停后落 + T15 拍）。
+          openLogoutConfirm();
           break;
       }
     },
-    [location.pathname, location.search, navigate, t],
+    [location.pathname, location.search, navigate, openLogoutConfirm, t],
   );
 
   return (
@@ -214,6 +226,15 @@ function HrProfileFooter({ isCollapsed }: { isCollapsed: boolean }) {
         initialFocus={profileMenuFocus}
         onClose={handleProfileClose}
         onAction={handleProfileAction}
+      />
+      {/* 退出登录确认弹窗（FR-LOGOUT-01~05）：与 ProfileMenu 同层挂载，portal 到
+          body；确认/失效/取消的收口与焦点归还见 LogoutConfirmDialog。 */}
+      <LogoutConfirmDialog
+        open={logoutDialogOpen}
+        runningTaskCount={logoutRunningTaskCount}
+        onCancel={cancelLogoutConfirm}
+        onConfirm={() => void confirmLogout()}
+        confirming={logoutConfirming}
       />
     </>
   );

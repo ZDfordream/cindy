@@ -47,8 +47,12 @@ import {
   OA_LOGIN_TTL_MS,
   clearOaLogin,
   loadOaLogin,
+  loadOaAvatarCache,
+  loadOaProfileCache,
   resolveAccountKey,
+  saveOaAvatarCache,
   saveOaLogin,
+  saveOaProfileCache,
   type OaCredentialDeps,
 } from '../credentialStore.js';
 import type { SecretStorageIo } from '../../secrets/providerSecretStore.js';
@@ -121,6 +125,7 @@ function makeCredentials(): typeof import('../credentialStore.js') {
     loadOaLoginDetailed: (now?: number) => credentialStoreNs.loadOaLoginDetailed(now, testDeps),
     saveOaProfileCache: (input) => credentialStoreNs.saveOaProfileCache(input, testDeps),
     loadOaProfileCache: () => credentialStoreNs.loadOaProfileCache(testDeps),
+    clearOaProfileCache: () => credentialStoreNs.clearOaProfileCache(testDeps),
     saveOaAvatarCache: (input) => credentialStoreNs.saveOaAvatarCache(input, testDeps),
     loadOaAvatarCache: (key) => credentialStoreNs.loadOaAvatarCache(key, testDeps),
     clearOaAvatarCache: () => credentialStoreNs.clearOaAvatarCache(testDeps),
@@ -486,6 +491,50 @@ describe('logout', () => {
     // reason:'logout' = 自愿登出：兄弟窗口据此抑制失效 toast（Finding 4）。
     expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
     expect(commitSession.mock.calls.at(-1)).toEqual(['signed-out']);
+  });
+
+  it('FR-LOGOUT-03 清理清单：登出清资料缓存与头像缓存（保留映射表与模型配置）', async () => {
+    // 失效后果：登出只清钥匙串时，资料缓存 / 头像缓存跨账号残留在 userData 根——
+    // 下一账号首启的离线兜底或头像取图可能短暂露出上一人的信息（FR-LOGOUT-03
+    // 明确要求登出清「个人信息缓存与头像缓存」）。映射表保留（登出再登不得换键）。
+    const manager = makeManager();
+    clientProfile = profile({ loginName: 'u1', personId: 'p9' });
+    await manager.login('u1', PASSWORD);
+    await saveOaAvatarCache(
+      { key: 'p9|1', contentType: 'image/png', bytes: new Uint8Array([1, 2]) },
+      testDeps,
+    );
+    expect(await loadOaProfileCache(testDeps)).not.toBeNull();
+    expect(await loadOaAvatarCache('p9|1', testDeps)).not.toBeNull();
+
+    await manager.logout();
+
+    expect(await loadOaProfileCache(testDeps)).toBeNull();
+    expect(await loadOaAvatarCache('p9|1', testDeps)).toBeNull();
+    // 映射表（冻结键）不在清理清单里：clearOaLogin 的键不漂移承诺仍成立。
+    expect(clearOaLoginSpy).toHaveBeenCalled();
+  });
+
+  it('FR-LOGOUT-05 同样清理：凭证类失效强退也清资料缓存与头像缓存', async () => {
+    // 登录态失效强制退出与手动退出同一清理清单（草稿除外——失效保留草稿是
+    // FR-SESSION-02 的渲染层行为）。凭证类 silent 重登失败落 reason:'expired'。
+    await saveOaProfileCache(
+      { accountKey: 'u1', loginName: 'u1', profile: profile({ loginName: 'u1', personId: 'p9' }) },
+      testDeps,
+    );
+    await saveOaAvatarCache(
+      { key: 'p9|1', contentType: 'image/png', bytes: new Uint8Array([1, 2]) },
+      testDeps,
+    );
+    await seedStoredLogin();
+    clientLogin = { ok: false, kind: 'wrong_credentials' };
+    const manager = makeManager();
+
+    const state = await manager.startup();
+
+    expect(state).toEqual({ status: 'signed-out', reason: 'expired' });
+    expect(await loadOaProfileCache(testDeps)).toBeNull();
+    expect(await loadOaAvatarCache('p9|1', testDeps)).toBeNull();
   });
 });
 

@@ -18029,6 +18029,12 @@
     "more": {
       "customize": "Customize",
       "logout": "Log out"
+    },
+    "logout": {
+      "title": "Log out?",
+      "body": "You'll need to sign in again to use HRBuddy after logging out.",
+      "runningTasks": "{{count}} tasks are currently running. Logging out will interrupt them.",
+      "confirming": "Logging out…"
     }
   }
 }
