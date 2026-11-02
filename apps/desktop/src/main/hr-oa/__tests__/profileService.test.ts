@@ -45,6 +45,7 @@ import { OaLoginError } from '../errors.js';
 import { SESSION_RECOVERY_FAIL_MSG, type OaClient, type OaTransport } from '../oaClient.js';
 import type { PersonProfile } from '../profile.js';
 import { createProfileService, type ProfileService } from '../profileService.js';
+import { createHrOaSessionManager } from '../sessionManager.js';
 
 const PASSWORD = 'pw-not-a-real-secret';
 
@@ -207,6 +208,44 @@ describe('fetchProfile 单飞与 epoch 取消', () => {
     expect(await stale).toEqual({ ok: false, kind: 'cancelled' });
     expect(getPersonProfile).toHaveBeenCalledTimes(2);
   });
+
+  it('登录态落 signed-out 时取消在途取数（迟到结果 cancelled、不写缓存）', async () => {
+    // Review Finding 2 / Controller Ruling D：epoch 只有真被认证边界触发才算数。
+    // 生产接线 = sessionManager 在离开当前账号（signed-out / 换 accountKey）时回调
+    // profileService.bumpEpoch()；本用例走同一条真实链路（manager + service），断言
+    // 登出后迟到的资料结果丢弃、**不写缓存**（否则换号窗口会把上一账号资料落盘）。
+    const profiles = makeService();
+    const manager = createHrOaSessionManager({
+      client,
+      credentials: cache,
+      commitSession: vi.fn(),
+      now: () => clock,
+      clearCookies: vi.fn(async () => {}),
+      // 生产同款接线（bootstrap）：认证边界 → 作废资料层在途取数。
+      onAccountBoundary: () => {
+        profiles.bumpEpoch();
+      },
+    });
+
+    // 先落 signed-in（signed-out → signed-in 不是「离开账号」，不得误取消）。
+    profileImpl = async () => profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    await manager.login('u1', PASSWORD);
+    expect(manager.getState().status).toBe('signed-in');
+    const cacheAfterLogin = await cache.loadOaProfileCache();
+
+    // 在途取数（deferred）→ 主动登出（落 signed-out）→ 迟到结果必须被丢弃。
+    const lateFetch = defer<PersonProfile>();
+    profileImpl = () => lateFetch.promise;
+    const inFlight = profiles.fetchProfile('stale');
+    await manager.logout();
+    lateFetch.resolve(profile({ name: '李四', loginName: 'u2', personId: 'p-other' }));
+
+    expect(await inFlight).toEqual({ ok: false, kind: 'cancelled' });
+    // 不写缓存：登录时落的缓存不得被迟到结果覆盖（更不得落成另一账号）。
+    const cacheAfterLate = await cache.loadOaProfileCache();
+    expect(cacheAfterLate?.profile.name).toBe(cacheAfterLogin?.profile.name);
+    expect(cacheAfterLate?.profile.name).not.toBe('李四');
+  });
 });
 
 describe('fetchProfile 失败分流与缓存回落', () => {
@@ -249,6 +288,28 @@ describe('fetchProfile 失败分流与缓存回落', () => {
 
     // 会话失效必须原样上报（FR-LOGOUT-05 强退源），不得被缓存兜底盖成「看起来还活着」。
     expect(await makeService().fetchProfile('launch')).toEqual({ ok: false, kind: 'expired' });
+  });
+
+  it('登出后（凭证已清）不得回落残留缓存身份：fetchProfile 回 error、getAvatar 不发请求', async () => {
+    // Review Finding 1：登出后凭证没了、资料缓存**故意保留**（Task 1 裁决）——此时
+    // loadOaLogin() 恒 null，若把「无凭证」当信任放行，刷新失败会把上一账号的资料
+    // 当当前人回给上层（fromCache:true），头像键也会用残留 personId 拼出别人的图。
+    const cached = profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    await saveOaLogin(
+      { username: 'u1', password: PASSWORD, profile: cached, now: clock },
+      testDeps,
+    );
+    await saveOaProfileCache({ accountKey: 'p-seed', loginName: 'u1', profile: cached }, testDeps);
+    await credentialStoreNs.clearOaLogin(testDeps);
+    profileImpl = async () => {
+      throw new OaLoginError('network_error', 'portal unreachable');
+    };
+
+    // 无凭证 = 无法证明缓存归属 → 一律不采信（宁可 error，不展示旧账号资料）。
+    expect(await makeService().fetchProfile('retry')).toEqual({ ok: false, kind: 'error' });
+    // 同一条身份红线：头像键的 personId 不得来自未验明归属的残留缓存。
+    expect(await makeService().getAvatar('1710')).toBeNull();
+    expect(avatarRequest).not.toHaveBeenCalled();
   });
 });
 
@@ -312,6 +373,11 @@ describe('资料缓存落盘（键 = 冻结 accountKey；隐私边界）', () =>
 describe('getAvatar 编排（缓存键 personId+sTime）', () => {
   it('miss 取图落盘、命中不再打网络；personId 可从资料缓存兜底', async () => {
     const cached = profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    // 身份前提：凭证在盘且与缓存同键（verifiedCachedProfile 的采信条件）。
+    await saveOaLogin(
+      { username: 'u1', password: PASSWORD, profile: cached, now: clock },
+      testDeps,
+    );
     await saveOaProfileCache({ accountKey: 'p-seed', loginName: 'u1', profile: cached }, testDeps);
     const svc = makeService();
 
@@ -333,6 +399,10 @@ describe('getAvatar 编排（缓存键 personId+sTime）', () => {
 
   it('epoch 推进后在途头像结果丢弃且不落盘', async () => {
     const cached = profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    await saveOaLogin(
+      { username: 'u1', password: PASSWORD, profile: cached, now: clock },
+      testDeps,
+    );
     await saveOaProfileCache({ accountKey: 'p-seed', loginName: 'u1', profile: cached }, testDeps);
     const pending = defer<{ status: number; headers: Record<string, string>; body: string; finalUrl: string }>();
     avatarRequest = vi.fn(() => pending.promise);

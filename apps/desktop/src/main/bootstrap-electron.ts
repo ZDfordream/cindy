@@ -2234,6 +2234,11 @@ const hrOaTransport = createHrOaSessionTransport();
 // 登录态 manager 与个人资料/头像服务共用同一 OaClient / transport（同一 OA 会话与
 // cookie jar：资料与头像必须是登录人自己的会话直连门户，不走 HRMcp MCP）。
 const hrOaClient = createOaClient({ baseUrl: resolveHrOaBaseUrl(), transport: hrOaTransport });
+const hrOaProfileService = createProfileService({
+  client: hrOaClient,
+  cache: hrOaCredentials,
+  avatar: { baseUrl: resolveHrOaBaseUrl(), transport: hrOaTransport },
+});
 const hrOaSessionManager = createHrOaSessionManager({
   client: hrOaClient,
   credentials: hrOaCredentials,
@@ -2249,6 +2254,11 @@ const hrOaSessionManager = createHrOaSessionManager({
   // 接线被 sessionManager 内联收口取代：旁路异步清 cookie 可能迟到落地、误删下一次
   // 登录种下的新会话。
   clearCookies: () => hrOaTransport.clearCookies(),
+  // Review Finding 2 / Controller Ruling D：资料层 epoch 只有接上认证边界才在生产有效。
+  // 离开账号身份（signed-out / 换号）即作废在途取数——迟到结果不得写缓存/回成功。
+  onAccountBoundary: () => {
+    hrOaProfileService.bumpEpoch();
+  },
 });
 const whenHrOaSessionSettled: Promise<unknown> = app
   .whenReady()
@@ -2259,11 +2269,6 @@ const whenHrOaSessionSettled: Promise<unknown> = app
     hrOaLog.error('hr-oa startup failed; continuing with current state', err);
     return hrOaSessionManager.getState();
   });
-const hrOaProfileService = createProfileService({
-  client: hrOaClient,
-  cache: hrOaCredentials,
-  avatar: { baseUrl: resolveHrOaBaseUrl(), transport: hrOaTransport },
-});
 registerHrOaIpc({
   manager: hrOaSessionManager,
   profiles: hrOaProfileService,

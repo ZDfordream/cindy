@@ -82,14 +82,17 @@ export function createProfileService(deps: {
   }
 
   /**
-   * 缓存回落（设计 §4.2 离线兜底）：只信与当前凭证同 accountKey 的缓存；对不上
-   * （缓存串号 / 换号残骸）宁可不采信，不展示别人 / 旧账号的资料。
+   * 可信缓存身份（缓存回落与头像 personId 共用）：资料缓存**只有在当前凭证可读且
+   * accountKey 对得上**时才采信。凭证读不出（含登出后——凭证清了、缓存按 Task 1 裁决
+   * **故意保留**）一律不采信：那正是上一账号残骸，采信 = 把别人的资料/头像当成当前人
+   * （Review Finding 1）。Task 1 的离线认领（钥匙串读不出时用缓存冻结键落 offline）在
+   * sessionManager 里**直接读缓存**、不经过本函数，不受此收紧影响。
    */
-  async function fallbackProfile(): Promise<PersonProfile | null> {
+  async function verifiedCachedProfile(): Promise<PersonProfile | null> {
     const rec = await cache.loadOaProfileCache();
     if (!rec) return null;
     const stored = await cache.loadOaLogin();
-    if (stored && rec.accountKey !== stored.accountKey) return null;
+    if (!stored || rec.accountKey !== stored.accountKey) return null;
     return rec.profile;
   }
 
@@ -108,7 +111,7 @@ export function createProfileService(deps: {
       if (isCancelled(startEpoch)) return { ok: false, kind: 'cancelled' };
       // 会话失效是终态（FR-LOGOUT-05 强退源）：不得被缓存兜底盖成「看起来还活着」。
       if (isSessionExpired(e)) return { ok: false, kind: 'expired' };
-      const cached = await fallbackProfile();
+      const cached = await verifiedCachedProfile();
       if (isCancelled(startEpoch)) return { ok: false, kind: 'cancelled' };
       if (cached) return { ok: true, profile: cached, fromCache: true };
       return { ok: false, kind: 'error' };
@@ -130,7 +133,9 @@ export function createProfileService(deps: {
 
   async function runAvatar(sTime: string): Promise<AvatarCache | null> {
     const startEpoch = epoch;
-    const personId = lastPersonId || (await cache.loadOaProfileCache())?.profile.personId || '';
+    // personId 两源：本进程最近一次成功取数（会话活时认领的）；缺省从**已验明归属**的
+    // 资料缓存兜底（无凭证/串号缓存不得当身份源，Review Finding 1）。
+    const personId = lastPersonId || (await verifiedCachedProfile())?.personId || '';
     if (!personId || !sTime) return null;
     const key = avatarCacheKey(personId, sTime);
     const hit = await cache.loadOaAvatarCache(key);

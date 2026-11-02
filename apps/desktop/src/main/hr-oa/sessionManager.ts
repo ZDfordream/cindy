@@ -100,6 +100,14 @@ export function createHrOaSessionManager(deps: {
    * 单测里出现真实等待（性能预算）。
    */
   wait?: (ms: number) => Promise<void> | void;
+  /**
+   * 账号认领边界回调（Review Finding 2 / Controller Ruling D）：**离开**当前账号身份
+   * 时触发——落 `signed-out`（登出 / 凭证类失效 / TTL 过期）或 accountKey 换人。资料层
+   * 在此 `bumpEpoch()` 作废在途取数（否则登出窗口里迟到的 fetchProfile 会把上一账号的
+   * 资料写进缓存、当成功回包）。同人 offline↔signed-in 抖动**不**触发（不是身份边界）；
+   * 从 signed-out 进入登录也不触发（没有可离开的旧身份）。可选以保既有调用签名。
+   */
+  onAccountBoundary?: () => void;
 }): HrOaSessionManager {
   const { client, credentials, commitSession } = deps;
   const now = deps.now ?? Date.now;
@@ -132,8 +140,20 @@ export function createHrOaSessionManager(deps: {
     };
   }
 
+  /**
+   * 账号认领边界（Review Finding 2）：离开**已知**账号身份（→ signed-out 或换
+   * accountKey）才触发 `onAccountBoundary`；`state` 是落定前的旧值。资料层据此
+   * bumpEpoch，登出/换号后迟到的取数结果作废、不写缓存。
+   */
+  function notifyAccountBoundary(next: HrOaAuthState): void {
+    const prevKey = state.status === 'signed-out' ? null : state.accountKey;
+    const nextKey = next.status === 'signed-out' ? null : next.accountKey;
+    if (prevKey && nextKey !== prevKey) deps.onAccountBoundary?.();
+  }
+
   /** 落定状态：先 commit 会话（IPC 投影推送前 app session 必须已就位），再通知订阅者。 */
   function settle(next: HrOaAuthState): HrOaAuthState {
+    notifyAccountBoundary(next);
     state = next;
     if (next.status === 'signed-out') commitSession('signed-out');
     else commitSession('hr', next.accountKey);
@@ -143,6 +163,7 @@ export function createHrOaSessionManager(deps: {
 
   /** 无 commit 的通知（无凭证首启：保持 signed-out，不踩 ensureLoaded 的启动归一）。 */
   function notifyOnly(next: HrOaAuthState): HrOaAuthState {
+    notifyAccountBoundary(next);
     state = next;
     for (const listener of listeners) listener(next);
     return next;
