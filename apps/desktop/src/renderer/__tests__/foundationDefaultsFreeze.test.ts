@@ -30,8 +30,10 @@ const MOTION = {
   // 2026-11-01 login-onboarding（PRD §9.2 转场编排）批准入账的运动 token：
   // S1 吉祥物眨眼/漂浮循环、登录与模型弹窗抖动、S4b 横幅折叠（+延迟）、
   // S4 模型圆点翻面。记账更新即治理合同 §1.1「同 PR 更新守卫台账」的合法路径。
+  // 2026-11-02 profile-menu task-9（PRD §6.7 横幅动效）：横幅出现 240ms（fade+8px 上移）。
   'error-shake': '360ms',
   'home-banner-collapse': '240ms', 'home-banner-collapse-delay': '120ms',
+  'home-banner-enter': '240ms',
   'mascot-blink-cycle': '4200ms', 'mascot-float-cycle': '3600ms',
   'model-dot-flip': '240ms',
   'ease-out': 'cubic-bezier(0.16, 1, 0.3, 1)',

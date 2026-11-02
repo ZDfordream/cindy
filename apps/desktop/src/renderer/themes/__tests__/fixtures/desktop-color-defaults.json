@@ -1,6 +1,6 @@
 {
   "source": "apps/desktop/src/renderer/themes/colors.ts",
-  "count": 572,
+  "count": 582,
   "colors": [
     {
       "id": "surface",
@@ -2861,6 +2861,56 @@
       "id": "hr-oa-warn-text",
       "light": "#8a5a00",
       "dark": "#e0b566"
+    },
+    {
+      "id": "hr-oa-banner-bg",
+      "light": "#F3F6FD",
+      "dark": "#1E2A45"
+    },
+    {
+      "id": "hr-oa-banner-line",
+      "light": "#DCE5F7",
+      "dark": "#2E3F63"
+    },
+    {
+      "id": "hr-oa-banner-line-hover",
+      "light": "#C5D3F0",
+      "dark": "#3D5480"
+    },
+    {
+      "id": "hr-oa-banner-ink",
+      "light": "#0A1E4F",
+      "dark": "#C6D4F2"
+    },
+    {
+      "id": "hr-oa-banner-sub",
+      "light": "#8a8a8f",
+      "dark": "#9C9CA3"
+    },
+    {
+      "id": "hr-oa-banner-tile-from",
+      "light": "#16388C",
+      "dark": "#16388C"
+    },
+    {
+      "id": "hr-oa-banner-tile-to",
+      "light": "#3b74d9",
+      "dark": "#3b74d9"
+    },
+    {
+      "id": "hr-oa-banner-cta-bg",
+      "light": "#1a1a1a",
+      "dark": "#EEEEEE"
+    },
+    {
+      "id": "hr-oa-banner-cta-fg",
+      "light": "#ffffff",
+      "dark": "#1a1a1a"
+    },
+    {
+      "id": "hr-oa-banner-cta-shadow",
+      "light": "0 4px 12px rgba(0, 0, 0, 0.14)",
+      "dark": "0 4px 12px rgba(0, 0, 0, 0.45)"
     }
   ]
 }

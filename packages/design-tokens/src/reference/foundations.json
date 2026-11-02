@@ -342,6 +342,13 @@
           "unit": "ms"
         }
       },
+      "motion-home-banner-enter": {
+        "$type": "duration",
+        "$value": {
+          "value": 240,
+          "unit": "ms"
+        }
+      },
       "motion-model-dot-flip": {
         "$type": "duration",
         "$value": {

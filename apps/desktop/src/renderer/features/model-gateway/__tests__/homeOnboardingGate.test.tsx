@@ -60,7 +60,8 @@ import {
 
 // 用户可观察文案断言用真实 zh-CN（与 ChatModelMenu.test 同法）；其余 key 原样返回。
 const COPY: Record<string, string> = {
-  'onboarding.homeBanner.text': '还没有配置模型，配置后即可开始对话',
+  'onboarding.homeBanner.title': '还没有配置模型',
+  'onboarding.homeBanner.sub': '添加一个模型后，就可以开始对话了',
   'onboarding.homeBanner.action': '去配置',
   'newChat.chatModelMenu.unconfigured': '未配置模型',
   'newChat.chatModelMenu.triggerAria': '选择模型',
@@ -72,7 +73,8 @@ const COPY: Record<string, string> = {
 };
 const t = (key: string) => COPY[key] ?? key;
 
-const BANNER_TEXT = '还没有配置模型，配置后即可开始对话';
+// FR-HOME-BANNER-01 改版文案：标题（副文案见 homeBanner.test.tsx 的规格断言）。
+const BANNER_TEXT = '还没有配置模型';
 const BANNER_ACTION = '去配置';
 const SELECTOR_LABEL = '选择模型';
 const UNCONFIGURED_LABEL = '未配置模型';

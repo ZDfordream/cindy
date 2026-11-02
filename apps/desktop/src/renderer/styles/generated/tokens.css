@@ -46,6 +46,7 @@
     --motion-error-shake: 360ms;
     --motion-home-banner-collapse: 240ms;
     --motion-home-banner-collapse-delay: 120ms;
+    --motion-home-banner-enter: 240ms;
     --motion-model-dot-flip: 240ms;
     --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);

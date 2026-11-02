@@ -158,6 +158,16 @@ const EXEMPTIONS: Exemption[] = [
     signatures: [{ match: 'text-[13.5px]', expected: 1 }],
   },
   {
+    file: 'src/renderer/features/model-gateway/OnboardingHomeBanner.tsx',
+    rule: 'arb-size',
+    reason:
+      'DESIGN.md §3「HRBuddy 首页未配置横幅」: profile-menu PRD FR-HOME-BANNER-01 prototype title 13.5px/600 + sub 12.5px/400 (§6.7 规格表 design-px product typography); button keeps the 13px whitelist token class.',
+    signatures: [
+      { match: 'text-[13.5px]', expected: 1 },
+      { match: 'text-[12.5px]', expected: 1 },
+    ],
+  },
+  {
     file: 'src/renderer/components/chat/MarkdownRenderer.tsx',
     rule: 'tw-weight',
     reason: 'DESIGN §3: content strong is absolute 700, including nested strong; ordinary UI weights remain capped at 600.',

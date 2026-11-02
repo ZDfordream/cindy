@@ -134,6 +134,7 @@ const MOTION_CSS = {
   "error-shake": "var(--motion-error-shake, 360ms)",
   "home-banner-collapse": "var(--motion-home-banner-collapse, 240ms)",
   "home-banner-collapse-delay": "var(--motion-home-banner-collapse-delay, 120ms)",
+  "home-banner-enter": "var(--motion-home-banner-enter, 240ms)",
   "model-dot-flip": "var(--motion-model-dot-flip, 240ms)",
   "ease-out": "var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1))",
   "ease-in": "var(--motion-ease-in, cubic-bezier(0.4, 0, 1, 1))",

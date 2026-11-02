@@ -181,6 +181,10 @@
         "$type": "duration",
         "$value": "{reference.foundations.motion-home-banner-collapse-delay}"
       },
+      "motion-home-banner-enter": {
+        "$type": "duration",
+        "$value": "{reference.foundations.motion-home-banner-enter}"
+      },
       "motion-model-dot-flip": {
         "$type": "duration",
         "$value": "{reference.foundations.motion-model-dot-flip}"

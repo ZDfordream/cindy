@@ -117,6 +117,7 @@
       --motion-error-shake: 0ms;
       --motion-home-banner-collapse: 0ms;
       --motion-home-banner-collapse-delay: 0ms;
+      --motion-home-banner-enter: 0ms;
       --motion-model-dot-flip: 0ms;
     }
 
@@ -2404,6 +2405,19 @@ body[data-hr-leave='leaving'] [data-hr-home-root] {
 @keyframes hr-oa-screen-in {
   from {
     opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* HRBuddy 首页未配置横幅出现（profile-menu PRD FR-HOME-BANNER 动效「淡入并上移 8px」）：
+   淡入 + 高度展开由 wrapper 的 grid/opacity 过渡承担（--motion-home-banner-enter），
+   本动画只负责卡片上移 8px 归位——挂载即播放一次，时长/曲线走 §14.4 登记 token，
+   reduce 下 token 归零瞬时终态（收起是 wrapper 的 collapse 语义，不走本动画）。 */
+.hr-banner-rise {
+  animation: hr-banner-rise var(--motion-home-banner-enter) var(--motion-ease-out);
+}
+@keyframes hr-banner-rise {
+  from {
     transform: translateY(8px);
   }
 }

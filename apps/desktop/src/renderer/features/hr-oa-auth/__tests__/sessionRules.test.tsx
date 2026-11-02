@@ -113,7 +113,8 @@ const SIGNED_OUT = { status: 'signed-out' };
 
 const WELCOME_TITLE = 'HRBuddy，我帮你';
 const EXPIRED_TOAST = '登录已过期，请重新登录';
-const BANNER_TEXT = '还没有配置模型，配置后即可开始对话';
+// FR-HOME-BANNER-01 改版文案：标题即 S4b 横幅可观察锚点（副文案断言见 homeBanner.test.tsx）。
+const BANNER_TEXT = '还没有配置模型';
 const BANNER_ACTION = '去配置';
 const DIALOG_TITLE = '添加模型';
 const SKIP_LABEL = '跳过，稍后配置';

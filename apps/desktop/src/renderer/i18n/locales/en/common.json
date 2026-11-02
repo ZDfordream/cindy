@@ -11991,7 +11991,8 @@
       "oauthSub": "Opens a verification page in your browser — connects automatically"
     },
     "homeBanner": {
-      "text": "No model configured yet. Configure one to start chatting.",
+      "title": "No model configured yet",
+      "sub": "Add a model to start chatting.",
       "action": "Configure"
     }
   },

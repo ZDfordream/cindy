@@ -3252,3 +3252,90 @@ registerColor(
   },
   'HRBuddy「信息更新失败」提示文字（FR-PROFILE-05 / PRD --warn-text；暗色提亮保证对比度）',
 );
+
+// ── HRBuddy 首页未配置横幅（PRD profile-menu §6.7 规格表新增色板的登记态）──
+// 依据集成设计 §4.7/§4.8：PRD §6.7 表里的字面值走登记路线，不散落硬编码。仅
+// `features/model-gateway/OnboardingHomeBanner.tsx` 消费，Light + Dark 双模式同源；
+// PRD 只给出亮色值（浅品牌蓝卡片系），暗色取同位蓝阶/反相胶囊（同 login 主钮
+// 反相先例），保证标题与副文案在两种模式下均可读。品牌蓝渐变两端两模式同值
+// （= PRD --brand/#16388C → --blue/#3b74d9，与 hr-oa-fallback-bg 同源同值）。
+registerColor(
+  'hr-oa-banner-bg',
+  {
+    light: '#F3F6FD',
+    dark: '#1E2A45',
+  },
+  'HRBuddy 未配置横幅底色（FR-HOME-BANNER-01 / PRD --banner-bg；暗色取同位深蓝阶）',
+);
+registerColor(
+  'hr-oa-banner-line',
+  {
+    light: '#DCE5F7',
+    dark: '#2E3F63',
+  },
+  'HRBuddy 未配置横幅边框（FR-HOME-BANNER-01 / PRD --banner-line；暗色同位蓝阶）',
+);
+registerColor(
+  'hr-oa-banner-line-hover',
+  {
+    light: '#C5D3F0',
+    dark: '#3D5480',
+  },
+  'HRBuddy 未配置横幅 hover 边框（FR-HOME-BANNER-01 / PRD --banner-line-hover）',
+);
+registerColor(
+  'hr-oa-banner-ink',
+  {
+    light: '#0A1E4F',
+    dark: '#C6D4F2',
+  },
+  'HRBuddy 未配置横幅标题墨色（FR-HOME-BANNER-01 / PRD --ink；暗色提亮保证卡上对比度）',
+);
+registerColor(
+  'hr-oa-banner-sub',
+  {
+    light: '#8a8a8f',
+    dark: '#9C9CA3',
+  },
+  'HRBuddy 未配置横幅副文案（FR-HOME-BANNER-01 / PRD --muted；暗色同位灰阶）',
+);
+registerColor(
+  'hr-oa-banner-tile-from',
+  {
+    light: '#16388C',
+    dark: '#16388C',
+  },
+  'HRBuddy 未配置横幅图标块渐变起色（FR-HOME-BANNER-01 / PRD --brand 品牌蓝，两模式同值）',
+);
+registerColor(
+  'hr-oa-banner-tile-to',
+  {
+    light: '#3b74d9',
+    dark: '#3b74d9',
+  },
+  'HRBuddy 未配置横幅图标块渐变止色（FR-HOME-BANNER-01 / PRD --blue，两模式同值）',
+);
+registerColor(
+  'hr-oa-banner-cta-bg',
+  {
+    light: '#1a1a1a',
+    dark: '#EEEEEE',
+  },
+  'HRBuddy 未配置横幅「去配置」胶囊底（FR-HOME-BANNER-01 / PRD --primary；暗色反相同 login 主钮先例）',
+);
+registerColor(
+  'hr-oa-banner-cta-fg',
+  {
+    light: '#ffffff',
+    dark: '#1a1a1a',
+  },
+  'HRBuddy 未配置横幅「去配置」胶囊文字（FR-HOME-BANNER-01；随 cta-bg 反相）',
+);
+registerColor(
+  'hr-oa-banner-cta-shadow',
+  {
+    light: '0 4px 12px rgba(0, 0, 0, 0.14)',
+    dark: '0 4px 12px rgba(0, 0, 0, 0.45)',
+  },
+  'HRBuddy 未配置横幅「去配置」hover 柔和阴影（FR-HOME-BANNER-02 状态表；暗色随 shadow 家族加深）',
+);
