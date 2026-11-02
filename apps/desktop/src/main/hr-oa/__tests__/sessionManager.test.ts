@@ -639,7 +639,8 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
    * 蓝凌 cookie 合同的 jar 建模（真机 2026-11-01 实证 + §4.4 会话 cookie 测量）：
    * `sessionAlive` = jar 里是否有存活会话。登录 POST 现场 jar 空（冷启动恒此态，
    * session cookie 退出即失效）就按本次口令判成败；jar 有存活会话则 302 `/`
-   * （掩码形态）。资料 GET 需要存活会话，否则弹 anonym.jsp。
+   * （掩码形态）。资料 GET 需要存活会话，否则弹 anonym.jsp。`loginPosts()` 在
+   * request 入口计数（unreachable 拒绝前也计入）——钉「不得发起登录尝试」。
    */
   function makePortalJarTransport(opts: {
     initialSessionAlive: boolean;
@@ -649,8 +650,10 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
     jar: { sessionAlive: boolean };
     clearCookies: () => Promise<void>;
     loginPosts: () => number;
+    setUnreachable: (value: boolean) => void;
   } {
     const jar = { sessionAlive: opts.initialSessionAlive };
+    let unreachable = opts.unreachable ?? false;
     let loginPostCount = 0;
     const respond = (input: PortalRequest): OaResponse => {
       if (input.method === 'GET' && input.path.includes('session.jsp')) {
@@ -662,7 +665,6 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
         };
       }
       if (input.method === 'POST' && input.path.includes('j_acegi_security_check')) {
-        loginPostCount += 1;
         if (jar.sessionAlive) {
           // 旧会话掩码形态：无视口令直接 302 `/`（P0 账号隔离实证）。
           return { status: 302, headers: { location: '/' }, body: '', finalUrl: input.path };
@@ -698,6 +700,9 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
     return {
       jar,
       loginPosts: () => loginPostCount,
+      setUnreachable: (value: boolean) => {
+        unreachable = value;
+      },
       clearCookies: async () => {
         jar.sessionAlive = false;
       },
@@ -706,7 +711,11 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
           jar.sessionAlive = false;
         },
         request(input: PortalRequest): Promise<OaResponse> {
-          if (opts.unreachable) {
+          // 登录尝试计数在拒绝之前：unreachable 也要看见「发起过登录」这件事。
+          if (input.method === 'POST' && input.path.includes('j_acegi_security_check')) {
+            loginPostCount += 1;
+          }
+          if (unreachable) {
             return Promise.reject(new TypeError('net::ERR_INTERNET_DISCONNECTED'));
           }
           return Promise.resolve(respond(input));
@@ -865,5 +874,66 @@ describe('startup silent re-login（SC-3 冷启动回归：不依赖 cookie jar�
     await manager.retryCredentialLoad();
     expect(portal.loginPosts()).toBe(postsBefore);
     expect(manager.getState().status).toBe('signed-in');
+  });
+
+  it('手动登录成功后 retryCredentialLoad 不得再打静默重登（不把健康会话打回 offline）', async () => {
+    // review Round 2 Break A：读不出楔子（pending）跨手动登录残留时，下一次聚焦会
+    // silentRelogin——网络类失败把健康 signed-in 打回 offline，且没有 online 事件兜底，
+    // 反而重新楔死。显式登录成功 = 用户已手工解决登录态，pending 必须收口。
+    await seedStoredLogin();
+    const cached = profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    await credentialStoreNs.saveOaProfileCache(
+      { accountKey: 'p-seed', loginName: 'u1', profile: cached },
+      testDeps,
+    );
+    const held = { down: true };
+    holdReads(held, 'null');
+    const portal = makePortalJarTransport({ initialSessionAlive: false });
+
+    const manager = makeRealClientManager(portal.transport, portal.clearCookies);
+    await manager.startup();
+    expect(manager.getState().status).toBe('offline');
+
+    // 用户在登录页手动登录（钥匙串也已恢复可读）→ 健康 signed-in。
+    held.down = false;
+    const loggedIn = await manager.login('u1', PASSWORD);
+    expect(loggedIn).toMatchObject({ status: 'signed-in', accountKey: 'p-seed' });
+    const postsAfterLogin = portal.loginPosts();
+
+    // 之后门户再挂（无网络抖动信号）：聚焦不得重打静默重登、不得把 signed-in 打回 offline。
+    portal.setUnreachable(true);
+    const state = await manager.retryCredentialLoad();
+    expect(state).toMatchObject({ status: 'signed-in', accountKey: 'p-seed' });
+    expect(portal.loginPosts()).toBe(postsAfterLogin);
+  });
+
+  it('主动登出后 retryCredentialLoad 不得翻成 expired（FR-HOME-03 不弹登录已过期）', async () => {
+    // review Round 2 Break B：logout 落 reason:'logout'（FR-HOME-03 主动登出不得弹
+    // 「登录已过期」）后，stale pending 让下一次聚焦把 load 的 'none' 落成
+    // reason:'expired'——新开窗口/重挂载的 renderer 会按 FR-SESSION-02 冷启动弹失效
+    // toast。主动登出 = 楔子已被用户显式取代，pending 必须收口。
+    await seedStoredLogin();
+    const cached = profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    await credentialStoreNs.saveOaProfileCache(
+      { accountKey: 'p-seed', loginName: 'u1', profile: cached },
+      testDeps,
+    );
+    const held = { down: true };
+    holdReads(held, 'null');
+    const portal = makePortalJarTransport({ initialSessionAlive: false });
+
+    const manager = makeRealClientManager(portal.transport, portal.clearCookies);
+    await manager.startup();
+    expect(manager.getState().status).toBe('offline');
+
+    // 主动登出（凭证清掉、reason:'logout'）。
+    held.down = false;
+    await manager.logout();
+    expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
+
+    // 聚焦不得把主动登出翻成失效：状态原样，不 commit、不清 cookie 收口以外的东西。
+    const state = await manager.retryCredentialLoad();
+    expect(state).toEqual({ status: 'signed-out', reason: 'logout' });
+    expect(manager.getState()).toEqual({ status: 'signed-out', reason: 'logout' });
   });
 });

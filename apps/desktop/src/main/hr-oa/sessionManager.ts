@@ -110,7 +110,13 @@ export function createHrOaSessionManager(deps: {
   const listeners = new Set<(s: HrOaAuthState) => void>();
   /** networkRecovered / retryCredentialLoad 的单飞闸：并发触发只跑一轮静默重登。 */
   let reconnectInFlight: Promise<HrOaAuthState> | null = null;
-  /** startup 曾落「密文在盘但读不出」：待钥匙串恢复后由 retryCredentialLoad 收口。 */
+  /**
+   * startup 曾落「密文在盘但读不出」：待钥匙串恢复后由 retryCredentialLoad 收口。
+   * **生命周期合同**：只描述 startup 的读出楔子；凡用户显式会话转移（`login()` 成功 /
+   * `logout()`）即视为已被取代、就地清零——stale 标记会让下一次聚焦触发 silentRelogin，
+   * 把手动登录后的健康 `signed-in` 打回 `offline`（Break A），或把主动登出后的
+   * `reason:'logout'` 翻成 `reason:'expired'`（Break B，FR-HOME-03 破口）。
+   */
   let credentialLoadPending = false;
 
   function blankProfile(): PersonProfile {
@@ -324,10 +330,16 @@ export function createHrOaSessionManager(deps: {
     if (profile) {
       await credentials.saveOaProfileCache({ accountKey, loginName, profile: effective });
     }
+    // 显式登录成功 = 用户已手工解决登录态，startup 的读出楔子到此收口（生命周期
+    // 合同）：stale pending 会让下一次聚焦 silentRelogin，把健康会话打回 offline。
+    credentialLoadPending = false;
     return settle({ status: 'signed-in', accountKey, profile: effective });
   }
 
   async function logout(): Promise<void> {
+    // 主动登出同时收口读出楔子（生命周期合同）：否则下一次聚焦会把 load 的 'none'
+    // 落成 reason:'expired'，违背 FR-HOME-03「主动登出不得弹登录已过期」。
+    credentialLoadPending = false;
     await credentials.clearOaLogin();
     // OA client 内存里记着口令做会话恢复——登出必须复位，防口令跨登出滞留。
     // （resetSession 清内存凭据；门户 cookie 由 dropToSignedOut 清，两件事都做。）
