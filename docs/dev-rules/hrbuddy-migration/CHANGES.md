@@ -609,3 +609,27 @@ owner 若要合规：改深一行 token（`#6B6B70` 级别）即可，登记可�
 （`create-agent-mode-pill`，「对话 ⌄」/「协同模式」）**保留**。理由：PRD 后半句字面更宽，
 但移除 pill 会翻掉 07-19/07-22 owner 亲手定的断言、并让 `newMakerDraftTargetCatalog` 7 条
 行为用例失去被测对象，与「不得动既有测试」冲突。若 owner 要求全删：再删是增量，不丢能力。
+
+### 12.11 个人信息入口与菜单迁移 · 合并后跟进清单（终审分诊，2026-11-02）
+
+终审结论 **Ready to merge**（0 Critical 未决）。44 条挂账 Minor 分诊如下，供后续会话按优先级取用。
+两处**接真实埋点后端前必须先落**：`profile_fetch.has_cache` 的语义（= 本次结果由缓存兜底，非「发起时已有缓存」）
+与 `profile_menu_click.item` 含 `exit_fullscreen` 的值域（超 PRD 枚举），都要先与数据消费方对齐。
+
+**建议近期**
+- `hrOa.logout()` 无超时，挂住会锁死退出确认弹窗（本地退出，风险低）。
+- `en` `hrOa.logout.runningTasks` 缺单复数（N=1 显示 "1 tasks"）。
+- 双 10s 计时器分裂放弃权：token-refresh 超时/被拒跨档时僵尸计划 + 二次 notify。
+- 5 处埋点触发点无协议断言（`profile_menu_open` / `nav_click` / `plugins_skills_tab` / `profile_avatar_error` / `logout.entry` 映射）。
+
+**可延（按簇）**
+- 提示引擎：TT-11 300ms 相邻窗竞态、TT 表未声明 `forceOpen`/`controlledOpen=true` 例外、渲染期写 ref、
+  模块级订阅全量重渲染；另 6 处 Tip+菜单面（`SessionContentHeader` 等）仍缺 `controlledOpen`。
+- 头像/缓存：`s_time` 用会话级时间戳近似（换头像不即时换键；正解是 `PersonProfile` 增 `s_time`）、
+  `avatarUrl` 未 `encodeURIComponent`、缺 `content-type` 的图片响应被 `res.text()` 损坏、超时路径无测试。
+- 会话/启动：`unavailable`+无缓存路径跳过 `none` 的 cookie 清理、持续 `unavailable`→offline 无用例、
+  并发 `startup()` 无闸（既有）。
+- 退出弹窗：stop 失败被吞、`input.stop` fire-and-forget、N 快照、弹窗 id 硬编码、profileService 一条恒真断言。
+- 导航/页签：T19 用 `--motion-base`(200ms) 而非设计 240ms、指示条用例只断言类名、搜索用例靠 title 子串、
+  非 zh-CN 码点未扫、←/→ 环绕未测。
+- 横幅：图标色裸 `text-white`、窄布局 `calc(100% - 44px)` 硬编码、Tab 序无用例。
