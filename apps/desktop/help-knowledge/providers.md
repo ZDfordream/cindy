@@ -39,4 +39,4 @@ A provider is a source of models (with its own billing). Every model you can pic
 
 **Notes:**
 
-- Direct service keys such as Brave Search, Tavily, and DeepSeek search are **not** managed here — they live on the **Web Search** plugin's detail page under **Plugins**. They are optional; web search works through Cindy AI without them.
+- Direct service keys such as Brave Search, Tavily, and DeepSeek search are **not** managed here — they live on the **Web Search** plugin's detail page under **Plugins·Skills**. They are optional; web search works through Cindy AI without them.

@@ -42,5 +42,5 @@ Two Settings tabs decide which tools the agents get: **Tools** (built-in tools a
 
 **Notes:**
 
-- Plugins add more tools on their own pages under **Settings > Plugins** (see the plugins topic).
+- Plugins add more tools on their own pages under **Settings > Plugins·Skills** (see the plugins topic).
 - If a tool you expect is missing in a session, check its switch here (and the project scope), then start a new session.

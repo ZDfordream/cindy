@@ -1,14 +1,14 @@
 ---
 id: plugins
 title: Plugins (extending what the agents can do)
-summary: Where the Plugins page is, the built-in plugins, installing (marketplace, .cindy file, custom marketplaces), enabling / disabling globally or per project, updates, uninstalling, account / key setup, $commands, panels, and the permission model.
+summary: Where the Plugins·Skills page is, the built-in plugins, installing (marketplace, .cindy file, custom marketplaces), enabling / disabling globally or per project, updates, uninstalling, account / key setup, $commands, panels, and the permission model.
 tab: ghosts
 ---
 Plugins extend what the agents can do — they add tools the agent can call, panels that live as tabs in the right sidebar, full-page app views, and integrations with outside services. Each plugin is a self-contained `.cindy` package that runs in its own isolated sandbox.
 
-**The Plugins page:**
+**The Plugins·Skills page:**
 
-- Open it from **Plugins** in the left sidebar, or from **Settings > Plugins**. **Plugins** and **Skills** are the two tabs at the top of the same page (see the Skills topic for skills).
+- Open it from **Plugins·Skills** in the left sidebar, or from **Settings > Plugins·Skills**. **Plugins** and **Skills** are the two tabs at the top of the same page (see the Skills topic for skills).
 - **Installed** lists your plugins; **Recommended** lists plugins from the marketplace, filtered by source: **All / Public / Team shared / Custom**. **Team shared** only appears if your account belongs to an organization.
 - Use **Search plugins** to find one. Each card has a quick action — **Use** opens its panel, **Chat** starts a new task with the plugin, **Manage** (or clicking the card) opens its detail page.
 - The detail page is where you enable / disable it, connect an account or enter an API key, see what it contains and its version, view **Your calls** (usage), and uninstall it.
@@ -40,7 +40,7 @@ Plugins extend what the agents can do — they add tools the agent can call, pan
 **Enabling, disabling, and uninstalling:**
 
 - **Enable / disable** with the switch on the plugin's detail page. Disabling puts its tools and panel to sleep but keeps the plugin installed (its card shows **Disabled**).
-- **Off for one project only** — use the scope picker at the top of the Plugins page to choose a project (**Project Scope**), then turn the plugin off there. In that project's tasks it behaves as if it isn't installed (its tools and `$command` are unavailable); everywhere else it stays on. Its card shows **Off in this project**. A plugin disabled globally must be enabled in the **Global** view first.
+- **Off for one project only** — use the scope picker at the top of the Plugins·Skills page to choose a project (**Project Scope**), then turn the plugin off there. In that project's tasks it behaves as if it isn't installed (its tools and `$command` are unavailable); everywhere else it stays on. Its card shows **Off in this project**. A plugin disabled globally must be enabled in the **Global** view first.
 - **Uninstall** from the detail page (**Uninstall plugin**). Its panel and capabilities are removed; its layout spot is restored if you install it again.
 - Enabling or disabling takes effect on the agent's **next** query, not in the current turn.
 

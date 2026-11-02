@@ -1,9 +1,9 @@
 ---
 id: connections
 title: Connecting external accounts
-summary: External accounts (the Gmail / Google Drive / Google Calendar / Google Sheets plugins, GitHub, GitLab, and Jira / Confluence via XD Atlassian for organizations that provide it) are connected on each plugin's detail page under Plugins; Slack, Telegram, X and personal chat bots are set up under Settings > IM bots; ChatGPT / Claude / Grok subscriptions and Cindy AI live in Settings > Providers.
+summary: External accounts (the Gmail / Google Drive / Google Calendar / Google Sheets plugins, GitHub, GitLab, and Jira / Confluence via XD Atlassian for organizations that provide it) are connected on each plugin's detail page under Plugins·Skills; Slack, Telegram, X and personal chat bots are set up under Settings > IM bots; ChatGPT / Claude / Grok subscriptions and Cindy AI live in Settings > Providers.
 ---
-There is no separate "Third-Party Platforms" settings page any more — each integration lives on its own plugin detail page under **Plugins**, and the plugin's tools use the account you connect there. Chat apps are set up under **Settings > IM bots**, and model accounts under **Settings > Providers**.
+There is no separate "Third-Party Platforms" settings page any more — each integration lives on its own plugin detail page under **Plugins·Skills**, and the plugin's tools use the account you connect there. Chat apps are set up under **Settings > IM bots**, and model accounts under **Settings > Providers**.
 
 **Where to connect what:**
 
@@ -11,10 +11,10 @@ There is no separate "Third-Party Platforms" settings page any more — each int
 - **Telegram (official bot)** — **Settings > IM bots**, **Official** section: turn on Telegram and choose **Link Telegram**. Open the one-time link, start the official Cindy bot, and confirm if prompted. The same card lets you cancel, retry, open the bot, add it to a group, or unlink; no personal bot token is required.
 - **X (Twitter)** — **Settings > IM bots**, **Official** section: authorize your X account, then mention the Cindy bot in a post to send a task to this device. Replies are posted publicly, so use it only for public questions.
 - **Your own chat bots** — **Settings > IM bots**, **Personal** section: **Personal WeChat**, **WeCom Intelligent Bot**, **Feishu / Lark Bot** (App ID / App Secret; see the Feishu bot topic), **DingTalk Bot**, **Discord Bot**, and **Telegram Bot** (your own bot token). You manage these credentials yourself.
-- **Google** — the separate **Gmail**, **Google Drive**, **Google Calendar**, and **Google Sheets** plugins (**Plugins > Gmail**, and so on). Each one is authorized separately on its own detail page. Some organization accounts get a single combined **Filo Google** plugin instead.
-- **Jira / Confluence** — the **XD Atlassian** enterprise plugin (**Plugins > XD Atlassian**), only for organizations that provide it. Earlier Jira / Confluence connections carry over automatically.
-- **GitHub** — the **GitHub** plugin (**Plugins > GitHub**; earlier token connections carry over automatically). This connection is optional for `/issue`: feedback uses Cindy's official bot by default, and a working GitHub connection only adds the option to submit as yourself.
-- **GitLab** — the **GitLab** plugin (**Plugins > GitLab**; earlier token connections carry over automatically).
+- **Google** — the separate **Gmail**, **Google Drive**, **Google Calendar**, and **Google Sheets** plugins (**Plugins·Skills > Gmail**, and so on). Each one is authorized separately on its own detail page. Some organization accounts get a single combined **Filo Google** plugin instead.
+- **Jira / Confluence** — the **XD Atlassian** enterprise plugin (**Plugins·Skills > XD Atlassian**), only for organizations that provide it. Earlier Jira / Confluence connections carry over automatically.
+- **GitHub** — the **GitHub** plugin (**Plugins·Skills > GitHub**; earlier token connections carry over automatically). This connection is optional for `/issue`: feedback uses Cindy's official bot by default, and a working GitHub connection only adds the option to submit as yourself.
+- **GitLab** — the **GitLab** plugin (**Plugins·Skills > GitLab**; earlier token connections carry over automatically).
 - **ChatGPT (Codex), Claude, and Grok subscriptions** — **Settings > Providers**: **OpenAI** (use your local Codex account or sign in to a separate ChatGPT account), **Anthropic** (**Sign in with Claude Code**), and **xAI** (SuperGrok). This is separate from the Codex / Claude Code programs the app ships with.
 - **Cindy AI** — **Settings > Providers**, provisioned automatically after you sign in to Cindy. The **Web Search** plugin uses this account by default and needs no key; optional Brave / Tavily / DeepSeek search keys are configured on that plugin's detail page.
 - **Feishu / Lark** is bot-only (see above); it is not a sign-in method for Cindy itself.

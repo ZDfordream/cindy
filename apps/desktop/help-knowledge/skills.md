@@ -3,7 +3,7 @@ id: skills
 title: Skills (reusable agent capabilities)
 summary: Where the Skills page is; create, import, search, install, edit, disable, uninstall, publish, update, and manage visibility of agent Skills; Skills appear as "/" slash commands and are shared across Claude Code, Codex, and Pi.
 ---
-Skills are reusable agent capabilities you package as a folder and load into your sessions. They're managed on the same page as Plugins: click **Plugins** in the sidebar (or **More → Plugins** if you've hidden it), then the **Skills** tab (the same page is also under **Settings > Plugins > Skills**). The Skills tab lists **Local Skills** on this computer and the **SkillHub** catalog (filters **Public**, **Organization**, **Managed**) for finding, installing, publishing, and updating skills.
+Skills are reusable agent capabilities you package as a folder and load into your sessions. They're managed on the same page as Plugins·Skills: click **Plugins·Skills** in the sidebar (or **More → Plugins·Skills** if you've hidden it), then the **Skills** tab (the same page is also under **Settings > Plugins·Skills > Skills**). The Skills tab lists **Local Skills** on this computer and the **SkillHub** catalog (filters **Public**, **Organization**, **Managed**) for finding, installing, publishing, and updating skills.
 
 - When another computer is linked, use the **Manage computer** picker at the top of the page to view, install, update, or uninstall skills on that computer instead.
 
@@ -33,7 +33,7 @@ Skills are reusable agent capabilities you package as a folder and load into you
 
 **Creating or learning a Skill from the composer:**
 
-- To create a Cindy **plugin** (a `.cindy` package) rather than a Skill, choose **Add plugin > Create with Cindy** on the Plugins page; it uses the separate built-in plugin creator (see the Plugins topic).
+- To create a Cindy **plugin** (a `.cindy` package) rather than a Skill, choose **Add plugin > Create with Cindy** on the Plugins·Skills page; it uses the separate built-in plugin creator (see the Plugins topic).
 - Cindy includes `/cindy-skill-creator`. Invoke it with a description of the Skill you want, such as `/cindy-skill-creator Create a Skill that checks release notes`. Invoking it without a description asks what you want to create.
 - The current Agent creates or updates the Skill directly with its normal file tools. It does not use the `/learn` staging flow.
 - Ask for a Skill in the composer, for example “Find a release-notes Skill” or `/cindy-skill-creator Search our organization's code-review Skills`. The Agent can search SkillHub's public marketplace or your organization's catalog. Without a specified scope, organization identities search both; personal identities search the public marketplace. Results identify their source, including when two Skills share a name. Search alone does not install anything.

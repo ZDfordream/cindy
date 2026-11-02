@@ -35,7 +35,7 @@ Type `/` at the start of a line (or after a space) in the composer to open the c
 **`/issue` feedback:**
 
 - `/issue` doesn't require a GitHub plugin or GitHub account. Before submitting, the agent helps clarify missing details so the issue is actionable; for bugs it can collect reproduction steps and user-approved, redacted diagnostic summaries.
-- The confirmation card always shows the final public **Title** and **Body**, lets you choose the **Submission Identity** — **Cindy official bot (default)**, or **My GitHub account** if a working account is connected on the **GitHub** plugin's detail page under **Plugins** — and set a **Public Attribution** (or **Anonymous**). You must confirm the content contains nothing private before **Submit Feedback**.
+- The confirmation card always shows the final public **Title** and **Body**, lets you choose the **Submission Identity** — **Cindy official bot (default)**, or **My GitHub account** if a working account is connected on the **GitHub** plugin's detail page under **Plugins·Skills** — and set a **Public Attribution** (or **Anonymous**). You must confirm the content contains nothing private before **Submit Feedback**.
 - After creation, Cindy returns the issue link and can help you reproduce or fix the problem from source, because Cindy is open source. To see issues you've submitted, open **Issues** from the app menu (top-left **Menu**, or **Help > Issues** in the macOS menu bar).
 
 **Notes:**

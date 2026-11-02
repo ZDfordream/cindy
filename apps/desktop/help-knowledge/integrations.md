@@ -24,7 +24,7 @@ The IM bots page has two sections:
 - Each channel has a **New Conversation Configuration** that picks the Agent and model for new conversations from that channel.
 - Teammates can also have their own bots on their **Messaging platforms** page. A bot can be connected in only one place.
 
-**Accounts and tools (Plugins):**
+**Accounts and tools (Plugins·Skills):**
 
 - **Google** — four separate built-in plugins: **Gmail**, **Google Drive**, **Google Calendar**, and **Google Sheets**, each authorized separately. Some organization accounts get a single combined **Filo Google** plugin instead.
 - **GitHub / GitLab** — the built-in **GitHub** and **GitLab** plugins.
