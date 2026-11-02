@@ -46,6 +46,7 @@ import { useActiveMainView } from '@/hooks/useActiveMainView';
 import { SidebarInlineSearch } from '@/features/cc-agent/sidebar/SidebarInlineSearch';
 import { HrOaMoreMenuItems, HrOaCustomizeFallbackHost } from '@/features/hr-oa-auth/HrOaMoreMenuItems';
 import { SidebarIconButton, SIDEBAR_RAIL_ICON_BUTTON_CLASS } from './SidebarIconButton';
+import { trackHrOaEvent } from '@/lib/hrOaTelemetry';
 import { Tip } from '@/components/ui/tooltip';
 import { useConversationSearchContext } from '@/features/cc-agent/sidebar/conversationSearchContext';
 import { GhostMainViewNavEntry, MAIN_VIEW_ICONS } from './GhostMainViewNavEntries';
@@ -116,6 +117,22 @@ function EntryCountBadge({ count, className }: { count?: SidebarNavigationAction
   return count ? <NavigationCountBadge count={count.value} label={count.label} className={className} /> : null;
 }
 
+/**
+ * `nav_click.item`（profile-menu PRD §11）与偏好条目 id 的对照：`plugins_skills` 跟
+ * 「插件·技能」页名同名（FR-NAV-04 埋点枚举同步），`automation` 为 PRD 单数。
+ * `new` / `more` 不走本表（见 handleNew 与更多触发器）。
+ */
+const NAV_CLICK_ITEM: Record<SidebarNavigationItemId, string> = {
+  automations: 'automation',
+  plugins: 'plugins_skills',
+  search: 'search',
+};
+
+/** 埋点（profile-menu PRD §11 nav_click）：侧栏导航点击，item 值域即 PRD 五值。 */
+function trackNavClick(item: 'new' | 'automation' | 'plugins_skills' | 'search' | 'more'): void {
+  trackHrOaEvent('nav_click', { item });
+}
+
 /** One definition per built-in entry, shared by the rows, the rail and More. */
 function useSidebarNavigationActions(
   openSearch: () => void,
@@ -129,18 +146,23 @@ function useSidebarNavigationActions(
   const hasRetirementUnread = useInstalledGhosts().some((ghost) => ghost.retirement?.unread);
   const hasGhostUnread = useAnyGhostUnread() || hasRetirementUnread;
   const reviewUnread = usePluginReviewUpdates().updates.filter(item => item.unread);
+  // onSelect 包一层 nav_click：行 / rail / 「更多」浮层条目共用本表，触发点只此一处。
+  const tracked = (id: SidebarNavigationItemId, run: () => void): (() => void) => () => {
+    trackNavClick(NAV_CLICK_ITEM[id] as 'automation' | 'plugins_skills' | 'search');
+    run();
+  };
   return {
     automations: {
       label: t('ccAgent.layout.automations'),
       icon: SIDEBAR_NAVIGATION_ITEM_ICONS.automations,
-      onSelect: () => navigate('/cc-agent/scheduled'),
+      onSelect: tracked('automations', () => navigate('/cc-agent/scheduled')),
       active: Boolean(onScheduleMatch),
       showDot: false,
     },
     plugins: {
       label: t('sidebar.tabs.plugins'),
       icon: SIDEBAR_NAVIGATION_ITEM_ICONS.plugins,
-      onSelect: () => navigateToView('plugins'),
+      onSelect: tracked('plugins', () => navigateToView('plugins')),
       active: activeKey === 'plugins',
       showDot: hasGhostUnread || reviewUnread.length > 0,
       dotTone: reviewUnread.some(item => item.status === 'rejected') ? 'error' : hasRetirementUnread ? 'awaiting' : 'done',
@@ -148,7 +170,7 @@ function useSidebarNavigationActions(
     search: {
       label: t('sidebar.navigation.items.search'),
       icon: SIDEBAR_NAVIGATION_ITEM_ICONS.search,
-      onSelect: openSearch,
+      onSelect: tracked('search', openSearch),
       active: false,
       showDot: false,
     },
@@ -426,6 +448,8 @@ export function SidebarRailNavigation({
           <Tip text={t('sidebar.navigation.more')} side="right" controlledOpen={open ? false : undefined}>
             <button
               type="button"
+              // nav_click（PRD §11 item=more）：同展开态——只记点击/键盘激活，不记 hover 开层。
+              onClick={() => trackNavClick('more')}
               className={cn(SIDEBAR_RAIL_ICON_BUTTON_CLASS, 'relative')}
               aria-label={entries.unseen.size > 0
                 ? `${t('sidebar.navigation.more')} · ${t('sidebar.navigation.new')}`
@@ -467,6 +491,7 @@ export function SidebarTopNav({
 
   // 通用新建继承当前任务的电脑，由草稿页集中迁移；同机保留已选项目。
   const handleNew = () => {
+    trackNavClick('new');
     navigate('/cc-agent/new', { state: makeGenericNewMakerRouteState(location.pathname) });
   };
 
@@ -552,6 +577,9 @@ export function SidebarTopNav({
       trigger={() => (
         <button
           type="button"
+          // nav_click（PRD §11 item=more）：按「点击侧栏导航」记激活；hover 开层
+          // （useHoverOpenMenu）不算点击，不发。
+          onClick={() => trackNavClick('more')}
           // Keep the row lit while the pointer is over its menu.
           className={cn(ROW_CLASS, 'data-[state=open]:bg-sidebar-item-hover')}
           aria-label={entries.unseen.size > 0

@@ -46,6 +46,11 @@ import { SESSION_RECOVERY_FAIL_MSG, type OaClient, type OaTransport } from '../o
 import type { PersonProfile } from '../profile.js';
 import { createProfileService, type ProfileService } from '../profileService.js';
 import { createHrOaSessionManager } from '../sessionManager.js';
+import {
+  registerHrOaTelemetrySink,
+  setHrOaTelemetryContext,
+  type HrOaEventPayload,
+} from '../telemetry.js';
 
 const PASSWORD = 'pw-not-a-real-secret';
 
@@ -426,5 +431,119 @@ describe('getAvatar 编排（缓存键 personId+sTime）', () => {
     expect(await inFlight).toBeNull();
     expect(await cache.loadOaAvatarCache('p-seed1710')).toBeNull();
     expect(avatarRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * profile_fetch 埋点映射（profile-menu PRD §11）——对外数据协议，失效 = 指标静默缺失。
+ * - 生产入口与可观察结果：`fetchProfile()` 落定后经登记 sink 发出 `profile_fetch`，
+ *   属性 source/result/duration_ms/has_cache 与 §11 表一致。
+ * - Bug／规则依据：PRD §11 `profile_fetch`；Task 8 挂账同类问题（事件有触发点也要有
+ *   白名单行与映射，缺一即不上线）。
+ * - 现有覆盖缺口：此前只测回包形状，未断言埋点触发与 result/has_cache 映射。
+ * - 最小失败输入：四类落定结果 + 单飞合并各发一次；clock 前进钉 duration_ms。
+ * - tier：unit（同本文件 fixture）；实测耗时随本文件总时长（≤5s 预算内）。
+ */
+describe('profile_fetch 埋点（PRD §11）', () => {
+  let captured: HrOaEventPayload[];
+
+  beforeEach(() => {
+    captured = [];
+    setHrOaTelemetryContext({ account: 'alice' });
+    registerHrOaTelemetrySink((payload) => {
+      captured.push(payload);
+    });
+  });
+
+  afterEach(() => {
+    registerHrOaTelemetrySink(null);
+    setHrOaTelemetryContext({ account: null });
+  });
+
+  function fetchEvents(): HrOaEventPayload[] {
+    return captured.filter((payload) => payload.name === 'profile_fetch');
+  }
+
+  it('网络直取成功：result=success、has_cache=false、duration_ms 按注入时钟', async () => {
+    const pending = defer<PersonProfile>();
+    profileImpl = () => pending.promise;
+    const svc = makeService();
+    const inFlight = svc.fetchProfile('login');
+    clock = 10_500;
+    pending.resolve(profile({ name: '张三', loginName: 'u1', personId: 'p1' }));
+
+    expect(await inFlight).toMatchObject({ ok: true, fromCache: false });
+    const events = fetchEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].properties).toMatchObject({
+      source: 'login',
+      result: 'success',
+      has_cache: false,
+      duration_ms: 500,
+    });
+  });
+
+  it('缓存兜底成功：result=success、has_cache=true；无缓存失败：result=error、has_cache=false', async () => {
+    const cached = profile({ name: '张三', loginName: 'u1', personId: 'p-seed' });
+    await saveOaLogin(
+      { username: 'u1', password: PASSWORD, profile: cached, now: clock },
+      testDeps,
+    );
+    await saveOaProfileCache({ accountKey: 'p-seed', loginName: 'u1', profile: cached }, testDeps);
+    profileImpl = async () => {
+      throw new OaLoginError('network_error', 'portal unreachable');
+    };
+    const svc = makeService();
+    expect(await svc.fetchProfile('stale')).toMatchObject({ ok: true, fromCache: true });
+    expect(fetchEvents()[0].properties).toMatchObject({
+      source: 'stale',
+      result: 'success',
+      has_cache: true,
+    });
+
+    // 无缓存 + 失败 = error / has_cache=false（清凭证与缓存后的冷取数错误面）。
+    await credentialStoreNs.clearOaLogin(testDeps);
+    await credentialStoreNs.clearOaProfileCache(testDeps);
+    profileImpl = async () => {
+      throw new OaLoginError('network_error', 'portal unreachable');
+    };
+    expect(await makeService().fetchProfile('retry')).toEqual({ ok: false, kind: 'error' });
+    expect(fetchEvents()[1].properties).toMatchObject({
+      source: 'retry',
+      result: 'error',
+      has_cache: false,
+    });
+  });
+
+  it('会话失效 → result=expired；epoch 丢弃 → result=cancelled', async () => {
+    profileImpl = async () => {
+      throw new OaLoginError('network_error', SESSION_RECOVERY_FAIL_MSG);
+    };
+    const svc = makeService();
+    expect(await svc.fetchProfile('launch')).toEqual({ ok: false, kind: 'expired' });
+    expect(fetchEvents()[0].properties).toMatchObject({ result: 'expired', has_cache: false });
+
+    const pending = defer<PersonProfile>();
+    profileImpl = () => pending.promise;
+    const inFlight = svc.fetchProfile('launch');
+    svc.cancelOutstanding();
+    pending.resolve(profile({ name: '张三', loginName: 'u1', personId: 'p1' }));
+    expect(await inFlight).toEqual({ ok: false, kind: 'cancelled' });
+    expect(fetchEvents()[1].properties).toMatchObject({ result: 'cancelled' });
+  });
+
+  it('单飞合并只记一次（合并调用方没产生请求）', async () => {
+    const pending = defer<PersonProfile>();
+    profileImpl = () => pending.promise;
+    const svc = makeService();
+    const first = svc.fetchProfile('launch');
+    const second = svc.fetchProfile('stale');
+    pending.resolve(profile({ name: '张三', loginName: 'u1', personId: 'p1' }));
+    await first;
+    await second;
+
+    const events = fetchEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].properties.source).toBe('launch');
   });
 });

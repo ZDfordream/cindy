@@ -11,6 +11,7 @@ import { Info, Search, TriangleAlert, X } from 'lucide-react';
 import { WINDOW_DRAG_STYLE, WINDOW_NO_DRAG_STYLE } from '@/components/layout/windowDrag';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { cn } from '@/lib/utils';
+import { trackHrOaEvent } from '@/lib/hrOaTelemetry';
 import { PluginDevicePicker, type CatalogDeviceControl } from './PluginDevicePicker';
 import './plugin-motion.css';
 
@@ -154,11 +155,13 @@ export function PluginManagementHeader({
       optionHeight={32}
       optionClassName="plugin-management-tab min-w-[88px] px-4 text-13"
       value={activeTab}
-      onValueChange={(tab) =>
-        onSelectTab
-          ? onSelectTab(tab)
-          : navigate(tab === 'plugins' ? '/plugins' : '/skillhub/local')
-      }
+      onValueChange={(tab) => {
+        // 埋点（profile-menu PRD §11 plugins_skills_tab）：「插件·技能」一级页签切换
+        // （FR-NAV-04 的埋点枚举同名：plugins | skills）；仅用户切换时发，进页不算。
+        trackHrOaEvent('plugins_skills_tab', { tab });
+        if (onSelectTab) onSelectTab(tab);
+        else navigate(tab === 'plugins' ? '/plugins' : '/skillhub/local');
+      }}
       options={[
         { value: 'plugins', label: t('settings.ghosts.tabLabel') },
         { value: 'skills', label: t('skillhub.home.title') },

@@ -19,8 +19,11 @@ import { ProfileAvatar } from './ProfileAvatar';
 import { useHrOaProfile } from './useHrOaProfile';
 
 export function ProfileEntry(props: {
-  /** 开层意图：`focus:'last'` = ↑ 打开并聚焦最后一项（PRD FR-PROFILE-01）。 */
-  onOpen: (options?: { focus?: 'first' | 'last' }) => void;
+  /**
+   * 开层意图：`focus:'last'` = ↑ 打开并聚焦最后一项（PRD FR-PROFILE-01）；
+   * `method` = 开层的激活方式（PRD §11 `profile_menu_open.method`）。
+   */
+  onOpen: (options?: { focus?: 'first' | 'last'; method?: 'pointer' | 'keyboard' }) => void;
   expanded?: boolean;
 }) {
   const { onOpen, expanded } = props;
@@ -36,8 +39,8 @@ export function ProfileEntry(props: {
       ? t('hrOa.profile.entryAriaError')
       : t('hrOa.profile.entryAriaName', { name });
 
-  const open = (focus: 'first' | 'last'): void => {
-    onOpen({ focus });
+  const open = (focus: 'first' | 'last', method: 'pointer' | 'keyboard'): void => {
+    onOpen({ focus, method });
   };
 
   return (
@@ -48,19 +51,19 @@ export function ProfileEntry(props: {
         aria-expanded={expanded === true}
         aria-label={ariaLabel}
         aria-busy={loading || undefined}
-        onClick={() => open('first')}
+        onClick={() => open('first', 'pointer')}
         onKeyDown={(event) => {
           // Enter / Space 走 keydown 显式处理（preventDefault 抑制按钮默认 click，
           // 防止 onOpen 双触发）；↓ 开层焦点首项，↑ 开层聚焦最后一项。
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            open('first');
+            open('first', 'keyboard');
           } else if (event.key === 'ArrowDown') {
             event.preventDefault();
-            open('first');
+            open('first', 'keyboard');
           } else if (event.key === 'ArrowUp') {
             event.preventDefault();
-            open('last');
+            open('last', 'keyboard');
           }
         }}
         className={cn(

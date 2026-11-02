@@ -29,12 +29,16 @@ import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { trackHrOaEvent } from '@/lib/hrOaTelemetry';
 import {
   HR_OA_LOGOUT_CONFIRM_BEAT_MS,
   requestHrOaLogout,
   useHrOaAuth,
 } from '../hr-oa-auth/hrOaAuthStore';
 import { countRunningAgentRuns } from './runningTasks';
+
+/** `logout_confirm_result.method`（PRD §11）：按钮 / Esc / 遮罩。 */
+type LogoutConfirmMethod = 'button' | 'esc' | 'mask';
 
 /** 弹窗内可聚焦控件（确认拍禁用后自动退出焦点环，与 disabled 语义一致）。 */
 function focusablesIn(root: HTMLElement): HTMLElement[] {
@@ -55,10 +59,13 @@ export function LogoutConfirmDialog(props: {
   /** 焦点归还目标：开弹窗瞬间持有焦点的个人入口。 */
   const openerRef = useRef<HTMLElement | null>(null);
 
-  // 开弹窗一次性：记焦点归还目标、初始焦点「取消」；关闭/卸载时把焦点还给入口
-  // （入口仍在树上时；确认成功后整树随 ownerKey 重挂载，入口已不在则不硬抢）。
+  // 开弹窗一次性：记焦点归还目标、初始焦点「取消」、发 `logout_confirm_view`；
+  // 关闭/卸载时把焦点还给入口（入口仍在树上时；确认成功后整树随 ownerKey 重挂载，
+  // 入口已不在则不硬抢）。
   useEffect(() => {
     if (!open) return;
+    // 埋点（profile-menu PRD §11）：弹窗曝光一次（开弹窗瞬间的 N 快照口径同 Ruling B）。
+    trackHrOaEvent('logout_confirm_view', { has_running_task: runningTaskCount > 0 });
     const active = document.activeElement;
     openerRef.current =
       active instanceof HTMLElement && !panelRef.current?.contains(active) ? active : null;
@@ -69,19 +76,22 @@ export function LogoutConfirmDialog(props: {
         target.focus();
       }
     };
-  }, [open]);
+  }, [open, runningTaskCount]);
 
   if (!open) return null;
 
-  const cancel = (): void => {
+  const cancel = (method: LogoutConfirmMethod): void => {
     if (confirming) return;
+    // 埋点（profile-menu PRD §11 logout_confirm_result）：用户收口的三条路记 method；
+    // 会话失效强退的被动关闭不是用户决定，不发本事件（后续 logout 带 entry 记因）。
+    trackHrOaEvent('logout_confirm_result', { result: 'cancel', method });
     onCancel();
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      cancel();
+      cancel('esc');
       return;
     }
     if (event.key !== 'Tab') return;
@@ -102,7 +112,7 @@ export function LogoutConfirmDialog(props: {
   const bodyId = 'logout-confirm-body';
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-      <div className="modal-scrim absolute inset-0" onClick={cancel} />
+      <div className="modal-scrim absolute inset-0" onClick={() => cancel('mask')} />
       <div
         ref={panelRef}
         role="dialog"
@@ -137,7 +147,7 @@ export function LogoutConfirmDialog(props: {
             variant="secondary"
             palette="confirmation"
             disabled={confirming}
-            onClick={cancel}
+            onClick={() => cancel('button')}
             className="h-auto min-h-9 min-w-[96px] whitespace-nowrap py-1.5"
           >
             {t('logic.confirm.cancel')}
@@ -149,7 +159,11 @@ export function LogoutConfirmDialog(props: {
             tone="danger-solid"
             palette="confirmation"
             disabled={confirming}
-            onClick={() => onConfirm()}
+            onClick={() => {
+              // 埋点（profile-menu PRD §11）：确认只有按钮一条路。
+              trackHrOaEvent('logout_confirm_result', { result: 'confirm', method: 'button' });
+              onConfirm();
+            }}
             className="h-auto min-h-9 min-w-[96px] whitespace-nowrap py-1.5"
           >
             {confirming ? t('hrOa.logout.confirming') : t('hrOa.more.logout')}

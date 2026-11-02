@@ -1,9 +1,9 @@
 /**
- * telemetry.ts — HR OA 登录漏斗埋点（login-onboarding PRD §10）。
+ * telemetry.ts — HR OA 埋点（login-onboarding PRD §10 + profile-menu PRD §11）。
  *
- * 14 个事件（§10.2）从各 UI 触发点经 `trackHrOaEvent(name, props)` 发出；本模块负责
- * 组装**通用属性**（§10.1：app_version / os_version / session_id / account_hash / ts）、
- * 按事件白名单裁剪属性、执行**采集边界**脱敏，再交给可替换 sink。
+ * 24 个事件（§10.2 的 14 个 + §11 的 10 个）从各 UI 触发点经 `trackHrOaEvent(name, props)`
+ * 发出；本模块负责组装**通用属性**（§10.1：app_version / os_version / session_id /
+ * account_hash / ts）、按事件白名单裁剪属性、执行**采集边界**脱敏，再交给可替换 sink。
  *
  * 采集边界（PRD §10.1 / S-1 安全红线，test 用哨兵密钥钉死）：
  *   - 口令、API Key、token 等秘密键**直接丢弃**（键名命中即弃，值不看）；
@@ -15,10 +15,14 @@
  * sink 可替换（`registerHrOaTelemetrySink`）：默认落**结构化日志**（logger 侧带
  * `hr-oa.telemetry` scope），暂不接第三方统计后端——HRBuddy 部署形态（内网、
  * SHOW_CINDY_ACCOUNT_UI 收起的独立安装）没有可用的既有上报通道，正式后端接入时
- * 只换 sink 注册，不动 14 个调用点。注册 `null` 回落默认日志 sink。
+ * 只换 sink 注册，不动调用点。注册 `null` 回落默认日志 sink。
  *
  * 本模块无 electron 依赖（app/os 版本经 `setHrOaTelemetryContext` 注入），main 侧
- * bootstrap 初始化上下文；renderer 侧的 14 个触发点走 `hrOa.trackEvent` 桥（IPC）调进来。
+ * bootstrap 初始化上下文；renderer 侧的触发点走 `hrOa.trackEvent` 桥（IPC）调进来。
+ *
+ * **白名单 = 出货合同**：事件名不在 `HR_OA_EVENT_PROPS` 里就被静默丢弃（埋点绝不抛错），
+ * 事件等于没上线——`token_refresh` 曾因缺行被丢（Task 8 挂账），telemetry.test.ts 对**真**
+ * `trackHrOaEvent` 钉住每一行；新增事件先加行再接触发点。
  */
 
 import { createHash } from 'node:crypto';
@@ -39,9 +43,10 @@ export interface HrOaEventPayload {
 export type HrOaTelemetrySink = (payload: HrOaEventPayload) => void;
 
 /**
- * 每个事件的**属性白名单**（PRD §10.2 表）：只放行列内列出的事件属性键。
+ * 每个事件的**属性白名单**（PRD §10.2 / §11 表）：只放行列内列出的事件属性键。
  * 通用属性由 `trackHrOaEvent` 统一追加，不进白名单。白名单外的键一律丢弃——
- * 采集边界的第二道闸（第一道是 `account`/`url_host` 的收窄转换）。
+ * 采集边界的第二道闸（第一道是 `account`/`url_host` 的收窄转换）。值域契约（枚举）
+ * 在各触发点收口；`logout.entry`（§11 新维度）与 `token_refresh` 五键同表钉死。
  */
 export const HR_OA_EVENT_PROPS: Record<HrOaEventName, readonly string[]> = {
   welcome_view: ['from'],
@@ -57,7 +62,17 @@ export const HR_OA_EVENT_PROPS: Record<HrOaEventName, readonly string[]> = {
   home_view: ['model_state', 'entry'],
   home_gate_trigger: ['trigger'],
   message_send: ['model_state', 'source', 'is_first_message'],
-  logout: ['reason'],
+  logout: ['reason', 'entry'],
+  profile_fetch: ['source', 'result', 'duration_ms', 'has_cache'],
+  profile_avatar_error: ['size'],
+  profile_menu_open: ['method', 'profile_state'],
+  profile_menu_click: ['item', 'method'],
+  logout_confirm_view: ['has_running_task'],
+  logout_confirm_result: ['result', 'method'],
+  nav_click: ['item'],
+  plugins_skills_tab: ['tab'],
+  token_refresh: ['trigger', 'result', 'attempt', 'duration_ms', 'overdue_ms'],
+  home_banner_click: [],
 };
 
 /** 通用属性键（§10.1）：每个事件载荷都必须带齐。 */

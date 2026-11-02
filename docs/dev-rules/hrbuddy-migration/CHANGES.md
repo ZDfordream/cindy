@@ -6,7 +6,7 @@
 > **姊妹视图**：[`CHANGELOG.md`](./CHANGELOG.md) 按**时间**逐条记录每一次改动（含被回退的），
 > 供回溯「某天改了什么、为什么、又撤了什么」。两份一起看最完整。
 >
-> 生成日期：2026-10-28；最近更新：2026-10-29。
+> 生成日期：2026-10-28；最近更新：2026-11-02。
 
 ## 0. 范围约定（来自需求文档 2026-10-28 版「改动要求」）
 
@@ -523,3 +523,85 @@ signed-out 带 `reason`（`'expired'` = wrong_credentials / locked / TTL 过期 
   若 owner 要求个人资料字段（mobile/email）另走加密存储，需升级 secret IO，另开任务。
 - 14 天 TTL 过期现在会弹「登录已过期」（Finding 1 要求与凭证类失效同款 toast）；
   若 owner 想区分文案（「凭证已过期」vs「账号被禁用」），等门户错误码可分辨后再说。
+
+---
+
+## 12. 个人信息与菜单迁移（profile-menu）：裁决与偏离登记（2026-11-02，计划收口）
+
+> 计划台账 `.superpowers/sdd/2026-11-02-profile-menu/`（10 任务 + 逐任务 review）；
+> 时间流水见 [CHANGELOG.md](./CHANGELOG.md) #18。本节是从主仓 merge 时要对表的产品差异。
+
+### 12.1 个人信息走直连 OA（**不接 HRMcp**）
+
+资料与头像取自**登录人自己的 OA 会话**直连门户（`client.getPersonProfile` / 头像接口），
+**运行时不接 HRMcp MCP**。理由：HRMcp 是单账号工具，接了会显示成 HRMcp 那个号而不是
+当前登录人（集成设计 §4.1 反目标）；且 HRMcp `OAClient.login()` 不返回资料（HRMcp/
+oa_client.py:139-149），刷新成功也不重取个人信息（FR-TOKEN-08）。缓存：同账号资料缓存
+在 userData 根（`hr-oa-profile-cache.json`），**不含 mobile/sex**（PRD §7.2 不展示即不落盘）；
+串号缓存（冻结键对不上）一律不采信。
+
+### 12.2 ≡ 下线与 `SHOW_CINDY_ACCOUNT_UI` 的关系（藏不删）
+
+标题栏 ≡ 菜单**整体下线**，菜单项迁入侧栏个人弹层（`ProfileMenu`，含 Ruling E 未列出的
+「退出全屏」同迁）。≡ 的显隐挂在 Cindy 账号层的**同一开关** `SHOW_CINDY_ACCOUNT_UI` 上：
+默认（HRBuddy 发行态）收起、不渲染；打开恢复开关 ≡ 整块回来，**不需重接线**（测试双侧钉住）。
+「设置/检查更新」两枚**不是** ≡ 菜单项，ChromeActions 恒挂、不随 ≡ 收起失联；
+`chromeActionsGeometry.ts` 的 `clusterWidth: 124` **保持恢复口径**（≡ 隐藏期 no-drag 挖洞 32px）。
+
+### 12.3 「插件·技能」的 U+00B7 字符规范
+
+新页名 = `插件` + **U+00B7 中间点** + `技能`，**前后无空格**（码点序列
+`[0x63d2, 0x4ef6, 0x00b7, 0x6280, 0x80fd]`）。禁止 `・`(U+30FB)、`•`(U+2022)、`-`、空格包裹；
+测试逐码点断言。五语同步落 `sidebar.tabs.plugins` / `sidebar.navigation.items.plugins` /
+`settings.tabs.ghosts` 三处 + 页面标题；FR-NAV-04 的窗口标题/快捷键说明/帮助文档/埋点枚举/
+搜索关键词同步口径（`nav_click` 的 `plugins_skills`、`plugins_skills_tab` 枚举与页名同源）。
+
+### 12.4 退出前先停在途任务（Ruling B / F）——隔离理由
+
+退出登录与失效强退**都先真停在途 Agent 轮、再落 signed-out**（先停后落，同步执行、失败吞掉）。
+隔离理由：① 进行中的 Agent 轮会继续产出/占资源，落定后无人认领；② 顺序合同必须是
+「停的尝试先于落定」，不能把 S1 落定拖在停任务的异步装入之后；③ Ruling F 把失效强退
+（FR-LOGOUT-05）与手动登出**同规**——凭证清了之后旧轮若继续跑，会用旧凭证发请求 = 账号
+隔离漏洞本身。确认弹窗的 N = 开弹窗瞬间「当前账号下有在途 Agent 轮的会话数」（Ruling B 口径，
+`runningTasks.ts`）。
+
+### 12.5 网络类失败不强退（Ruling 6）——偏离登记
+
+凭证刷新与静默重登的**网络类失败**（network_error / timeout / 5xx 登录响应 / 密文暂读不出）
+**保留凭证、不强退、不提示**（Ruling 6：VPN 抖动不得把人锁在门外），只按 1→5→15min 退避；
+只有凭证类被拒（wrong_credentials / locked / TTL 过期 / 凭证消失）才清钥匙串 + 落 expired 强退。
+这是对「任何失败即登出」直觉口径的**有意偏离**：网络问题不是身份问题。误判代价不对称——
+误强退丢掉用户会话，误保留只是晚 15 分钟重试。
+
+### 12.6 服务端 401 本期 N/A（FR-LOGOUT-05 第三源短路）
+
+HR 会话（`mode='hr'`）没有 HRBuddy 服务端会话；`serverApiClient` 的 401 →
+`authManager.invalidateSession`（Cindy 退登）路径在 hr 会话下**短路**——Cindy 通道 401
+不得把 HR 登录态误打成 Cindy 退登。HR 登录态失效来源只认 OA 侧三源（凭证类失败 / TTL 过期 /
+刷新被拒），服务端 401 触发退登待服务端会话接入后再启用。
+
+### 12.7 `StartupLogSupport` 逃生口保留
+
+横幅改版（Task 9）**未动** `StartupLogSupport.tsx`：启动 / 登录 / DB 门禁期显示的逃生口
+保留（PRD 裁定：首页稳态不显示、底部不留高度，但逃生口不删）。既有用例两端覆盖
+（启动可达 + 稳态消失）。与主仓同步时该文件保持原样。
+
+### 12.8 `login_name` 标签改「登录名」
+
+身份卡的 `login_name` 字段标签为**「登录名」**（五语，glossary `login-name` 条目），**不是
+「工号」**——OA 该字段是登录名（Review Focus #4 红线），测试钉死「绝不显示『工号』」。
+与主仓/HR 系统对表时注意术语差异。
+
+### 12.9 Ruling J — 横幅副文案对比度**知情例外**（待 owner 拍板）
+
+未配置横幅副文案按 PRD 逐值 `#8a8a8f`（亮色）：实测 ≈3.2:1 < A-1 文本对比度 4.5:1。
+已以**知情例外**登记 `DESIGN.md` §5 + `design-decision-log.md`（不是「全合规」出账）。
+PRD 家族 A-1 原文「辅助灰 #8a8a8f 仅用于次要说明」与本处用途一致，但既然低于 4.5:1，
+owner 若要合规：改深一行 token（`#6B6B70` 级别）即可，登记可撤。
+
+### 12.10 Ruling I — FR-HOME-REMOVE-02 收窄为只删品牌行
+
+「概念在界面上不再有入口」的执行**收窄为只删品牌行的「对话 ⌄」下拉**；创建页的 mode pill
+（`create-agent-mode-pill`，「对话 ⌄」/「协同模式」）**保留**。理由：PRD 后半句字面更宽，
+但移除 pill 会翻掉 07-19/07-22 owner 亲手定的断言、并让 `newMakerDraftTargetCatalog` 7 条
+行为用例失去被测对象，与「不得动既有测试」冲突。若 owner 要求全删：再删是增量，不丢能力。

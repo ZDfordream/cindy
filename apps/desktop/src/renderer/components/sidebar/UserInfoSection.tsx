@@ -30,12 +30,13 @@ import {
 import { toast } from '@/lib/toast';
 import { checkForUpdateWithToast } from '@/lib/checkForUpdateWithToast';
 import { createLogger } from '@/lib/logger';
+import { trackHrOaEvent } from '@/lib/hrOaTelemetry';
 import type { DesktopSavedAccount } from '@/lib/authService';
 import { ProfileAvatar } from '@/features/hr-oa-profile/ProfileAvatar';
 import { ProfileEntry } from '@/features/hr-oa-profile/ProfileEntry';
 import { ProfileMenu, type ProfileMenuItem } from '@/features/hr-oa-profile/ProfileMenu';
 import { LogoutConfirmDialog, useHrOaLogoutConfirm } from '@/features/hr-oa-profile/LogoutConfirmDialog';
-import { useHrOaProfile } from '@/features/hr-oa-profile/useHrOaProfile';
+import { useHrOaProfile, type ProfileState } from '@/features/hr-oa-profile/useHrOaProfile';
 import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
 import { CURRENT_CINDY_REGION } from '../../../shared/brandRegion';
 import { shouldLabelRegion } from '../../../shared/regionCode';
@@ -85,7 +86,7 @@ function HrProfileRailEntry({
   onOpen,
 }: {
   expanded: boolean;
-  onOpen: (options?: { focus?: 'first' | 'last' }) => void;
+  onOpen: (options?: { focus?: 'first' | 'last'; method?: 'pointer' | 'keyboard' }) => void;
 }) {
   const { profile, avatarUrl, state } = useHrOaProfile();
   const { t } = useTranslation();
@@ -108,14 +109,14 @@ function HrProfileRailEntry({
           aria-haspopup="menu"
           aria-expanded={expanded}
           aria-label={ariaLabel}
-          onClick={() => onOpen({ focus: 'first' })}
+          onClick={() => onOpen({ focus: 'first', method: 'pointer' })}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
               event.preventDefault();
-              onOpen({ focus: 'first' });
+              onOpen({ focus: 'first', method: 'keyboard' });
             } else if (event.key === 'ArrowUp') {
               event.preventDefault();
-              onOpen({ focus: 'last' });
+              onOpen({ focus: 'last', method: 'keyboard' });
             }
           }}
           className={cn(
@@ -129,6 +130,16 @@ function HrProfileRailEntry({
       </Tip>
     </div>
   );
+}
+
+/**
+ * `profile_menu_open.profile_state`（PRD §11 三值）与 `ProfileState`（Ruling A 五值）的
+ * 收窄映射：ready / ready-avatar-fallback → ready；error / refresh-error → error。
+ */
+function profileMenuOpenState(state: ProfileState): 'ready' | 'loading' | 'error' {
+  if (state === 'loading') return 'loading';
+  if (state === 'ready' || state === 'ready-avatar-fallback') return 'ready';
+  return 'error';
 }
 
 /**
@@ -160,12 +171,23 @@ function HrProfileFooter({ isCollapsed }: { isCollapsed: boolean }) {
     confirmLogout,
   } = useHrOaLogoutConfirm();
 
-  const handleProfileOpen = useCallback((options?: { focus?: 'first' | 'last' }) => {
-    setProfileMenuFocus(options?.focus ?? 'first');
-    const entry = profileEntryHostRef.current?.querySelector('button');
-    setProfileAnchor(entry?.getBoundingClientRect() ?? null);
-    setProfileMenuOpen((open) => !open);
-  }, []);
+  const handleProfileOpen = useCallback(
+    (options?: { focus?: 'first' | 'last'; method?: 'pointer' | 'keyboard' }) => {
+      setProfileMenuFocus(options?.focus ?? 'first');
+      const entry = profileEntryHostRef.current?.querySelector('button');
+      setProfileAnchor(entry?.getBoundingClientRect() ?? null);
+      // 埋点（profile-menu PRD §11 profile_menu_open）：只在**开层**时发一次（再点入口
+      // 收层不发）；method 来自入口的激活方式（点击/键盘），profile_state 收窄成三值。
+      if (!profileMenuOpen) {
+        trackHrOaEvent('profile_menu_open', {
+          method: options?.method ?? 'pointer',
+          profile_state: profileMenuOpenState(profileState),
+        });
+      }
+      setProfileMenuOpen((open) => !open);
+    },
+    [profileMenuOpen, profileState],
+  );
   const handleProfileClose = useCallback(() => setProfileMenuOpen(false), []);
   // 菜单动作沿用改版前 ≡ 同名项行为（§6.2 迁移对照表「行为不变」列；未列项同迁
   // FR-MENU-08 / Ruling E：`exit_fullscreen` 走 ≡ 原 `onExitFullscreen` 同一动作）。

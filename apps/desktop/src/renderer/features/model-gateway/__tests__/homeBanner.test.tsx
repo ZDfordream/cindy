@@ -27,8 +27,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 
 import zhCN from '@/i18n/locales/zh-CN/common.json';
 import { OnboardingHomeBanner } from '../OnboardingHomeBanner';
@@ -151,9 +149,17 @@ describe('FR-HOME-BANNER-01 横幅卡片规格（profile-menu PRD §6.7 规格�
 describe('FR-HOME-BANNER-02/05 交互与无障碍', () => {
   it('「去配置」触发 onConfigure（宿主接补配门禁）；按钮带 2px 蓝焦点环', () => {
     const onConfigure = vi.fn();
+    // home_banner_click（profile-menu PRD §11）协议断言：点「去配置」经 hrOa.trackEvent 桥
+    // 发一次、无事件属性（失效 = 横幅转化指标静默缺失；Task 8 挂账同类）。
+    const trackEvent = vi.fn();
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { hrOa: { trackEvent } },
+    });
     render(<OnboardingHomeBanner visible onConfigure={onConfigure} />);
     fireEvent.click(action());
     expect(onConfigure).toHaveBeenCalledOnce();
+    expect(trackEvent).toHaveBeenCalledWith('home_banner_click', {});
     expect(action().className).toContain('focus-visible:outline-2');
     expect(action().className).toContain('var(--focus-ring)');
   });
@@ -196,19 +202,10 @@ describe('FR-HOME-BANNER-03 收起（保存模型成功后）', () => {
     expect(wrapper().className).toContain('delay-[var(--motion-home-banner-collapse-delay)]');
   });
 
-  it('出现动效「淡入」：hr-banner-rise keyframe 从透明起始（冷启动路径也能淡入）', () => {
-    // jsdom 不执行 CSS 动画，按 foundationDefaultsFreeze 同法钉 keyframe 起始态契约：
-    // 缺 `opacity: 0` 时冷启动（首挂 visible=true，wrapper 无可过渡起始态）卡片会
-    // 全程不透明地滑入，违反 PRD §6.7 动效行「出现：淡入并上移 8px」。
-    const css = readFileSync(
-      resolve(__dirname, '../../../styles/globals.css'),
-      'utf8',
-    );
-    const from = css.match(/@keyframes\s+hr-banner-rise\s*\{[^}]*from[^}]*\{([^}]*)\}/);
-    expect(from).toBeTruthy();
-    expect(from![1]).toContain('opacity: 0');
-    expect(from![1]).toContain('translateY(8px)');
-  });
+  // 原「出现动效『淡入』：hr-banner-rise keyframe 从透明起始」用例（源码静态契约）已
+  // **逐字迁移**至 `renderer/__tests__/reducedMotionEscape.test.ts`「入场 keyframe 起始态
+  // 契约」——测试卫生门禁（§3.2「普通单测不得读取生产源码文本」）要求该类断言只进 guard /
+  // 既有契约文件；断言内容未删未弱化，见彼处。
 });
 
 describe('FR-HOME-BANNER-04 窄容器（主区内容宽度 < 520px）', () => {

@@ -527,7 +527,13 @@ describe('sessionManager 接调度器（FR-TOKEN-03/04/05/07）', () => {
     await manager.tokenRefreshDue('timer');
 
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(listener).toHaveBeenCalledWith({ status: 'signed-out', reason: 'expired' });
+    // entry:'token_refresh'（profile-menu PRD §11）：刷新被拒的强退带来源标记，渲染层
+    // 据此记 logout(entry=token_refresh) 而非 session_check——整形状钉死，含新字段。
+    expect(listener).toHaveBeenCalledWith({
+      status: 'signed-out',
+      reason: 'expired',
+      entry: 'token_refresh',
+    });
     expect(clearOaLoginSpy).toHaveBeenCalled();
     expect(resetSessionSpy).toHaveBeenCalled();
     expect(persist.clearSpy).toHaveBeenCalled();

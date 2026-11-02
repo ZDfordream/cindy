@@ -28,6 +28,7 @@ import { avatarCacheKey, fetchAvatar, type AvatarCache } from './avatar.js';
 import { OaLoginError } from './errors.js';
 import { SESSION_RECOVERY_FAIL_MSG, type OaClient, type OaTransport } from './oaClient.js';
 import type { PersonProfile } from './profile.js';
+import { trackHrOaEvent } from './telemetry.js';
 
 /** 取数触发源（信息性标注，供上层/日志区分场景；不改变分流行为）。 */
 export type ProfileSource = 'login' | 'launch' | 'stale' | 'retry';
@@ -121,9 +122,22 @@ export function createProfileService(deps: {
   function fetchProfile(source: ProfileSource): Promise<ProfileResult> {
     if (inFlight && inFlight.epoch === epoch) return inFlight.promise;
     const startEpoch = epoch;
+    const now = deps.now ?? Date.now;
+    const startedAt = now();
     let entry: { epoch: number; promise: Promise<ProfileResult> };
     const promise = runFetch(startEpoch, source).then((result) => {
       if (inFlight === entry) inFlight = null;
+      // 埋点（profile-menu PRD §11 profile_fetch）：每次个人信息**请求**结束发一次——
+      // 单飞合并的后续调用方不重复发（它们没产生请求）。result 映射：网络直取 /
+      // 缓存兜底都算 success（请求拿到可用资料），无缓存失败 error、会话失效 expired、
+      // epoch 丢弃 cancelled；has_cache = 结果是否由同账号缓存兜底产生（fromCache）。
+      // 载荷只有这四个维度，绝不带姓名/登录名/邮箱等资料字段（S-3 采集边界）。
+      trackHrOaEvent('profile_fetch', {
+        source,
+        result: result.ok ? 'success' : result.kind,
+        duration_ms: Math.max(0, now() - startedAt),
+        has_cache: result.ok && result.fromCache,
+      });
       return result;
     });
     entry = { epoch: startEpoch, promise };

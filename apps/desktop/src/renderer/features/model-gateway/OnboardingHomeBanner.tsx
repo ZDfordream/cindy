@@ -29,6 +29,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowRight, Sparkles } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { trackHrOaEvent } from '@/lib/hrOaTelemetry';
 
 /** 窄容器阈值（BANNER-04：主区内容宽度 < 520px 按钮换行撑满）。 */
 const NARROW_WIDTH_PX = 520;
@@ -131,7 +132,13 @@ export function OnboardingHomeBanner(props: { onConfigure: () => void; visible: 
             <button
               type="button"
               data-testid="home-onboarding-banner-action"
-              onClick={onConfigure}
+              onClick={() => {
+                // 埋点（profile-menu PRD §11 home_banner_click）：横幅「去配置」点击。
+                // 无事件属性；随后门禁记 home_gate_trigger(trigger=banner)，
+                // 弹窗打开另有 model_dialog_view(origin=home_banner)。
+                trackHrOaEvent('home_banner_click', {});
+                onConfigure();
+              }}
               className={cn(
                 'inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-full pr-3 pl-[14px]',
                 'bg-[var(--hr-oa-banner-cta-bg)] text-13 font-medium text-[var(--hr-oa-banner-cta-fg)]',

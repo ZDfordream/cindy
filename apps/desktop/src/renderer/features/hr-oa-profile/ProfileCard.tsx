@@ -154,11 +154,16 @@ export function ProfileCard(props: {
                       </p>
                     ) : null}
                     {(loginName || email) && (
-                      <dl className="mt-2 grid gap-0.5 text-12 leading-[1.5]">
+                      // 两列 grid：标签列按内容定宽（max-content）、值列 1fr 截断，两行
+                      // 的标签与值各自对齐。原 flex 行 `dt.w-7`（28px）是按 2 字标签（工号/
+                      // 邮箱）定死的——OQ-3 改「登录名」（3 字）后 zh-CN 折行成「登录/名」，
+                      // zh-TW/ja/en 五语几乎全数折行；Task 10 双模式目检发现，改此形。
+                      // 颜色仍走 `--text-secondary` / `--text-primary` 语义 token，双模式同源。
+                      <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-2 gap-y-0.5 text-12 leading-[1.5]">
                         {loginName ? (
-                          <div className="flex min-w-0 gap-2">
+                          <>
                             {/* Review Focus #4：标签是「登录名」，不是「工号」。 */}
-                            <dt className="w-7 shrink-0 text-[var(--text-secondary)]">
+                            <dt className="whitespace-nowrap text-[var(--text-secondary)]">
                               {t('hrOa.profile.loginNameLabel')}
                             </dt>
                             <dd
@@ -167,17 +172,17 @@ export function ProfileCard(props: {
                             >
                               {loginName}
                             </dd>
-                          </div>
+                          </>
                         ) : null}
                         {email ? (
-                          <div className="flex min-w-0 gap-2">
-                            <dt className="w-7 shrink-0 text-[var(--text-secondary)]">
+                          <>
+                            <dt className="whitespace-nowrap text-[var(--text-secondary)]">
                               {t('hrOa.profile.emailLabel')}
                             </dt>
                             <dd className="min-w-0 truncate text-[var(--text-primary)]" title={email}>
                               {email}
                             </dd>
-                          </div>
+                          </>
                         ) : null}
                       </dl>
                     )}

@@ -57,8 +57,15 @@ import {
  */
 export type HrOaSignedOutReason = 'logout' | 'expired';
 
+/**
+ * `logout` 埋点的 `entry` 维度（profile-menu PRD §11）：这条会话是**从哪里**被收掉的。
+ * 状态只在需要与 `session_check` 区分的落定源携带（`token_refresh` 凭证被拒强退）；
+ * 缺省由渲染层按 reason 推导（自愿登出 → profile_menu、其余失效 → session_check）。
+ */
+export type HrOaLogoutEntry = 'profile_menu' | 'session_check' | 'token_refresh';
+
 export type HrOaAuthState =
-  | { status: 'signed-out'; reason?: HrOaSignedOutReason }
+  | { status: 'signed-out'; reason?: HrOaSignedOutReason; entry?: HrOaLogoutEntry }
   | { status: 'offline'; accountKey: string; profile: PersonProfile }
   | { status: 'signed-in'; accountKey: string; profile: PersonProfile };
 
@@ -255,7 +262,8 @@ export function createHrOaSessionManager(deps: {
     notify: boolean,
     // 刷新自身的 rejected 强退收口置 true：该次尝试要记 `rejected`，不得被 cancel()
     // 抢成 `cancelled`（计划由调度器的 rejected 分支清除，实例留给下次登录播种）。
-    opts?: { keepTokenScheduler?: boolean },
+    // `logoutEntry`：埋点 entry 维度（§11）需要与 session_check 区分的落定源才带。
+    opts?: { keepTokenScheduler?: boolean; logoutEntry?: HrOaLogoutEntry },
   ): Promise<HrOaAuthState> {
     // 会话边界：在途刷新尝试即刻失效（副作用守卫）。刷新自身的 rejected 走到这里时
     // 已过守卫检查，代次推进不影响本次收口。
@@ -272,7 +280,12 @@ export function createHrOaSessionManager(deps: {
       await credentials.clearOaProfileCache();
       await credentials.clearOaAvatarCache();
     }
-    const next: HrOaAuthState = reason ? { status: 'signed-out', reason } : { status: 'signed-out' };
+    const next: HrOaAuthState =
+      reason && opts?.logoutEntry
+        ? { status: 'signed-out', reason, entry: opts.logoutEntry }
+        : reason
+          ? { status: 'signed-out', reason }
+          : { status: 'signed-out' };
     return notify ? notifyOnly(next) : settle(next);
   }
 
@@ -395,7 +408,7 @@ export function createHrOaSessionManager(deps: {
         // 凭证已不在 / TTL 过期：刷新失去意义，同凭证被拒强退（FR-TOKEN-05）。
         await credentials.clearOaLogin();
         client.resetSession();
-        await dropToSignedOut('expired', false, { keepTokenScheduler: true });
+        await dropToSignedOut('expired', false, { keepTokenScheduler: true, logoutEntry: 'token_refresh' });
         return 'rejected';
       }
       const outcome = await withTimeout(
@@ -413,7 +426,7 @@ export function createHrOaSessionManager(deps: {
       if (outcome.kind === 'wrong_credentials' || outcome.kind === 'locked') {
         await credentials.clearOaLogin();
         client.resetSession();
-        await dropToSignedOut('expired', false, { keepTokenScheduler: true });
+        await dropToSignedOut('expired', false, { keepTokenScheduler: true, logoutEntry: 'token_refresh' });
         return 'rejected';
       }
       return outcome.kind;

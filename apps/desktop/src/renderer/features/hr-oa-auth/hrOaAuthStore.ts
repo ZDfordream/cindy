@@ -182,10 +182,15 @@ function landHrOaState(next: HrOaAuthState): void {
       if (wasActive) {
         // T9/T10 转场锁从落差起算（PRD §9.2）：失效 toast 在锁末弹出。
         gateMemory.leaveDeadline = Date.now() + HR_OA_LEAVE_LOCK_MS;
-        // 埋点（PRD §10.2）：退出登录 / 登录态失效共一个事件，reason 区分。account_hash
+        // 埋点（PRD §10.2 + profile-menu §11）：退出登录 / 登录态失效共一个事件，reason
+        // 区分；entry 记会话是从哪条链收掉的（自愿登出只有 profile_menu 一条入口；失效
+        // 默认 session_check，token_refresh 凭证被拒强退由状态带 entry）。account_hash
         // 走上下文（signed-out 保留末次账号键）。冷启动发现失效（无 in-process 会话）
         // 不发 logout 事件——没有可归因的登出动作，只改 S1 曝光因。
-        trackHrOaEvent('logout', { reason: voluntary ? 'user' : 'token_expired' });
+        trackHrOaEvent('logout', {
+          reason: voluntary ? 'user' : 'token_expired',
+          entry: next.entry ?? (voluntary ? 'profile_menu' : 'session_check'),
+        });
         // 登出即一次首页到达周期结束：丢弃未消费的到达账，防下次登录串台。
         clearHrOaHomeArrival();
       }

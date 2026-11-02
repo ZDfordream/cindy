@@ -35,7 +35,7 @@
  * 由 `profileState` prop 受控供给展示与初始焦点分流，宿主传同一 hook 的 `state`）。
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -50,6 +50,7 @@ import {
 
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
+import { trackHrOaEvent } from '@/lib/hrOaTelemetry';
 import { useAppShortcutDisplay } from '@/hooks/useAppShortcut';
 import { useMacFullscreen } from '@/hooks/useMacFullscreen';
 import { ProfileCard } from './ProfileCard';
@@ -64,6 +65,13 @@ export type ProfileMenuItem =
   | 'feedback'
   | 'check_update'
   | 'logout';
+
+/**
+ * `profile_menu_click.method`（PRD §11）：`pointer` = 鼠标点选（click.detail ≥ 1）、
+ * `keyboard` = 焦点项上 Enter/Space（合成 click 的 detail = 0）、`shortcut` = 弹层开着时
+ * 按设置行的快捷键（FR-MENU-02「弹层打开时先关闭弹层并打开设置」的 ⌘, 等价动作）。
+ */
+export type ProfileMenuClickMethod = 'pointer' | 'keyboard' | 'shortcut';
 
 /**
  * 菜单项常量（≡ 的文案 key 迁到本文件，供埋点复用）。顺序 = ≡ 原相对顺序
@@ -181,16 +189,25 @@ export function ProfileMenu(props: {
     menuItemsIn(root)[0]?.focus();
   }, [open, profileState]);
 
-  const close = (returnFocus: boolean): void => {
-    onClose();
-    if (returnFocus) returnFocusRef.current?.focus();
-  };
+  const close = useCallback(
+    (returnFocus: boolean): void => {
+      onClose();
+      if (returnFocus) returnFocusRef.current?.focus();
+    },
+    [onClose],
+  );
 
-  const select = (item: ProfileMenuItem): void => {
-    // 选任一菜单项 = 收起 + 焦点还给入口（原型 closePop(true)），再交宿主动作。
-    close(true);
-    onAction(item);
-  };
+  const select = useCallback(
+    (item: ProfileMenuItem, method: ProfileMenuClickMethod): void => {
+      // 埋点（profile-menu PRD §11 profile_menu_click）：item 复用 ProfileMenuItem 并集
+      // （Ruling E 迁入的 `exit_fullscreen` 是 §11 表的超集值）；method 按激活方式记实。
+      trackHrOaEvent('profile_menu_click', { item, method });
+      // 选任一菜单项 = 收起 + 焦点还给入口（原型 closePop(true)），再交宿主动作。
+      close(true);
+      onAction(item);
+    },
+    [close, onAction],
+  );
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     const root = menuRef.current;
@@ -232,6 +249,20 @@ export function ProfileMenu(props: {
   // 身份卡「重试」→ `refresh('retry')`（FR-PROFILE-05；按钮态由 ProfileCard 收口）。
   const onRetry = useMemo(() => () => refresh('retry'), [refresh]);
 
+  // FR-MENU-02 / PRD §11 method:'shortcut'：弹层开着按设置行的快捷键（⌘,，menuBacked
+  // 经应用菜单 accelerator 派发 `open-settings` 命令）= 设置菜单项的等价动作——记
+  // profile_menu_click(item=settings, method=shortcut) 并收弹层；导航由 MainLayout 的
+  // 同命令 handler 负责（settings 路由卸载侧栏即弹层消失的结构保证之外再显式收口）。
+  useEffect(() => {
+    if (!open) return;
+    const api = window.electronAPI;
+    if (typeof api?.onApplicationMenuCommand !== 'function') return;
+    return api.onApplicationMenuCommand((command) => {
+      if (command !== 'open-settings') return;
+      select('settings', 'shortcut');
+    });
+  }, [open, select]);
+
   if (!open) return null;
 
   const menuLabel = t('titleBar.menu');
@@ -270,7 +301,9 @@ export function ProfileMenu(props: {
             type="button"
             role="menuitem"
             aria-keyshortcuts={item.id === 'settings' ? 'Meta+Comma' : undefined}
-            onClick={() => select(item.id)}
+            onClick={(event) =>
+              select(item.id, event.detail === 0 ? 'keyboard' : 'pointer')
+            }
             className={cn(
               'flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left',
               'text-14 leading-[1.43] text-[var(--cmd-palette-item-text)]',
@@ -297,7 +330,7 @@ export function ProfileMenu(props: {
       <button
         type="button"
         role="menuitem"
-        onClick={() => select('logout')}
+        onClick={(event) => select('logout', event.detail === 0 ? 'keyboard' : 'pointer')}
         className={cn(
           'flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left',
           'text-14 leading-[1.43] text-[var(--cmd-palette-item-text)]',

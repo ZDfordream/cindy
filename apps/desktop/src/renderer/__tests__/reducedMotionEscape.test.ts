@@ -106,3 +106,28 @@ describe('RunningStatusBar cadenced shimmer 的运行期 reduced-motion 切换',
     );
   });
 });
+
+/**
+ * 入场 keyframe 的 `from` 起始态契约（jsdom 不执行 CSS 动画，按本文件同法钉源码契约）。
+ * 2026-11-02 收口迁移：原散在 `welcomeScreen.test.tsx` / `homeBanner.test.tsx`（行为为主
+ * 的混合文件）——本仓测试卫生门禁（§3.2「普通单测不得读取生产源码文本」）要求源码静态
+ * 契约只进 guard / 既有契约文件；断言逐字迁移至此（复用本文件已读的 globals.css，不新增
+ * 读取点）。两个 keyframe 都必须 `from { opacity: 0; transform: translateY(8px) }`：
+ * 一次性入场动画的 0% 帧不透明 → 冷启动（首挂即可见、无可过渡起始态）全程不透明滑入，
+ * 回归 decision log 2026-11-01「欢迎页淡入」与 PRD §6.7 横幅「出现：淡入并上移 8px」。
+ */
+describe('入场 keyframe 起始态契约（hr-oa-screen-in / hr-banner-rise）', () => {
+  it('hr-oa-screen-in 的 from 含 opacity: 0 + translateY(8px)（欢迎页/T9/T10 淡入）', () => {
+    const from = css.match(/@keyframes\s+hr-oa-screen-in\s*\{[^}]*from[^}]*\{([^}]*)\}/);
+    expect(from).toBeTruthy();
+    expect(from![1]).toContain('opacity: 0');
+    expect(from![1]).toContain('translateY(8px)');
+  });
+
+  it('hr-banner-rise 的 from 含 opacity: 0 + translateY(8px)（横幅出现淡入）', () => {
+    const from = css.match(/@keyframes\s+hr-banner-rise\s*\{[^}]*from[^}]*\{([^}]*)\}/);
+    expect(from).toBeTruthy();
+    expect(from![1]).toContain('opacity: 0');
+    expect(from![1]).toContain('translateY(8px)');
+  });
+});

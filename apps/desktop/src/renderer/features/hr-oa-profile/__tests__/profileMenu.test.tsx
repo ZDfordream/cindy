@@ -27,7 +27,7 @@
  * - 实测耗时：单文件墙钟约 2.8s（vitest Duration 2.07s / tests 363ms，17 例）。
  */
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -47,6 +47,9 @@ const bridge = vi.hoisted(() => ({
   getAvatar: vi.fn(),
   getState: vi.fn(),
   listeners: new Set<(payload: unknown) => void>(),
+  /** 埋点桥（PRD §11 profile_menu_click 协议断言用）：trackHrOaEvent 的 IPC 落点。 */
+  trackEvent: vi.fn(),
+  menuCommandListeners: new Set<(command: string) => void>(),
 }));
 
 /** ≡ 收起 / 恢复的单一开关（legacyVisibility）：默认 HRBuddy 收起，恢复配置 = 翻回 true。 */
@@ -100,6 +103,11 @@ function installBridge(): void {
         profile: { fetchProfile: bridge.fetchProfile },
         avatar: { getAvatar: bridge.getAvatar },
         getState: bridge.getState,
+        trackEvent: bridge.trackEvent,
+      },
+      onApplicationMenuCommand: (cb: (command: string) => void) => {
+        bridge.menuCommandListeners.add(cb);
+        return () => bridge.menuCommandListeners.delete(cb);
       },
       onAuthStateChange: (cb: (payload: unknown) => void) => {
         bridge.listeners.add(cb);
@@ -121,7 +129,9 @@ beforeEach(async () => {
   bridge.fetchProfile.mockReset();
   bridge.getAvatar.mockReset();
   bridge.getState.mockReset();
+  bridge.trackEvent.mockReset();
   bridge.listeners.clear();
+  bridge.menuCommandListeners.clear();
   visibility.showCindy = false;
   fullscreenState.isMac = true;
   fullscreenState.isFullscreen = false;
@@ -291,6 +301,50 @@ describe('ProfileMenu · 关闭与焦点归还（FR-MENU-01 / FR-MENU-07）', ()
     expect(onAction).toHaveBeenCalledWith('logout');
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(entry);
+  });
+
+  /**
+   * profile_menu_click 埋点（profile-menu PRD §11）——对外数据协议，失效 = 「迁移项使用量」
+   * 指标静默缺失（Task 8 挂账同类：触发点缺一即不上线）。
+   * - 生产入口与可观察结果：ProfileMenu 选中项经 `hrOa.trackEvent` 桥发出 profile_menu_click。
+   * - Bug／规则依据：PRD §11（item / method 维度）+ FR-MENU-02（⌘, 开着=设置项等价动作）。
+   * - 现有覆盖缺口：既有用例只断言 onAction 回调，未断言埋点载荷与 method 分流。
+   * - 最小失败输入：鼠标点选 / Enter / `open-settings` 命令三路各一次，断言 name/item/method。
+   * - tier：unit（jsdom + RTL，同本文件 fixture）。
+   */
+  it('profile_menu_click 埋点：点选=pointer、Enter=keyboard、⌘, 命令=shortcut', async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(<Harness onAction={onAction} />);
+    const entry = screen.getByTestId('entry');
+
+    await user.click(entry);
+    await user.click(screen.getByRole('menuitem', { name: /资源监视器/ }));
+    expect(bridge.trackEvent).toHaveBeenLastCalledWith('profile_menu_click', {
+      item: 'resource_monitor',
+      method: 'pointer',
+    });
+
+    // Enter 激活焦点项 = 合成 click（detail=0）→ method:'keyboard'。
+    await user.click(entry);
+    screen.getByRole('menuitem', { name: /设置/ }).focus();
+    await user.keyboard('{Enter}');
+    expect(bridge.trackEvent).toHaveBeenLastCalledWith('profile_menu_click', {
+      item: 'settings',
+      method: 'keyboard',
+    });
+
+    // FR-MENU-02：弹层开着收 `open-settings` 命令 = 设置项快捷键等价动作（method:'shortcut'）。
+    await user.click(entry);
+    act(() => {
+      for (const cb of bridge.menuCommandListeners) cb('open-settings');
+    });
+    expect(bridge.trackEvent).toHaveBeenLastCalledWith('profile_menu_click', {
+      item: 'settings',
+      method: 'shortcut',
+    });
+    expect(onAction).toHaveBeenLastCalledWith('settings');
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
   it('Tab 关闭并按顺序移走焦点；Shift+Tab 关闭并回到入口（原型 stageFocusables 口径）', async () => {

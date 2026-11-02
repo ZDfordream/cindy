@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { UserRound } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { trackHrOaEvent } from '@/lib/hrOaTelemetry';
 import type { PersonProfile } from '../../../main/hr-oa/profile';
 
 /**
@@ -77,7 +78,12 @@ export function ProfileAvatar(props: {
             imageLoaded ? 'opacity-100' : 'opacity-0',
           )}
           onLoad={() => setImageLoaded(true)}
-          onError={() => setImageFailed(true)}
+          onError={() => {
+            setImageFailed(true);
+            // 埋点（profile-menu PRD §11）：头像加载失败；只带 size（28|44），头像地址
+            // 是采集禁区绝不进载荷（S-3）。
+            trackHrOaEvent('profile_avatar_error', { size });
+          }}
         />
       ) : null}
     </span>

@@ -113,7 +113,9 @@ function elWithClass(fragment: string): Element | null {
   return [...document.querySelectorAll('*')].find((el) => el.className?.includes?.(fragment)) ?? null;
 }
 
-function renderEntry(onOpen: (options?: { focus?: 'first' | 'last' }) => void = () => {}) {
+function renderEntry(
+  onOpen: (options?: { focus?: 'first' | 'last'; method?: 'pointer' | 'keyboard' }) => void = () => {},
+) {
   return render(<ProfileEntry onOpen={onOpen} expanded={false} />);
 }
 
@@ -256,18 +258,20 @@ describe('ProfileEntry · 键盘与开层意图（FR-PROFILE-01 / SC-8）', () =
     const onOpen = vi.fn();
     const entry = await renderReady(onOpen);
 
+    // method（profile-menu PRD §11 profile_menu_open）随开层意图一并传出：点击=pointer、
+    // 键盘=keyboard——埋点维度的契约，形状整体钉死。
     await user.click(entry);
-    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'first' });
+    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'first', method: 'pointer' });
 
     entry.focus();
     await user.keyboard('{Enter}');
-    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'first' });
+    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'first', method: 'keyboard' });
 
     await user.keyboard(' ');
-    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'first' });
+    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'first', method: 'keyboard' });
 
     await user.keyboard('{ArrowDown}');
-    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'first' });
+    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'first', method: 'keyboard' });
   });
 
   it('↑ 打开并聚焦最后一项（focus last）', async () => {
@@ -278,7 +282,7 @@ describe('ProfileEntry · 键盘与开层意图（FR-PROFILE-01 / SC-8）', () =
     entry.focus();
     await user.keyboard('{ArrowUp}');
     expect(onOpen).toHaveBeenCalledTimes(1);
-    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'last' });
+    expect(onOpen).toHaveBeenLastCalledWith({ focus: 'last', method: 'keyboard' });
   });
 
   it('aria-haspopup="menu"、aria-expanded 随展开标记切换、aria-label 随资料变化', async () => {

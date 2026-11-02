@@ -20,8 +20,6 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 
 import i18n from '@/i18n';
 import { WelcomeScreen } from '../WelcomeScreen';
@@ -100,14 +98,8 @@ describe('WelcomeScreen 门禁收口（FR-WELCOME-01~03）', () => {
     expect(normal.container.querySelector('.hr-oa-mascot-blink')).toBeTruthy();
   });
 
-  it('出现动效「淡入」：hr-oa-screen-in keyframe 从透明起始（欢迎页淡入契约）', () => {
-    // jsdom 不执行 CSS 动画：钉 keyframe 起始态契约（decision log 2026-11-01
-    // 登记的 `.hr-oa-screen-enter` = T2/T9/T10「欢迎页淡入」，S1/T9/T10 唯一
-    // 消费者）。缺 `opacity: 0` 时欢迎页与登出回归全程不透明滑入，回归登记动效。
-    const css = readFileSync(resolve(__dirname, '../../../styles/globals.css'), 'utf8');
-    const from = css.match(/@keyframes\s+hr-oa-screen-in\s*\{[^}]*from[^}]*\{([^}]*)\}/);
-    expect(from).toBeTruthy();
-    expect(from![1]).toContain('opacity: 0');
-    expect(from![1]).toContain('translateY(8px)');
-  });
+  // 原「出现动效『淡入』：hr-oa-screen-in keyframe 从透明起始」用例（源码静态契约）已
+  // **逐字迁移**至 `renderer/__tests__/reducedMotionEscape.test.ts`「入场 keyframe 起始态
+  // 契约」——测试卫生门禁（§3.2「普通单测不得读取生产源码文本」）要求该类断言只进 guard /
+  // 既有契约文件；断言内容未删未弱化，见彼处。
 });

@@ -8,6 +8,70 @@
 
 ---
 
+## 2026-11-02
+
+### 18. 个人信息与菜单迁移（profile-menu PRD）10 任务收口：个人弹层、退出确认、「插件·技能」、12h 刷新、横幅改版、埋点
+
+> **需求分节对照**：PRD 交互稿 `hrbuddy_prd/design/hrbuddy-profile-menu.html`（§1–14）。
+> 计划台账 `.superpowers/sdd/2026-11-02-profile-menu/`；产品登记与挂账见
+> [CHANGES.md](./CHANGES.md) §12（直连 OA 不接 HRMcp、≡ 下线与恢复开关、U+00B7 字符规范、
+> 退出前停任务、网络类不强退、服务端 401 N/A、StartupLogSupport 逃生口、「登录名」标签、
+> Ruling I/J）。
+
+- **改动（计划 10 任务）**：
+
+  | # | 任务 | 交付 commit | 备注 |
+  | --- | --- | --- | --- |
+  1 | 静默重登修复（全计划前置） | `2001061f1a`→`209d4028be` | safeStorage「在盘暂读不出」新增 `unavailable` 载荷态（不再误删密文/误落 signed-out）+ 有界退避重试 + 聚焦恢复；`credentialLoadPending` 随显式登录/登出收口 |
+  2 | 个人信息数据层 | `afdec6d73e` + `c2e5aeb4cd` | 直连门户取资料/头像（**不走 HRMcp**）；单飞 + epoch 取消 + 失败分流（expired 终态）+ 同账号缓存；mobile/sex 不落盘；串号缓存不采信 |
+  3 | 侧栏个人入口 + 身份卡 | `f69cc4bfd6` | 44px 入口、`ProfileState` 五态、身份卡字段行与截断（SC-7）；`login_name` 标签**「登录名」**（不是「工号」） |
+  4 | 个人弹层 + ≡ 迁移 | `89c89abd4a` + `95b78750d7` | ≡ 菜单项全迁 `ProfileMenu`（含 Ruling E「退出全屏」），≡ 随 `SHOW_CINDY_ACCOUNT_UI` **藏不删**；键盘全序、TT 抑制、锚点几何 |
+  5 | 退出确认 + 任务中断 | `d4f8c6af79` + `c1a3d24d7c` | 确认弹窗（N=在途 Agent 轮会话数）+ **先停后落**（Ruling B/F：凡落 signed-out 先真停在途轮）+ 清理清单；服务端 401 在 hr 会话中性化（本期 N/A） |
+  6 | 「插件·技能」改名 + 页签壳 | `0f0e680d6f` + `9e798dabfe` | 三处五语同步，**U+00B7 中间点**逐码点断言（禁 `・`/`•`/空格）；帮助知识生成源同步 |
+  7 | 图标提示 TT 生命周期 | `5ee849f087` + `82370f73a2` | TT-01~TT-12（含菜单打开即隐、键盘开层不绕抑制窗）；**不为图标提示埋点** |
+  8 | 12h 凭证静默刷新 | `4920ed5719` + `dbebfbb2e9` | 刷新=静默重登；1→5→15min 退避、10s 超时、网络类失败**不强退**（Ruling 6）；五路触发 + 业务闸；`token_refresh` 触发点 |
+  9 | 未配置横幅改版 | `74fbd27014`→`3ed52f675b` | FR-HOME-BANNER-01~05（语义 token 登记）、FR-HOME-REMOVE-02 收窄（Ruling I：只删品牌行下拉）、Ruling J 对比度知情例外、`StartupLogSupport` 逃生口保留 |
+  10 | 埋点 + 双模式/i18n/文档 | 本次 commit | PRD §11 十事件（下详） |
+
+- **任务 10（本条主体）——埋点（PRD §11）**：
+  - `HrOaEventName` 增 10 事件（24 总）：`profile_fetch`（source/result/duration_ms/has_cache）、
+    `profile_avatar_error`（size）、`profile_menu_open`（method/profile_state）、
+    `profile_menu_click`（item/method，含 FR-MENU-02 的 ⌘, 等价动作 method=shortcut）、
+    `logout_confirm_view`（has_running_task）、`logout_confirm_result`（result/method）、
+    `logout` **增 `entry`**（profile_menu | session_check | token_refresh）、`nav_click`（item 五值）、
+    `plugins_skills_tab`（tab）、`token_refresh`（trigger/result/attempt/duration_ms/overdue_ms）、
+    `home_banner_click`；通用属性沿用 §10.1。
+  - 触发点接线：profileService（单飞合并只记实际请求一次）、ProfileAvatar、ProfileEntry/rail 入口
+    （method 随开层意图）、ProfileMenu、LogoutConfirmDialog、hrOaAuthStore（entry 经 signed-out
+    状态从 main 带到 renderer——`token_refresh` 拒绝强退标 `entry:'token_refresh'`，其余失效
+    默认 session_check）、SidebarTopNav（行/rail/更多共用一处 + 新建）、PluginManagementLayout
+    页签切换、OnboardingHomeBanner「去配置」。
+  - **Task 8 挂账一并收口**：`token_refresh` 补进 `HR_OA_EVENT_PROPS` 白名单（缺行 = 生产静默
+    丢弃、事件永不上线），telemetry.test 对**真** `trackHrOaEvent` 钉住出货。
+  - 采集边界（S-3，哨兵测试钉死）：24 事件逐个喂姓名/登录名/邮箱/手机号/头像地址/person_id/
+    Cookie/X-Auth-Token/口令/API Key/明文账号/带凭证 URL 哨兵，JSON 载荷零出现；账号只出
+    `account_hash`、URL 只出 `url_host`；**不为图标提示埋点**（事件名表无 tooltip 家族）。
+  - 双模式目检顺手修一处版式缺陷：身份卡字段行标签列原为 2 字宽（`dt.w-7`，按「工号/邮箱」
+    定死），OQ-3 改「登录名」（3 字）后 zh-CN 折成「登录/名」、zh-TW/ja/en 亦折行——改两列
+    grid（标签 `max-content` + 值 1fr 截断），五语标签单行、两行列对齐，颜色仍走语义 token。
+
+- **动机**：owner 提供 profile-menu PRD，要求登录人个人信息/头像进侧栏、≡ 菜单迁个人弹层并加
+  退出确认、「插件·技能」统一命名、12h 凭证静默续期、未配置横幅改版；§11 十一项指标
+  （获取成功率、头像可见 P90、退出确认取消率、迁移项使用量、刷新成功率、使用中途过期次数）
+  需要上述埋点供数。
+- **影响面**：Desktop HR 会话全链（登录恢复、个人资料、侧栏入口、弹层、退出、导航、页签、
+  横幅、凭证刷新、埋点模块）。Mobile 不动；凭证/缓存红线不变（口令只进钥匙串、资料缓存不含
+  mobile/sex、埋点不含个人字段）。无新增 UI 文案 key 的任务本条（十事件纯属性维度）。
+- **验证**：desktop typecheck ✅；telemetry.test.ts 6/6 ✅（24 事件表 + 真 trackHrOaEvent
+  token_refresh 出货 + 哨兵 PII/凭证穿透 + 无 tooltip 埋点；**TDD 证据**：白名单行未落时
+  4 例 RED（事件被静默丢弃、载荷缺键），补行后 GREEN）；profileService 15/15 ✅（含
+  profile_fetch 四类映射 + 单飞只记一次；**突变红验**：注释掉 track 调用 4 例即红）；
+  hr-oa-profile 58、homeBanner 10、SidebarTopNav/auth/plugin 相关套件 ✅；`pnpm test:unit:related`
+  / `check:i18n` / `check:i18n-glossary` / `check:design-colors` / `check:design-inventory` /
+  `check:test-hygiene` 全绿；Light + Dark 实机目检见计划台账 task-10-report。
+
+---
+
 ## 2026-11-01
 
 ### 17. 登录与模型添加（login-onboarding PRD）8 任务收口：门禁、S3 引导、埋点

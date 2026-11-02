@@ -123,6 +123,8 @@ const bridge = vi.hoisted(() => ({
   fetchProfile: vi.fn(),
   getAvatar: vi.fn(),
   listeners: new Set<(payload: unknown) => void>(),
+  /** 埋点桥（PRD §11 logout_confirm_* 协议断言用）。 */
+  trackEvent: vi.fn(),
 }));
 
 const PROFILE = {
@@ -164,6 +166,7 @@ function installBridge(): void {
         getState: bridge.getState,
         profile: { fetchProfile: bridge.fetchProfile },
         avatar: { getAvatar: bridge.getAvatar },
+        trackEvent: bridge.trackEvent,
       },
       onAuthStateChange: (cb: (payload: unknown) => void) => {
         bridge.listeners.add(cb);
@@ -292,6 +295,7 @@ beforeEach(async () => {
   bridge.getState.mockReset();
   bridge.fetchProfile.mockReset();
   bridge.getAvatar.mockReset();
+  bridge.trackEvent.mockReset();
   bridge.listeners.clear();
   maker.running.clear();
   maker.stopSession.mockReset();
@@ -373,6 +377,63 @@ describe('LogoutConfirmDialog · 焦点与关闭（FR-LOGOUT-02）', () => {
     fireEvent.click(document.querySelector('.modal-scrim')!);
     expect(dialog()).toBeNull();
     expect(document.activeElement).toBe(entry);
+  });
+
+  /**
+   * logout_confirm_view / logout_confirm_result 埋点（profile-menu PRD §11）——对外数据
+   * 协议，失效 = 「退出确认取消率」指标静默缺失（Task 8 挂账同类）。
+   * - 生产入口与可观察结果：`LogoutConfirmDialog` 开合经 `hrOa.trackEvent` 桥发出曝光与
+   *   结果事件，属性 has_running_task / result / method 与 §11 表一致。
+   * - Bug／规则依据：PRD §11（§12 指标「退出确认取消率」以两事件为源）。
+   * - 现有覆盖缺口：既有用例只断言开合与焦点，未断言埋点载荷与 method 分流。
+   * - 最小失败输入：Esc / 取消按钮 / 遮罩 / 确认按钮四路各一次，断言 name/result/method。
+   * - tier：unit（jsdom + RTL，同本文件 fixture）。
+   */
+  it('logout_confirm_view / result 埋点：曝光带 has_running_task；取消记 method、确认记 confirm', async () => {
+    const user = userEvent.setup();
+    render(<FlowHarness />);
+    const entry = screen.getByTestId('entry');
+
+    entry.focus();
+    fireEvent.click(entry);
+    expect(bridge.trackEvent).toHaveBeenLastCalledWith('logout_confirm_view', {
+      has_running_task: false,
+    });
+    await user.keyboard('{Escape}');
+    expect(bridge.trackEvent).toHaveBeenLastCalledWith('logout_confirm_result', {
+      result: 'cancel',
+      method: 'esc',
+    });
+
+    entry.focus();
+    fireEvent.click(entry);
+    fireEvent.click(screen.getByRole('button', { name: CANCEL_LABEL }));
+    expect(bridge.trackEvent).toHaveBeenLastCalledWith('logout_confirm_result', {
+      result: 'cancel',
+      method: 'button',
+    });
+
+    entry.focus();
+    fireEvent.click(entry);
+    fireEvent.click(document.querySelector('.modal-scrim')!);
+    expect(bridge.trackEvent).toHaveBeenLastCalledWith('logout_confirm_result', {
+      result: 'cancel',
+      method: 'mask',
+    });
+
+    entry.focus();
+    fireEvent.click(entry);
+    fireEvent.click(screen.getByRole('button', { name: CONFIRM_LABEL }));
+    expect(bridge.trackEvent).toHaveBeenLastCalledWith('logout_confirm_result', {
+      result: 'confirm',
+      method: 'button',
+    });
+    const views = bridge.trackEvent.mock.calls.filter(([name]) => name === 'logout_confirm_view');
+    expect(views).toHaveLength(4);
+    const results = bridge.trackEvent.mock.calls.filter(
+      ([name]) => name === 'logout_confirm_result',
+    );
+    expect(results).toHaveLength(4);
   });
 
   it('焦点陷阱在弹窗内：Tab / Shift+Tab 只在「取消 / 退出登录」间循环', async () => {
