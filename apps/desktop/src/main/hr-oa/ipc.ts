@@ -85,10 +85,14 @@ export function registerHrOaIpc(deps: {
 
   // 网络恢复（设计 §4.2「网络恢复后静默重登刷新会话」）：渲染层 `window 'online'` 是
   // 本仓既有恢复信号（main 侧无网络变化事件），多窗口同响由 manager 单飞合并。
+  // 同一事件兼作 12h 凭证刷新的 online 触发源（FR-TOKEN-02）：signed-in 会话下
+  // networkRecovered 原样返回，刷新检查仍要跑；fire-and-forget，不拖恢复回包。
   ipcMain.handle('hrOa:network-recovered', async (event) => {
     assertTrustedAppRendererEvent(event);
     await settled;
-    return manager.networkRecovered();
+    const state = await manager.networkRecovered();
+    void manager.tokenRefreshDue('online').catch(() => undefined);
+    return state;
   });
 
   ipcMain.handle('hrOa:state', async (event) => {
@@ -98,6 +102,8 @@ export function registerHrOaIpc(deps: {
   });
 
   // 个人资料取数（Task 2）：source 是触发源标注（封闭集合），校验失败不回显原值。
+  // FR-TOKEN-04：刷新进行中的业务请求等刷新结束（≤10s）再发——静默重登会先清门户
+  // cookie jar，抢跑的请求会带着半截会话出门。
   ipcMain.handle('hrOa:profile', async (event, source: unknown) => {
     assertTrustedAppRendererEvent(event);
     await settled;
@@ -105,14 +111,17 @@ export function registerHrOaIpc(deps: {
     if (!PROFILE_SOURCES.has(value)) {
       throwIpcError('INVALID_PARAMS', 'source must be a known profile source');
     }
+    await manager.whenRefreshIdle();
     return profiles.fetchProfile(value as ProfileSource);
   });
 
   // 头像取数（Task 2）：s_time 是头像版本戳（缓存键 = personId + s_time）；回包带
   // Uint8Array 字节（结构化克隆），失败回 null（不抛、不回错误详情）。
+  // 同样过 FR-TOKEN-04 的刷新闸（与资料同会话直连门户）。
   ipcMain.handle('hrOa:avatar', async (event, sTime: unknown) => {
     assertTrustedAppRendererEvent(event);
     await settled;
+    await manager.whenRefreshIdle();
     return profiles.getAvatar(requireString(sTime, 'sTime'));
   });
 }

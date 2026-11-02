@@ -36,10 +36,19 @@
 
 import { createLogger } from '../logger.js';
 
-import type { OaLoginFailure } from './errors.js';
+import type { OaLoginFailure, OaLoginOutcome } from './errors.js';
 import type { OaClient } from './oaClient.js';
 import type { PersonProfile } from './profile.js';
 import type { OaStoredLogin } from './credentialStore.js';
+import {
+  TOKEN_REFRESH_PERIOD_MS,
+  TOKEN_REFRESH_TIMEOUT_MS,
+  createTokenRefreshScheduler,
+  type TokenRefreshOutcome,
+  type TokenRefreshPersist,
+  type TokenRefreshScheduler,
+  type TokenRefreshTrigger,
+} from './tokenRefresh.js';
 
 /**
  * signed-out 的来源分类（FR-SESSION-02）：`expired` = 曾有凭证的失效（凭证类失败 /
@@ -74,12 +83,23 @@ export interface HrOaSessionManager {
    */
   networkRecovered(): Promise<HrOaAuthState>;
   /**
-   * 环境恢复后的凭证读重试（main 侧窗口聚焦信号触发；12h 刷新调度器是 Task 8 的
-   * 交付物、此处尚不存在）：只在 startup 曾落「密文在盘但读不出」的 offline（或
-   * 该边角的 signed-out 退化）时动作——读回正本即静默重登转 `signed-in`；无待恢复
-   * 零动作（聚焦高频，不得重打网络）。与 `networkRecovered` 同一条单飞链。
+   * 环境恢复后的凭证读重试（main 侧窗口聚焦信号触发）：只在 startup 曾落「密文在盘
+   * 但读不出」的 offline（或该边角的 signed-out 退化）时动作——读回正本即静默重登转
+   * `signed-in`；无待恢复零动作（聚焦高频，不得重打网络）。与 `networkRecovered`
+   * 同一条单飞链。
    */
   retryCredentialLoad(): Promise<HrOaAuthState>;
+  /**
+   * 12h 凭证静默刷新（FR-TOKEN-01~08）的到期检查入口：五路触发源（每 1 分钟对表 /
+   * 启动 / 唤醒 / 聚焦 / online）都经此进调度器 `onDue`。未登录、未到期、已取消均
+   * 零动作；刷新本身静默（FR-TOKEN-03 零界面变化，凭证被拒的强退除外）。永不 reject。
+   */
+  tokenRefreshDue(trigger: TokenRefreshTrigger): Promise<void>;
+  /**
+   * FR-TOKEN-04 业务请求闸：刷新进行中发起的业务请求（资料 / 头像 / 将来的 HRMcp
+   * 调用）等待刷新结束（至多 10s 超时）再用新会话发出；空闲立即返回。
+   */
+  whenRefreshIdle(): Promise<void>;
   getState(): HrOaAuthState;
   onDidChange(listener: (state: HrOaAuthState) => void): () => void;
 }
@@ -108,6 +128,11 @@ export function createHrOaSessionManager(deps: {
    * 从 signed-out 进入登录也不触发（没有可离开的旧身份）。可选以保既有调用签名。
    */
   onAccountBoundary?: () => void;
+  /**
+   * 12h 刷新计划持久化（FR-TOKEN-01 的两个时间戳，与凭证一起存本机）。可选以保持
+   * 既有调用签名可用；缺省时不启用刷新调度（登录/登出行为不变）。
+   */
+  tokenRefreshPersist?: TokenRefreshPersist;
 }): HrOaSessionManager {
   const { client, credentials, commitSession } = deps;
   const now = deps.now ?? Date.now;
@@ -126,6 +151,23 @@ export function createHrOaSessionManager(deps: {
    * `reason:'logout'` 翻成 `reason:'expired'`（Break B，FR-HOME-03 破口）。
    */
   let credentialLoadPending = false;
+
+  // ── 12h 凭证静默刷新（FR-TOKEN-01~08，Task 8）──────────────────────────────
+  // 调度器只做周期/单飞/退避；刷新 = 静默重登（下面 runTokenRefresh），成功不重取
+  // 资料、不落状态（FR-TOKEN-03/08）。`tokenScheduler === null` = 未启用或已随
+  // signed-out 取消（cancel 是终态，登录成功再重建）。
+  let tokenScheduler: TokenRefreshScheduler | null = null;
+  /** 刷新进行中标记（FR-TOKEN-04 业务闸）；runTokenRefresh 自带 10s 超时封顶。 */
+  let refreshInFlight: Promise<void> | null = null;
+
+  function ensureTokenScheduler(): void {
+    if (!deps.tokenRefreshPersist || tokenScheduler) return;
+    tokenScheduler = createTokenRefreshScheduler({
+      refresh: runTokenRefresh,
+      persist: deps.tokenRefreshPersist,
+      now,
+    });
+  }
 
   function blankProfile(): PersonProfile {
     return {
@@ -202,7 +244,16 @@ export function createHrOaSessionManager(deps: {
   async function dropToSignedOut(
     reason: HrOaSignedOutReason | undefined,
     notify: boolean,
+    // 刷新自身的 rejected 强退收口置 true：该次尝试要记 `rejected`，不得被 cancel()
+    // 抢成 `cancelled`（计划由调度器的 rejected 分支清除，实例留给下次登录播种）。
+    opts?: { keepTokenScheduler?: boolean },
   ): Promise<HrOaAuthState> {
+    // FR-TOKEN-07：凡落 signed-out（登出 / 凭证类失效 / TTL 过期 / 无凭证首启）都取消
+    // 刷新计划并删除两个时间戳（cancel 是终态）；下次登录成功重建调度器、起新周期。
+    if (!opts?.keepTokenScheduler) {
+      tokenScheduler?.cancel();
+      tokenScheduler = null;
+    }
     await clearPortalCookies();
     if (reason === 'logout' || reason === 'expired') {
       // 非致命（同 clearPortalCookies）：收口失败不得拦住状态落定。
@@ -252,6 +303,10 @@ export function createHrOaSessionManager(deps: {
         profile: await offlineProfile(stored),
       });
     }
+    // 静默重登成功（启动 / 网络恢复）：计划缺失（升级后首跑）或已过期（错过周期，
+    // 本次登录就是「补刷 1 次」）才起新周期；进行中的周期不动——FR-TOKEN-01「从最近
+    // 一次成功登录或成功刷新起算，不从启动起算」「应用重启后继续沿用同一周期」。
+    noteSilentLoginSuccess();
     const profile = await fetchProfile();
     if (!profile) {
       // 资料失败不阻断登录：键按已缓存的冻结键，凭证保留（不重写，避免按错 loginName 重解）。
@@ -270,6 +325,86 @@ export function createHrOaSessionManager(deps: {
     });
     await credentials.saveOaProfileCache({ accountKey, loginName, profile });
     return settle({ status: 'signed-in', accountKey, profile });
+  }
+
+  /** 计划缺失或已到期才种新周期；进行中的周期保持（见 silentRelogin 内注释）。 */
+  function noteSilentLoginSuccess(): void {
+    const persist = deps.tokenRefreshPersist;
+    if (!persist) return;
+    const plan = persist.load();
+    const at = now();
+    if (plan && at < plan.next) return;
+    persist.save({ last: at, next: at + TOKEN_REFRESH_PERIOD_MS });
+  }
+
+  /** 显式登录成功 = 用户手工解决登录态 → 无条件起新周期（FR-TOKEN-07）。 */
+  function noteLoginSuccess(): void {
+    const at = now();
+    deps.tokenRefreshPersist?.save({ last: at, next: at + TOKEN_REFRESH_PERIOD_MS });
+    ensureTokenScheduler();
+  }
+
+  /**
+   * 12h 刷新的执行体（调度器的 `refresh` 注入面）：刷新 = 静默重登。**零界面变化**——
+   * 成功不重取资料、不落状态（FR-TOKEN-03/08）；网络类失败保留凭证与计划、不提示不
+   * 落 offline（FR-TOKEN-06，Ruling 6：VPN 抖动不得把人锁在门外）；凭证类被拒按
+   * FR-LOGOUT-05 强退（清凭证/会话/资料缓存/cookie，落 `expired` 供渲染层弹
+   * 「登录已过期，请重新登录」）。挂起超过 10s 按 timeout 放弃本次（FR-TOKEN-04，
+   * 与调度器的超时哨兵同刻；业务闸随之放行）。
+   */
+  async function runTokenRefresh(): Promise<TokenRefreshOutcome> {
+    const run = (async (): Promise<TokenRefreshOutcome> => {
+      const loaded = await credentials.loadOaLoginDetailed(now());
+      if (loaded.status === 'unavailable') {
+        // 密文在盘但暂时读不出：暂态（钥匙串抖动），保留凭证与计划、走网络类退避。
+        return 'network_error';
+      }
+      if (loaded.status !== 'ok') {
+        // 凭证已不在 / TTL 过期：刷新失去意义，同凭证被拒强退（FR-TOKEN-05）。
+        await credentials.clearOaLogin();
+        client.resetSession();
+        await dropToSignedOut('expired', false, { keepTokenScheduler: true });
+        return 'rejected';
+      }
+      const outcome = await withTimeout(
+        client.login(loaded.record.username, loaded.record.password),
+      );
+      if (outcome.ok) return 'success';
+      if (outcome.kind === 'wrong_credentials' || outcome.kind === 'locked') {
+        await credentials.clearOaLogin();
+        client.resetSession();
+        await dropToSignedOut('expired', false, { keepTokenScheduler: true });
+        return 'rejected';
+      }
+      return outcome.kind;
+    })();
+    const tracked: Promise<void> = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    refreshInFlight = tracked;
+    try {
+      return await run;
+    } finally {
+      if (refreshInFlight === tracked) refreshInFlight = null;
+    }
+  }
+
+  /** 刷新总超时（FR-TOKEN-04）：被放弃的登录迟到落定不回写状态（本函数已收口）。 */
+  function withTimeout(outcome: Promise<OaLoginOutcome>): Promise<OaLoginOutcome> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, kind: 'timeout' }), TOKEN_REFRESH_TIMEOUT_MS);
+      outcome.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve({ ok: false, kind: 'network_error' });
+        },
+      );
+    });
   }
 
   /**
@@ -309,22 +444,29 @@ export function createHrOaSessionManager(deps: {
   }
 
   async function startup(): Promise<HrOaAuthState> {
-    const loaded = await loadStoredLoginWithRetry();
-    if (loaded.status === 'unavailable') {
-      return settleCredentialUnavailable();
+    ensureTokenScheduler();
+    try {
+      const loaded = await loadStoredLoginWithRetry();
+      if (loaded.status === 'unavailable') {
+        return await settleCredentialUnavailable();
+      }
+      if (loaded.status === 'none') {
+        // 无凭证：保持 signed-out、不 commit——ensureLoaded 的启动归一已经把会话放在
+        // signed-out/local，HR 不该在这里踩掉 local。无 reason = 首启，不是失效。
+        // 仍收口门户 cookie（notify 路径）：凭证不在了，旧门户会话不得跨到登录门后。
+        return await dropToSignedOut(undefined, true);
+      }
+      if (loaded.status === 'expired') {
+        // TTL 过期：曾有凭证的失效（FR-SESSION-02）→ reason:'expired'，
+        // 渲染层冷启动也弹「登录已过期」；load 侧已顺手清掉密文。门户 cookie 同口径收口。
+        return await dropToSignedOut('expired', false);
+      }
+      return await silentRelogin(loaded.record);
+    } finally {
+      // FR-TOKEN-02：应用启动对表检查一次（fire-and-forget——门禁等 startup 落定，
+      // 不得被刷新拖住；未登录/未到期零动作，到期错过多个周期也只补刷 1 次）。
+      void tokenRefreshDue('launch');
     }
-    if (loaded.status === 'none') {
-      // 无凭证：保持 signed-out、不 commit——ensureLoaded 的启动归一已经把会话放在
-      // signed-out/local，HR 不该在这里踩掉 local。无 reason = 首启，不是失效。
-      // 仍收口门户 cookie（notify 路径）：凭证不在了，旧门户会话不得跨到登录门后。
-      return dropToSignedOut(undefined, true);
-    }
-    if (loaded.status === 'expired') {
-      // TTL 过期：曾有凭证的失效（FR-SESSION-02）→ reason:'expired'，
-      // 渲染层冷启动也弹「登录已过期」；load 侧已顺手清掉密文。门户 cookie 同口径收口。
-      return dropToSignedOut('expired', false);
-    }
-    return silentRelogin(loaded.record);
   }
 
   async function login(
@@ -364,6 +506,8 @@ export function createHrOaSessionManager(deps: {
     // 显式登录成功 = 用户已手工解决登录态，startup 的读出楔子到此收口（生命周期
     // 合同）：stale pending 会让下一次聚焦 silentRelogin，把健康会话打回 offline。
     credentialLoadPending = false;
+    // 登录成功开始新刷新周期（FR-TOKEN-07）：last = now，next = now + 12h。
+    noteLoginSuccess();
     return settle({ status: 'signed-in', accountKey, profile: effective });
   }
 
@@ -416,6 +560,16 @@ export function createHrOaSessionManager(deps: {
     return runOfflineReconnect();
   }
 
+  async function tokenRefreshDue(trigger: TokenRefreshTrigger): Promise<void> {
+    // 未启用（无 persist 注入）/ 已随 signed-out 取消：零动作。
+    if (!tokenScheduler) return;
+    await tokenScheduler.onDue(trigger);
+  }
+
+  function whenRefreshIdle(): Promise<void> {
+    return refreshInFlight ?? Promise.resolve();
+  }
+
   function getState(): HrOaAuthState {
     return state;
   }
@@ -427,5 +581,19 @@ export function createHrOaSessionManager(deps: {
     };
   }
 
-  return { startup, login, logout, networkRecovered, retryCredentialLoad, getState, onDidChange };
+  // 注入了 persist 即启用调度器（计划为空时 onDue 零动作，「未登录不刷新」）；
+  // signed-out 收口会取消并置空，登录成功再重建（cancel 是终态）。
+  ensureTokenScheduler();
+
+  return {
+    startup,
+    login,
+    logout,
+    networkRecovered,
+    retryCredentialLoad,
+    tokenRefreshDue,
+    whenRefreshIdle,
+    getState,
+    onDidChange,
+  };
 }

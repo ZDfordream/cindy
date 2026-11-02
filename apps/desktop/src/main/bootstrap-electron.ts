@@ -1122,6 +1122,7 @@ import { registerHrOaIpc } from './hr-oa/ipc.js';
 import { createOaClient } from './hr-oa/oaClient.js';
 import { createProfileService } from './hr-oa/profileService.js';
 import { createHrOaSessionManager } from './hr-oa/sessionManager.js';
+import { createFileTokenRefreshPersist } from './hr-oa/tokenRefresh.js';
 import { setHrOaTelemetryContext } from './hr-oa/telemetry.js';
 import {
   resolveNewMakerMenuCommand,
@@ -2259,6 +2260,10 @@ const hrOaSessionManager = createHrOaSessionManager({
   onAccountBoundary: () => {
     hrOaProfileService.bumpEpoch();
   },
+  // 12h 凭证静默刷新计划（FR-TOKEN-01：last/next 两个时间戳与凭证一起存本机）。
+  tokenRefreshPersist: createFileTokenRefreshPersist(
+    path.join(app.getPath('userData'), 'hr-oa-token-refresh.json'),
+  ),
 });
 const whenHrOaSessionSettled: Promise<unknown> = app
   .whenReady()
@@ -2283,7 +2288,18 @@ app.on('browser-window-focus', () => {
   void hrOaSessionManager.retryCredentialLoad().catch((err: unknown) => {
     hrOaLog.warn('[hr-oa] credential retry on focus failed (non-fatal)', err);
   });
+  // 12h 凭证刷新的聚焦触发源（FR-TOKEN-02）：未到期/未登录零动作。
+  void hrOaSessionManager.tokenRefreshDue('focus').catch((err: unknown) => {
+    hrOaLog.warn('[hr-oa] token refresh check on focus failed (non-fatal)', err);
+  });
 });
+// 12h 凭证刷新的对表触发源（FR-TOKEN-02）：不依赖 12h 长定时器（睡眠/改时会失准），
+// 每 1 分钟按墙上时钟检查一次；启动 / 唤醒 / 聚焦 / online 另有触发（见各接线点）。
+setInterval(() => {
+  void hrOaSessionManager.tokenRefreshDue('timer').catch((err: unknown) => {
+    hrOaLog.warn('[hr-oa] token refresh check failed (non-fatal)', err);
+  });
+}, 60_000);
 // 埋点通用属性（PRD §10.1）：app/os 版本与「应用会话 ID」在 main 初始化一次注入。
 // session_id = 一次应用运行（launch）的随机 UUID；account 经 registerHrOaIpc 的
 // 状态投影更新（冻结账号键），renderer 只发触发事实。
@@ -9878,6 +9894,10 @@ app.on('ready', async () => {
     syncPluginMarketForActiveOwner(30_000, 'resume');
     // device-link:睡醒立即重连 relay,不干等退避计时器 + 心跳判死(最坏合计 ~75s)。
     handleDeviceLinkSystemResume();
+    // 12h 凭证刷新的唤醒触发源（FR-TOKEN-02）：睡眠过头只补刷 1 次（overdue_ms 量化迟到）。
+    void hrOaSessionManager.tokenRefreshDue('wake').catch((err: unknown) => {
+      hrOaLog.warn('[hr-oa] token refresh check on resume failed (non-fatal)', err);
+    });
   });
   powerMonitor.on('unlock-screen', handleProviderModelScreenUnlock);
   powerMonitor.on('lock-screen', authCredentialRecovery.onScreenLock);
