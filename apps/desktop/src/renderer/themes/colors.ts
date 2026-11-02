@@ -3257,7 +3257,11 @@ registerColor(
 // 依据集成设计 §4.7/§4.8：PRD §6.7 表里的字面值走登记路线，不散落硬编码。仅
 // `features/model-gateway/OnboardingHomeBanner.tsx` 消费，Light + Dark 双模式同源；
 // PRD 只给出亮色值（浅品牌蓝卡片系），暗色取同位蓝阶/反相胶囊（同 login 主钮
-// 反相先例），保证标题与副文案在两种模式下均可读。品牌蓝渐变两端两模式同值
+// 反相先例）。标题两模式可读；**副文案亮色 #8a8a8f@#F3F6FD 实测 ≈3.2:1，低于
+// A-1「文本对比度 ≥ 4.5:1」——已知例外、待 owner 拍板**（依据 PRD 族 A-1「辅助灰
+// #8a8a8f 仅用于次要说明」把副文案认作次要说明；要 AA 亮色改 ≈#6B6B70 即一行，
+// 见 DESIGN.md §5「Known contrast exception」与 decision log 2026-11-02 Ruling J）。
+// 暗色副文案 #9C9CA3@#1E2A45 可读。品牌蓝渐变两端两模式同值
 // （= PRD --brand/#16388C → --blue/#3b74d9，与 hr-oa-fallback-bg 同源同值）。
 registerColor(
   'hr-oa-banner-bg',

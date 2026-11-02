@@ -9,7 +9,8 @@
  *   「去配置」回调 + 焦点环（BANNER-02）、收起后 `hidden` + `inert` 且可聚焦元素不残留
  *   （BANNER-03 / Review Focus #6）、窄容器 < 520px 按钮换行撑满（BANNER-04）、无
  *   `role="status"` 且图标块 aria-hidden（BANNER-05）、收起/出现动效挂登记 token、
- *   品牌行只保留标识且无「对话」下拉（REMOVE-02）。
+ *   出现 keyframe 从透明起始（冷启动「淡入」契约）、品牌行只保留标识且无「对话」下拉
+ *   （REMOVE-02）。
  * - Bug／规则依据：profile-menu PRD FR-HOME-BANNER-01~05 / FR-HOME-REMOVE-02 与 §6.7 规格表；
  *   集成设计 §4.7/§4.8（色板/字号登记、双模式、动效走 token）；DESIGN.md §5
  *   `hrbuddy-home-banner`（14px 容器）/ `hrbuddy-home-banner-tile`（10px 图标块）。
@@ -26,6 +27,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import zhCN from '@/i18n/locales/zh-CN/common.json';
 import { OnboardingHomeBanner } from '../OnboardingHomeBanner';
@@ -191,6 +194,20 @@ describe('FR-HOME-BANNER-03 收起（保存模型成功后）', () => {
     expect(wrapper().className).toContain('duration-[var(--motion-home-banner-collapse)]');
     expect(wrapper().className).toContain('ease-[var(--motion-ease-move)]');
     expect(wrapper().className).toContain('delay-[var(--motion-home-banner-collapse-delay)]');
+  });
+
+  it('出现动效「淡入」：hr-banner-rise keyframe 从透明起始（冷启动路径也能淡入）', () => {
+    // jsdom 不执行 CSS 动画，按 foundationDefaultsFreeze 同法钉 keyframe 起始态契约：
+    // 缺 `opacity: 0` 时冷启动（首挂 visible=true，wrapper 无可过渡起始态）卡片会
+    // 全程不透明地滑入，违反 PRD §6.7 动效行「出现：淡入并上移 8px」。
+    const css = readFileSync(
+      resolve(__dirname, '../../../styles/globals.css'),
+      'utf8',
+    );
+    const from = css.match(/@keyframes\s+hr-banner-rise\s*\{[^}]*from[^}]*\{([^}]*)\}/);
+    expect(from).toBeTruthy();
+    expect(from![1]).toContain('opacity: 0');
+    expect(from![1]).toContain('translateY(8px)');
   });
 });
 
