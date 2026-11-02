@@ -2214,6 +2214,16 @@ interface ElectronAPI {
     getState: () => Promise<import('../main/hr-oa/sessionManager').HrOaAuthState>;
     /** 网络恢复(设计 §4.2)：window 'online' 触发 main 静默重登(仅 offline 落定后有动作)。 */
     networkRecovered: () => Promise<import('../main/hr-oa/sessionManager').HrOaAuthState>;
+    /** 个人资料取数(FR-PROFILE-05/07)：fromCache=true = 有缓存但刷新失败。 */
+    profile: {
+      fetchProfile: (
+        source: import('../main/hr-oa/profileService').ProfileSource,
+      ) => Promise<import('../main/hr-oa/profileService').ProfileResult>;
+    };
+    /** 头像字节(缓存键 personId+s_time，FR-PROFILE-02)；renderer 转 blob URL 展示。 */
+    avatar: {
+      getAvatar: (sTime: string) => Promise<import('../main/hr-oa/avatar').AvatarCache | null>;
+    };
     /** HR OA 埋点(PRD §10)：fire-and-forget；载荷组装与脱敏在 main trackHrOaEvent 收口。 */
     trackEvent: (name: string, props: Record<string, unknown>) => void;
   };

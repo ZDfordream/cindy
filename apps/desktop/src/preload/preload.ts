@@ -1,4 +1,6 @@
 import type { OaLoginFailure } from '../main/hr-oa/errors';
+import type { AvatarCache } from '../main/hr-oa/avatar';
+import type { ProfileResult, ProfileSource } from '../main/hr-oa/profileService';
 import type { HrOaAuthState } from '../main/hr-oa/sessionManager';
 import type { VoiceConversationApi } from '../shared/voiceConversation';
 import { createAccessibilitySupportBridge } from './accessibilitySupport';
@@ -2335,6 +2337,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 网络恢复（设计 §4.2）：渲染层 window 'online' 触发 main 静默重登；只在 offline
     // 落定后有动作，多窗口同响单飞合并。
     networkRecovered: (): Promise<HrOaAuthState> => ipcRenderer.invoke('hrOa:network-recovered'),
+    // 个人资料 / 头像（Task 2 通道 `hrOa:profile` / `hrOa:avatar`）：资料取数带
+    // fromCache/error 分流（FR-PROFILE-05）；头像回字节（结构化克隆），renderer 转
+    // blob URL 展示。person_id 等字段值只走回包载荷，不进日志。
+    profile: {
+      fetchProfile: (source: ProfileSource): Promise<ProfileResult> =>
+        ipcRenderer.invoke('hrOa:profile', source),
+    },
+    avatar: {
+      getAvatar: (sTime: string): Promise<AvatarCache | null> =>
+        ipcRenderer.invoke('hrOa:avatar', sTime),
+    },
     // 埋点（PRD §10）：fire-and-forget，不返回、不阻塞 UI。载荷组装与采集边界
     // 脱敏在 main 的 trackHrOaEvent 收口；这里只负责送触发事实。
     trackEvent: (name: string, props: Record<string, unknown>): void => {

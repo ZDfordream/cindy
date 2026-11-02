@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -29,6 +29,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/lib/toast';
 import type { DesktopSavedAccount } from '@/lib/authService';
+import { ProfileAvatar } from '@/features/hr-oa-profile/ProfileAvatar';
+import { ProfileEntry } from '@/features/hr-oa-profile/ProfileEntry';
+import { useHrOaProfile } from '@/features/hr-oa-profile/useHrOaProfile';
+import { isCindyAccountUiVisible } from '@/features/hr-oa-auth/legacyVisibility';
 import { CURRENT_CINDY_REGION } from '../../../shared/brandRegion';
 import { shouldLabelRegion } from '../../../shared/regionCode';
 import { MobileDownloadDialog } from './MobileDownloadDialog';
@@ -63,6 +67,56 @@ function AccountMenuAvatar({ account }: { account: DesktopSavedAccount }) {
         <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
       )}
     </span>
+  );
+}
+
+/**
+ * HR 模式侧栏收起（rail）形态（OQ-4）：28px 头像固定在窄栏底部，点击/键盘同样
+ * 开个人弹层。展开态用 `ProfileEntry`（FR-PROFILE-01 的 44px 入口）。
+ */
+function HrProfileRailEntry({
+  expanded,
+  onOpen,
+}: {
+  expanded: boolean;
+  onOpen: (options?: { focus?: 'first' | 'last' }) => void;
+}) {
+  const { profile, avatarUrl, state } = useHrOaProfile();
+  const { t } = useTranslation();
+  const failed = state === 'error';
+  const name = profile?.name ?? '';
+  return (
+    <div className="mt-auto flex h-[66px] flex-col items-center justify-center gap-1 px-3">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={expanded}
+        aria-label={
+          state === 'loading'
+            ? t('hrOa.profile.entryAriaLoading')
+            : failed
+              ? t('hrOa.profile.entryAriaError')
+              : t('hrOa.profile.entryAriaName', { name })
+        }
+        onClick={() => onOpen({ focus: 'first' })}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+            event.preventDefault();
+            onOpen({ focus: 'first' });
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            onOpen({ focus: 'last' });
+          }
+        }}
+        className={cn(
+          'flex items-center justify-center rounded-[10px] p-1',
+          'transition-colors duration-[var(--motion-fast)] hover:bg-[var(--sidebar-user-card-bg-hover)]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]',
+        )}
+      >
+        <ProfileAvatar size={28} profile={failed ? null : profile} src={failed ? null : avatarUrl} />
+      </button>
+    </div>
   );
 }
 
@@ -118,6 +172,27 @@ export function UserInfoSection({ isCollapsed, onOpenUpdateNotice }: UserInfoSec
     setAccountsSyncing(false);
     setSwitchingAccountKey(null);
   }, [accountsOwnerKey]);
+
+  // HR 模式个人入口的开层意图（FR-PROFILE-01：点击/Enter/Space/↓ 焦点首项，↑ 焦点
+  // 最后一项）。弹层本体是 Task 4 的 ProfileMenu（自入口向上弹）；本步先把入口与
+  // expanded（aria-expanded）接线，Task 4 在同处挂 ProfileMenu 消费 open + focus 意图。
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const handleProfileOpen = useCallback((options?: { focus?: 'first' | 'last' }) => {
+    setProfileMenuOpen(true);
+    // focus:'last'（↑ 开层聚焦最后一项）留给 Task 4 的 ProfileMenu 初始焦点策略。
+    void options;
+  }, []);
+
+  // HR 模式（mode === 'hr'）：侧栏底部改挂个人信息入口；Cindy 账号行随
+  // SHOW_CINDY_ACCOUNT_UI「藏不删」收起（HR 会话无 Cindy user，恢复开关打开时也
+  // 回到旧行为：不渲染）。收起形态见 OQ-4（28px 头像固定窄栏底部）。
+  if (mode === 'hr' && !isCindyAccountUiVisible()) {
+    return isCollapsed ? (
+      <HrProfileRailEntry expanded={profileMenuOpen} onOpen={handleProfileOpen} />
+    ) : (
+      <ProfileEntry expanded={profileMenuOpen} onOpen={handleProfileOpen} />
+    );
+  }
 
   if (!user && !isLocal) return null;
 

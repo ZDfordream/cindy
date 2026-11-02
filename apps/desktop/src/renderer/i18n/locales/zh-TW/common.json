@@ -17924,6 +17924,20 @@
     "saveFailed": "設定可能已儲存，但執行中的任務尚未全部確認切換為普通模式。請檢查連線後重試。"
   },
   "hrOa": {
+    "profile": {
+      "entryAriaLoading": "個人資訊與選單：正在擷取",
+      "entryAriaName": "個人資訊與選單：{{name}}",
+      "entryAriaError": "個人資訊與選單：未取得資訊",
+      "notFetched": "未取得資訊",
+      "busy": "正在擷取個人資訊",
+      "cardAriaLabel": "個人資訊",
+      "loginNameLabel": "登入名稱",
+      "emailLabel": "電子郵件",
+      "refreshFailed": "資訊更新失敗",
+      "retry": "重試",
+      "retrying": "重試中…",
+      "errorHint": "個人資訊擷取失敗，請稍後重試"
+    },
     "session": {
       "expired": "登入已過期，請重新登入"
     },

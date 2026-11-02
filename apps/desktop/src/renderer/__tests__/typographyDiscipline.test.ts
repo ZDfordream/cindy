@@ -151,6 +151,13 @@ const EXEMPTIONS: Exemption[] = [
     signatures: [{ match: 'fontSize …64', expected: 1 }],
   },
   {
+    file: 'src/renderer/features/hr-oa-profile/ProfileEntry.tsx',
+    rule: 'arb-size',
+    reason:
+      'DESIGN.md §3「HRBuddy 个人信息入口姓名」: profile-menu PRD FR-PROFILE-01 prototype 13.5px/500 entry name; only this one hit is admitted.',
+    signatures: [{ match: 'text-[13.5px]', expected: 1 }],
+  },
+  {
     file: 'src/renderer/components/chat/MarkdownRenderer.tsx',
     rule: 'tw-weight',
     reason: 'DESIGN §3: content strong is absolute 700, including nested strong; ordinary UI weights remain capped at 600.',

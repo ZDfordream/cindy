@@ -17984,6 +17984,20 @@
     "saveFailed": "The setting may be saved, but some running tasks have not confirmed standard speed. Check the connection and retry."
   },
   "hrOa": {
+    "profile": {
+      "entryAriaLoading": "Personal info and menu: loading",
+      "entryAriaName": "Personal info and menu: {{name}}",
+      "entryAriaError": "Personal info and menu: info unavailable",
+      "notFetched": "Info unavailable",
+      "busy": "Loading personal information",
+      "cardAriaLabel": "Personal information",
+      "loginNameLabel": "Login name",
+      "emailLabel": "Email",
+      "refreshFailed": "Update failed",
+      "retry": "Retry",
+      "retrying": "Retrying…",
+      "errorHint": "Couldn't load personal info. Try again later."
+    },
     "session": {
       "expired": "Login expired. Please sign in again."
     },

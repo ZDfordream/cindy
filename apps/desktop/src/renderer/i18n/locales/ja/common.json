@@ -17924,6 +17924,20 @@
     "saveFailed": "設定は保存された可能性がありますが、一部の実行中タスクが通常速度への切り替えを確認していません。接続を確認して再試行してください。"
   },
   "hrOa": {
+    "profile": {
+      "entryAriaLoading": "個人情報とメニュー：取得中",
+      "entryAriaName": "個人情報とメニュー：{{name}}",
+      "entryAriaError": "個人情報とメニュー：情報を取得できませんでした",
+      "notFetched": "情報を取得できませんでした",
+      "busy": "個人情報を取得しています",
+      "cardAriaLabel": "個人情報",
+      "loginNameLabel": "ログイン名",
+      "emailLabel": "メールアドレス",
+      "refreshFailed": "更新に失敗しました",
+      "retry": "再試行",
+      "retrying": "再試行中…",
+      "errorHint": "個人情報を取得できませんでした。しばらくしてから再試行してください。"
+    },
     "session": {
       "expired": "ログインの有効期限が切れました。もう一度ログインしてください。"
     },

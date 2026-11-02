@@ -2597,6 +2597,19 @@
       },
       "checkCase": false,
       "note": "Codex 模型的第三档速度；与推理深度 Ultra 独立。标准、快速、超快分别对应默认、Fast、Ultrafast。"
+    },
+    {
+      "id": "login-name",
+      "status": "proposed",
+      "en": "Login name",
+      "translations": {
+        "zh-CN": "登录名",
+        "zh-TW": "登入名稱",
+        "ja": "ログイン名",
+        "ko": "로그인 이름"
+      },
+      "checkCase": false,
+      "note": "2026-11-02 profile-menu OQ-3 裁决：OA 的 login_name 是登录名（实测如 YLS），不是工号；身份卡标签用「登录名」，禁止「工号」。与登录页「账号 / 工号 / 邮箱」提示语（登录输入可填工号）不是同一概念。"
     }
   ]
 }

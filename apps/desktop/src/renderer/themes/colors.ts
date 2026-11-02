@@ -3214,3 +3214,41 @@ registerColor(
   GENERATED_DEFAULTS["task-tag-white-check"],
   'Task label identity color',
 );
+
+// ── HRBuddy 个人信息面（PRD profile-menu §10.1 新增色板的登记态）──
+// 依据集成设计 §4.7/§4.8：PRD §10.1 的字面值走登记路线，不散落硬编码。仅
+// `features/hr-oa-profile/`（侧栏个人入口 / 身份卡）消费，Light + Dark 双模式同源；
+// PRD 只给出亮色值，暗色取同位灰阶/提亮琥珀，保证人形图标与「信息更新失败」文字在
+// 两种模式下均可读。品牌蓝兜底底色两模式同值（= PRD --fallback-bg #16388C，白字同源）。
+registerColor(
+  'hr-oa-fallback-bg',
+  {
+    light: '#16388C',
+    dark: '#16388C',
+  },
+  'HRBuddy 头像首字兜底底色（FR-PROFILE-02 / PRD --fallback-bg，= 品牌蓝）',
+);
+registerColor(
+  'hr-oa-fallback-empty',
+  {
+    light: '#d9d9dc',
+    dark: '#3c3c3a',
+  },
+  'HRBuddy 姓名为空时的头像兜底底色（FR-PROFILE-02 / PRD --fallback-empty；暗色取 surface-chip 同位灰阶）',
+);
+registerColor(
+  'hr-oa-skeleton',
+  {
+    light: '#ececef',
+    dark: '#3c3c3a',
+  },
+  'HRBuddy 资料加载骨架（FR-PROFILE-04 / PRD --sk；暗色取 surface-chip 同位灰阶）',
+);
+registerColor(
+  'hr-oa-warn-text',
+  {
+    light: '#8a5a00',
+    dark: '#e0b566',
+  },
+  'HRBuddy「信息更新失败」提示文字（FR-PROFILE-05 / PRD --warn-text；暗色提亮保证对比度）',
+);

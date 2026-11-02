@@ -17924,6 +17924,20 @@
     "saveFailed": "설정은 저장되었을 수 있지만 일부 실행 중인 작업이 일반 속도 전환을 확인하지 않았습니다. 연결을 확인한 후 다시 시도하세요."
   },
   "hrOa": {
+    "profile": {
+      "entryAriaLoading": "개인 정보 및 메뉴: 불러오는 중",
+      "entryAriaName": "개인 정보 및 메뉴: {{name}}",
+      "entryAriaError": "개인 정보 및 메뉴: 정보를 불러오지 못했습니다",
+      "notFetched": "정보를 불러오지 못했습니다",
+      "busy": "개인 정보를 불러오는 중",
+      "cardAriaLabel": "개인 정보",
+      "loginNameLabel": "로그인 이름",
+      "emailLabel": "이메일",
+      "refreshFailed": "업데이트에 실패했습니다",
+      "retry": "다시 시도",
+      "retrying": "다시 시도하는 중…",
+      "errorHint": "개인 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+    },
     "session": {
       "expired": "로그인이 만료되었습니다. 다시 로그인해 주세요."
     },

@@ -1,6 +1,6 @@
 {
   "source": "apps/desktop/src/renderer/themes/colors.ts",
-  "count": 568,
+  "count": 572,
   "colors": [
     {
       "id": "surface",
@@ -2841,6 +2841,26 @@
       "id": "task-tag-white-check",
       "light": "#525252",
       "dark": "#525252"
+    },
+    {
+      "id": "hr-oa-fallback-bg",
+      "light": "#16388C",
+      "dark": "#16388C"
+    },
+    {
+      "id": "hr-oa-fallback-empty",
+      "light": "#d9d9dc",
+      "dark": "#3c3c3a"
+    },
+    {
+      "id": "hr-oa-skeleton",
+      "light": "#ececef",
+      "dark": "#3c3c3a"
+    },
+    {
+      "id": "hr-oa-warn-text",
+      "light": "#8a5a00",
+      "dark": "#e0b566"
     }
   ]
 }
