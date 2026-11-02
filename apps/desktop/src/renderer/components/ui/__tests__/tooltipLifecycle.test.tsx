@@ -125,6 +125,37 @@ describe('BUG-TOOLTIP-01 图标提示生命周期（TT-01~TT-12）', () => {
     expect(tooltip()).toBeNull();
   });
 
+  it('键盘唤出菜单（无 pointer/无 click）关闭后提示不出现 (TT-10 键盘路径)', () => {
+    render(<MenuButton />);
+    const trigger = screen.getByRole('button', { name: 'titleBar.menu' });
+
+    // TT-02：Tab 聚焦出现提示——hoverOpen 被置 true，来源=focus（键盘开弹层的前提）。
+    act(() => {
+      trigger.focus();
+    });
+    expect(tooltip()).not.toBeNull();
+
+    // Enter 由 Radix DropdownMenuTrigger onKeyDown 处理并 preventDefault——
+    // 不产生 pointerdown/click，本用例钉的就是这条没有指针补偿的路径。
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    expect(screen.getByRole('menu')).toBeTruthy();
+    expect(tooltip()).toBeNull();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(document.activeElement).toBe(trigger);
+    // 弹层关闭、控制交回后不得复弹：受迫关闭期间 blur-close 被 useControllableState
+    // 吞掉，hoverOpen 不清就会在这一刻亮回来（review Important 复现点）。
+    expect(tooltip()).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(tooltip()).toBeNull();
+  });
+
   it('自测 3：Tab 聚焦标题栏图标出现提示，焦点离开立即消失 (TT-02)', () => {
     render(
       <>

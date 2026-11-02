@@ -233,6 +233,15 @@ export const Tip = React.forwardRef<unknown, TipProps>(function Tip(props, forwa
   }, [open]);
 
   React.useLayoutEffect(() => {
+    // TT-10 键盘路径（review Important）：进入受迫关闭(弹层打开)时清掉非指针来源的
+    // hover 记忆。keyboard 开弹层(Enter/Space/↓,Radix onKeyDown preventDefault,
+    // 无 pointerdown/click)走不到指针补偿链,而 trigger 的 blur-close 又会被
+    // useControllableState 吞掉(value===prop 不回调)——不清则 Esc 控制交回瞬间
+    // open=hoverOpen 立即复弹。pointer 来源保留:语音/拖拽「交回控制恢复 hover」
+    // handoff 合同(voiceTooltipControl)。
+    if (requestedOpen === false && lastInteractionRef.current !== 'pointer') {
+      setHoverOpen(false);
+    }
     if (resetHoverOnControlChange && requestedOpen !== undefined) setHoverOpen(false);
   }, [resetHoverOnControlChange, requestedOpen]);
 
@@ -286,6 +295,9 @@ export const Tip = React.forwardRef<unknown, TipProps>(function Tip(props, forwa
           // TT-10:抑制窗内只挡 focus 来源(菜单关闭焦点回返 / 切窗后残留聚焦);
           // 新 hover 与合成请求照常放行(voiceTooltipControl 的 handoff 合同)。
           if (suppressOpenRef.current && lastInteractionRef.current === 'focus') return;
+          // 无 trigger 事件的合成打开请求按 pointer handoff 记账:受迫关闭的
+          // 非指针清记忆只针对 focus 路径,合成来源要保留 handoff(同上合同)。
+          if (lastInteractionRef.current === 'none') lastInteractionRef.current = 'pointer';
         }
         // A hover callback during forced display must not reopen a different
         // label when control returns to the pointer after recording stops.
