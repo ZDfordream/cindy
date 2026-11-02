@@ -160,7 +160,7 @@ export function PluginManagementHeader({
           : navigate(tab === 'plugins' ? '/plugins' : '/skillhub/local')
       }
       options={[
-        { value: 'plugins', label: t('settings.ghosts.title') },
+        { value: 'plugins', label: t('settings.ghosts.tabLabel') },
         { value: 'skills', label: t('skillhub.home.title') },
       ]}
     />

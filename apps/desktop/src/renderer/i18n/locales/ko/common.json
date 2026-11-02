@@ -1652,7 +1652,7 @@
       "help": "도움말",
       "about": "정보",
       "imBot": "IM 봇",
-      "ghosts": "플러그인",
+      "ghosts": "플러그인·스킬",
       "cindyMake": "HRBuddy Make"
     },
     "sections": {
@@ -6777,8 +6777,9 @@
       }
     },
     "ghosts": {
-      "title": "플러그인",
-      "description": "HRBuddy의 기능을 확장하는 도구와 연동입니다.",
+      "title": "플러그인·스킬",
+      "tabLabel": "플러그인",
+      "description": "HRBuddy가 사용할 수 있는 플러그인과 스킬을 관리합니다.",
       "page": {
         "search": "플러그인 검색",
         "clearSearch": "플러그인 검색 지우기",
@@ -9495,7 +9496,7 @@
     "tabs": {
       "projects": "프로젝트",
       "skillhub": "SkillHub",
-      "plugins": "플러그인",
+      "plugins": "플러그인·스킬",
       "issues": "이슈",
       "bots": "동료"
     },
@@ -9510,7 +9511,7 @@
       },
       "items": {
         "automations": "자동화",
-        "plugins": "플러그인",
+        "plugins": "플러그인·스킬",
         "bots": "동료",
         "search": "검색"
       }

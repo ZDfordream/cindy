@@ -1681,7 +1681,7 @@
       "help": "Help",
       "about": "About",
       "imBot": "IM bots",
-      "ghosts": "Plugins",
+      "ghosts": "Plugins·Skills",
       "cindyMake": "HRBuddy Make"
     },
     "sections": {
@@ -6808,8 +6808,9 @@
       }
     },
     "ghosts": {
-      "title": "Plugins",
-      "description": "Tools and integrations that extend HRBuddy.",
+      "title": "Plugins·Skills",
+      "tabLabel": "Plugins",
+      "description": "Manage the plugins and skills HRBuddy can use.",
       "page": {
         "search": "Search plugins",
         "clearSearch": "Clear Plugin Search",
@@ -9527,7 +9528,7 @@
     "tabs": {
       "projects": "Projects",
       "skillhub": "SkillHub",
-      "plugins": "Plugins",
+      "plugins": "Plugins·Skills",
       "issues": "Issues",
       "bots": "Teammates"
     },
@@ -9542,7 +9543,7 @@
       },
       "items": {
         "automations": "Automations",
-        "plugins": "Plugins",
+        "plugins": "Plugins·Skills",
         "bots": "Teammates",
         "search": "Search"
       }

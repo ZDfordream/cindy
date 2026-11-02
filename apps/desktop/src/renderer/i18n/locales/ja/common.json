@@ -1652,7 +1652,7 @@
       "help": "ヘルプ",
       "about": "情報",
       "imBot": "IM ボット",
-      "ghosts": "プラグイン",
+      "ghosts": "プラグイン·スキル",
       "cindyMake": "HRBuddy Make"
     },
     "sections": {
@@ -6777,8 +6777,9 @@
       }
     },
     "ghosts": {
-      "title": "プラグイン",
-      "description": "HRBuddy の機能を広げるツールと連携。",
+      "title": "プラグイン·スキル",
+      "tabLabel": "プラグイン",
+      "description": "HRBuddy が利用できるプラグインとスキルを管理します。",
       "page": {
         "search": "プラグインを検索",
         "clearSearch": "プラグイン検索をクリア",
@@ -9495,7 +9496,7 @@
     "tabs": {
       "projects": "プロジェクト",
       "skillhub": "SkillHub",
-      "plugins": "プラグイン",
+      "plugins": "プラグイン·スキル",
       "issues": "問題",
       "bots": "仲間"
     },
@@ -9510,7 +9511,7 @@
       },
       "items": {
         "automations": "自動化",
-        "plugins": "プラグイン",
+        "plugins": "プラグイン·スキル",
         "bots": "仲間",
         "search": "検索"
       }

@@ -1652,7 +1652,7 @@
       "help": "幫助",
       "about": "關於",
       "imBot": "IM 機器人",
-      "ghosts": "插件",
+      "ghosts": "插件·技能",
       "cindyMake": "HRBuddy Make"
     },
     "sections": {
@@ -6777,8 +6777,9 @@
       }
     },
     "ghosts": {
-      "title": "插件",
-      "description": "擴充套件 HRBuddy 能力的工具與整合。",
+      "title": "插件·技能",
+      "tabLabel": "插件",
+      "description": "管理 HRBuddy 可調用的插件與技能",
       "page": {
         "search": "搜尋插件",
         "clearSearch": "清除插件搜尋",
@@ -9495,7 +9496,7 @@
     "tabs": {
       "projects": "專案",
       "skillhub": "技能",
-      "plugins": "插件",
+      "plugins": "插件·技能",
       "issues": "Issue",
       "bots": "夥伴"
     },
@@ -9510,7 +9511,7 @@
       },
       "items": {
         "automations": "自動化",
-        "plugins": "插件",
+        "plugins": "插件·技能",
         "bots": "夥伴",
         "search": "搜尋"
       }

@@ -13,6 +13,7 @@ vi.mock('react-i18next', () => ({
     t: (key: string) =>
       ({
         'settings.ghosts.title': 'Plugins',
+        'settings.ghosts.tabLabel': 'Plugins',
         'settings.ghosts.page.search': 'Search plugins',
         'settings.ghosts.page.clearSearch': 'Clear Plugin Search',
         'skillhub.home.title': 'Skills',
