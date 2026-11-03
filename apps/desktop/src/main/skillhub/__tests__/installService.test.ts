@@ -61,6 +61,7 @@ vi.mock('../../appCapabilities.js', () => ({
     canUseSkillHubCloud: true,
     canUseCindyOAuthBroker: true,
     canUseCindyHeartbeat: true,
+    canUseTencentSkillhub: true,
   })),
   requireAppCapability: vi.fn(),
 }));
@@ -82,6 +83,13 @@ vi.mock('../registry', () => ({
     removeInstall: vi.fn(),
   },
 }));
+
+// 腾讯来源的前置流程（详情复核、下载、校验）在 tencentSkillhub.test.ts 单测；这里只验证
+// install() 对它的接入：HR 模式门禁、版本与作者登记、失败码透传。
+vi.mock('../tencent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../tencent')>();
+  return { ...actual, prepareTencentInstall: vi.fn() };
+});
 
 vi.mock('../folderHash', () => ({
   computeFolderHash: vi.fn(async () => 'folder-hash'),
@@ -160,6 +168,7 @@ describe('skillhub/installService', () => {
       canUseSkillHubCloud: true,
       canUseCindyOAuthBroker: true,
       canUseCindyHeartbeat: true,
+      canUseTencentSkillhub: true,
     });
   });
 
@@ -695,7 +704,8 @@ describe('skillhub/installService', () => {
 
   it.each([
     { scope: undefined, origin: 'published', expectedOrigin: 'published' },
-    { scope: 'market', origin: 'published', expectedOrigin: 'installed' },
+    // 'market' 现在是腾讯来源（另有 tencentInstall 用例）；用 team 保留 Cindy 路径上的同一规则。
+    { scope: 'team', origin: 'published', expectedOrigin: 'installed' },
     { scope: undefined, origin: 'installed', expectedOrigin: 'installed' },
   ] as const)(
     'preserves publication provenance only when updating the same catalog ($scope/$origin)',
@@ -749,6 +759,83 @@ describe('skillhub/installService', () => {
       expect(fs.readFileSync(path.join(finalDir, 'SKILL.md'), 'utf8')).toBe('new content');
     },
   );
+
+  it('installs a Tencent market skill in HR mode without a Cindy user (§6.1, AC-15)', async () => {
+    const { getCurrentUserId } = await import('../../authManager');
+    const { getAppCapabilities } = await import('../../appCapabilities.js');
+    const { serverApiFetch } = await import('../../serverApiClient');
+    const { prepareTencentInstall } = await import('../tencent');
+    const { registryService } = await import('../registry');
+    vi.mocked(getCurrentUserId).mockReturnValue(null);
+    vi.mocked(getAppCapabilities).mockReturnValue({
+      canUseCindyAccountServices: false,
+      canUseCindyGateway: false,
+      canUseDeviceLink: false,
+      canUseSkillHubCloud: false,
+      canUseCindyOAuthBroker: false,
+      canUseCindyHeartbeat: false,
+      canUseTencentSkillhub: true,
+    });
+    const zip = await makeZip({ 'SKILL.md': '# tencent' });
+    vi.mocked(prepareTencentInstall).mockResolvedValue({
+      version: '1.2.0',
+      handle: 'kunlungrowth',
+      zip: { bytes: zip, md5: 'm', sha256: sha256(zip) },
+    });
+    const finalDir = path.join(TEST_ROOT, 'tencent-skills', 'kunlun-resume');
+    const { install } = await import('../installService');
+    const result = await install(
+      { name: 'kunlun-resume', catalogScope: 'market', installPath: finalDir, version: '1.1.0' },
+      () => {},
+    );
+    expect(result).toMatchObject({ success: true, version: '1.2.0' });
+    expect(fs.readFileSync(path.join(finalDir, 'SKILL.md'), 'utf8')).toBe('# tencent');
+    expect(registryService.addInstall).toHaveBeenCalledWith(
+      'kunlun-resume',
+      finalDir,
+      expect.objectContaining({ version: '1.2.0', authorId: 'kunlungrowth', catalogScope: 'market', origin: 'installed' }),
+    );
+    // 不向 Cindy Skill Hub 发任何请求（HR 模式没有 Cindy 账号）。
+    expect(serverApiFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['SECURITY_NOT_BENIGN', '该技能的安全报告未通过，已拒绝安装'],
+    ['PAID_SKILL', '暂不支持安装付费技能'],
+  ] as const)('returns %s from the Tencent gate without touching the target', async (code, message) => {
+    const { getCurrentUserId } = await import('../../authManager');
+    const { prepareTencentInstall, TencentInstallCheckError } = await import('../tencent');
+    vi.mocked(getCurrentUserId).mockReturnValue(null);
+    vi.mocked(prepareTencentInstall).mockRejectedValue(new TencentInstallCheckError(code, message));
+    const finalDir = path.join(TEST_ROOT, 'tencent-skills', 'gated');
+    const { install } = await import('../installService');
+    expect(await install({ name: 'gated', catalogScope: 'market', installPath: finalDir }, () => {}))
+      .toEqual({ success: false, errorCode: code, message });
+    expect(fs.existsSync(finalDir)).toBe(false);
+  });
+
+  it('keeps Cindy product auto-sync on the Cindy Hub path for market slugs', async () => {
+    // 回归：自动同步的远程配置列的是 Cindy Hub 的 market slug；交给腾讯会装上同名的第三方技能。
+    const { prepareTencentInstall } = await import('../tencent');
+    const zipBuf = await makeZip({ 'SKILL.md': 'cindy content' });
+    await setupInstallDownload('auto-synced', zipBuf);
+    const finalDir = path.join(TEST_ROOT, 'auto', 'auto-synced');
+    const { install } = await import('../installService');
+    expect(await install(
+      { name: 'auto-synced', catalogScope: 'market', autoSync: true, installPath: finalDir, version: '1.0.0' },
+      () => {},
+    )).toMatchObject({ success: true });
+    expect(prepareTencentInstall).not.toHaveBeenCalled();
+    expect(fs.readFileSync(path.join(finalDir, 'SKILL.md'), 'utf8')).toBe('cindy content');
+  });
+
+  it('still requires a Cindy user for organization installs in HR mode', async () => {
+    const { getCurrentUserId } = await import('../../authManager');
+    vi.mocked(getCurrentUserId).mockReturnValue(null);
+    const { install } = await import('../installService');
+    expect(await install({ name: 'org-skill', catalogScope: 'team' }, () => {}))
+      .toMatchObject({ success: false, errorCode: 'AUTH_REQUIRED' });
+  });
 
   it('keeps the previous install intact when extraction fails during forced update', async () => {
     const finalDir = path.join(TEST_ROOT, 'skills', 'broken-skill');
@@ -817,6 +904,7 @@ describe('skillhub/installService', () => {
       canUseSkillHubCloud: false,
       canUseCindyOAuthBroker: false,
       canUseCindyHeartbeat: false,
+      canUseTencentSkillhub: false,
     });
 
     await expect(uninstall(finalDir)).resolves.toEqual({ success: true });
@@ -851,6 +939,7 @@ describe('skillhub/installService', () => {
       canUseSkillHubCloud: false,
       canUseCindyOAuthBroker: false,
       canUseCindyHeartbeat: false,
+      canUseTencentSkillhub: false,
     });
 
     try {
@@ -875,6 +964,7 @@ describe('skillhub/installService', () => {
         canUseSkillHubCloud: true,
         canUseCindyOAuthBroker: true,
         canUseCindyHeartbeat: true,
+        canUseTencentSkillhub: true,
       }));
     }
   });
@@ -1709,6 +1799,7 @@ describe('skillhub/installService', () => {
       canUseSkillHubCloud: false,
       canUseCindyOAuthBroker: false,
       canUseCindyHeartbeat: false,
+      canUseTencentSkillhub: false,
     });
 
     const result = await uninstall(finalDir);

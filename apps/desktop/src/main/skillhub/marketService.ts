@@ -6,6 +6,13 @@ import { assertSkillhubVisibilityAllowed, assertSkillhubWriteAllowed } from './i
 import { registryService } from './registry';
 import { createLogger } from '../logger';
 import { skillhubCatalogKey, withSkillhubCatalogScope, type SkillhubCatalogScope } from '../../shared/skillhubCatalog';
+import {
+  getTencentSkillhubCatalog,
+  isTencentSkillhubError,
+  isTencentCatalogScope,
+  isTencentListParams,
+  type TencentSkillhubCatalog,
+} from './tencent';
 
 const SKILLHUB_SYNC_BATCH_SIZE = 100;
 const HUB_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,127}$/;
@@ -50,6 +57,11 @@ export interface SkillhubMarketServiceOptions {
     scope: SkillhubCatalogScope | undefined,
     previousScope: SkillhubCatalogScope | undefined,
   ) => Promise<void>;
+  /**
+   * 「公开」目录（catalogScope=market、listMarket 的 all/缺省）的数据来源。默认是进程级
+   * 腾讯 SkillHub 适配器；传 null 保持 Cindy Hub 原路径（单测覆盖原路径契约时使用）。
+   */
+  tencent?: TencentSkillhubCatalog | null;
 }
 
 export interface ListMarketParams {
@@ -96,6 +108,11 @@ export interface SkillVisibilityUpdateResult {
  *
  * Keeps broker URL construction, input normalization, and Hub-to-desktop DTO
  * mapping out of Electron IPC registration so it can be tested directly.
+ *
+ * HRBuddy：公开目录改由腾讯 SkillHub 提供（tencent/）。分派规则见
+ * isTencentListParams / isTencentCatalogScope：market、all、缺省走腾讯；team、mine=true
+ * 与无 scope 的 Cindy 管理视图保持原路径，行为不变。发布、可见性等写操作只存在于
+ * Cindy 原路径。
  */
 export class SkillhubMarketService {
   private readonly fetch: SkillhubMarketFetcher;
@@ -106,6 +123,7 @@ export class SkillhubMarketService {
     scope: SkillhubCatalogScope | undefined,
     previousScope: SkillhubCatalogScope | undefined,
   ) => Promise<void>;
+  private readonly tencent: TencentSkillhubCatalog | null;
 
   constructor(options: SkillhubMarketServiceOptions = {}) {
     this.fetch = options.fetch ?? skillhubApiFetch;
@@ -113,6 +131,7 @@ export class SkillhubMarketService {
     this.assertVisibilityAllowed = options.assertVisibilityAllowed ?? assertSkillhubVisibilityAllowed;
     this.updateRegistryCatalogScope = options.updateRegistryCatalogScope
       ?? registryService.updateCatalogScopeForSkill;
+    this.tencent = options.tencent === undefined ? getTencentSkillhubCatalog() : options.tencent;
   }
 
   async sync(params: { skills?: unknown; slugs?: string[] } | undefined) {
@@ -125,15 +144,40 @@ export class SkillhubMarketService {
     const batches = [...grouped.entries()].flatMap(([catalogScope, slugs]) =>
       chunkSkillhubSlugs(slugs).map((batch) => ({ catalogScope, slugs: batch }))
     );
-    const requests = batches.length > 0 ? batches : [{ catalogScope: 'market' as const, slugs: [] }];
-    const detailResponses = await Promise.all(requests.map(async ({ catalogScope, slugs }) => ({
-      catalogScope,
-      response: await this.fetchSkillhubBatchDetail(slugs, catalogScope),
-    })));
-    return buildSkillhubSyncResponse(refs, detailResponses);
+    const tencent = this.tencent;
+    const cindyBatches = tencent ? batches.filter(({ catalogScope }) => !isTencentCatalogScope(catalogScope)) : batches;
+    const tencentSlugs = tencent
+      ? batches.filter(({ catalogScope }) => isTencentCatalogScope(catalogScope)).flatMap(({ slugs }) => slugs)
+      : [];
+    // 原路径在没有引用时仍发一次空的 market 批量请求以取 availableCount；公开目录改走
+    // 腾讯后不再向 Cindy 发这次请求（HR 模式下 Cindy 不可用，会让整个 sync 失败）。
+    const requests = cindyBatches.length > 0 || tencent
+      ? cindyBatches
+      : [{ catalogScope: 'market' as const, slugs: [] }];
+    const [detailResponses, tencentItems] = await Promise.all([
+      Promise.all(requests.map(async ({ catalogScope, slugs }) => ({
+        catalogScope,
+        response: await this.fetchSkillhubBatchDetail(slugs, catalogScope),
+      }))),
+      tencent && tencentSlugs.length > 0 ? tencent.syncDetails(tencentSlugs) : Promise.resolve(new Map()),
+    ]);
+    const response = buildSkillhubSyncResponse(refs, detailResponses);
+    if (tencentItems.size === 0 && tencentSlugs.length === 0) return response;
+    // 腾讯条目已经是渲染层形状；按 slug 回填 market 引用的结果，查不到的保持 exists:false。
+    return {
+      ...response,
+      results: response.results.map((result) => {
+        if (!isTencentCatalogScope(result.catalogScope)) return result;
+        const mapped = tencentItems.get(result.name);
+        return mapped ? { exists: true as const, ...mapped } : result;
+      }),
+    };
   }
 
   async listMarket(params: ListMarketParams | undefined) {
+    if (this.tencent && isTencentListParams(params)) {
+      return this.tencent.listMarket(params);
+    }
     const page = params?.cursor ? Number(params.cursor) : 1;
     const pageSize = params?.limit ?? 24;
     const installedSkills = normalizeInstalledSkillsForHub(params?.installedSkills);
@@ -180,6 +224,7 @@ export class SkillhubMarketService {
   }
 
   async info(name: string, catalogScope?: SkillhubCatalogScope) {
+    if (this.tencent && isTencentCatalogScope(catalogScope)) return this.tencent.info(name);
     const hub = await this.fetch<HubSkillInfoForDesktop | { deleted: true }>(
       withSkillhubCatalogScope(`/api/skills-hub/skills/${encodeURIComponent(name)}`, catalogScope),
     );
@@ -191,6 +236,9 @@ export class SkillhubMarketService {
   }
 
   async getPublishedFiles({ name, version, catalogScope, includeHashes }: { name: string; version?: string; catalogScope?: SkillhubCatalogScope; includeHashes?: boolean }) {
+    if (this.tencent && isTencentCatalogScope(catalogScope)) {
+      return this.tencent.getPublishedFiles({ name, version, includeHashes });
+    }
     const search = new URLSearchParams();
     if (version) search.set('version', version);
     if (includeHashes) search.set('includeHashes', '1');
@@ -204,6 +252,9 @@ export class SkillhubMarketService {
   }
 
   async readPublishedFile({ name, path: filePath, version, catalogScope }: { name: string; path: string; version?: string; catalogScope?: SkillhubCatalogScope }) {
+    if (this.tencent && isTencentCatalogScope(catalogScope)) {
+      return this.tencent.readPublishedFile({ name, path: filePath, version });
+    }
     const search = new URLSearchParams({ path: filePath });
     if (version) search.set('version', version);
     const result = await this.fetch<{
@@ -217,6 +268,7 @@ export class SkillhubMarketService {
   }
 
   async listPublishedVersions(name: string, catalogScope?: SkillhubCatalogScope) {
+    if (this.tencent && isTencentCatalogScope(catalogScope)) return this.tencent.listPublishedVersions();
     const versions = await this.fetch<unknown[]>(
       withSkillhubCatalogScope(`/api/skills-hub/skills/${encodeURIComponent(name)}/versions`, catalogScope),
     );
@@ -300,6 +352,7 @@ export class SkillhubMarketService {
   }
 
   async listCategories(scope: SkillhubCatalogScope = 'market', includeEmpty = true) {
+    if (this.tencent && isTencentCatalogScope(scope)) return this.tencent.listCategories();
     const items = await this.fetch<Array<{
       slug: string;
       name: string;
@@ -336,6 +389,10 @@ export class SkillhubMarketService {
   }
 
   async getScanStatus({ slug, version, catalogScope }: { slug: string; version?: string; catalogScope?: SkillhubCatalogScope }) {
+    if (this.tencent && isTencentCatalogScope(catalogScope)) {
+      // 腾讯目录只展示两份安全报告都为 benign 的条目，与「审核通过」等价。
+      return { success: true as const, status: 'passed', gates: [] as unknown[] };
+    }
     const path = `/api/skills-hub/skills/${encodeURIComponent(slug)}/scan${version ? `?version=${encodeURIComponent(version)}` : ''}`;
     const result = await this.fetch<{ status: string; rejectionReason?: string; gates?: unknown[]; scorecard?: unknown }>(
       withSkillhubCatalogScope(path, catalogScope),
@@ -355,7 +412,7 @@ export class SkillhubMarketService {
 export const skillhubIpcError = (err: unknown) => ({
   success: false as const,
   error: err instanceof Error ? err.message : String(err),
-  errorCode: err instanceof ServerApiError ? err.code : undefined,
+  errorCode: err instanceof ServerApiError || isTencentSkillhubError(err) ? err.code : undefined,
 });
 
 export function normalizeSkillhubSlugs(slugs: unknown): string[] {

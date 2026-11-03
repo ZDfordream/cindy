@@ -107,7 +107,10 @@ export class SkillhubAutoSyncService {
   private readonly deps: AutoSyncDeps;
 
   constructor(deps?: Partial<AutoSyncDeps>) {
-    const marketService = new SkillhubMarketService();
+    // 产品自动同步是 Cindy 账号能力：远程配置里的 market slug 指的是 Cindy Hub 的技能。
+    // 不能交给腾讯来源——腾讯查不到同名 slug 时会被判为下架并清理用户已装的技能，
+    // 查到同名 slug 时又会装上无关的第三方技能。
+    const marketService = new SkillhubMarketService({ tencent: null });
     this.deps = {
       getCurrentUserId,
       fetchConfig: fetchRemoteAutoSyncConfig,

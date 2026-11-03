@@ -101,6 +101,10 @@ export const CLIENT_ENDPOINT_KEYS = [
   // cindy-skill-hub-server 的 API 基址。纯增可选字段，不 bump schemaVersion：
   // 老客户端按未知字段忽略，新客户端缺失时明确关闭云端 Skill Hub，不回退旧地址。
   'cindySkillHubApiBaseUrl',
+  // HRBuddy「技能 → 公开」的腾讯 SkillHub API 基址（远程熔断开关）。纯增可选字段，
+  // 不 bump schemaVersion。缺失或空白时客户端用内置的 https://api.skillhub.cn；填了
+  // 客户端内置白名单外的地址即关闭该来源（见 desktop skillhub/tencent/http.ts）。
+  'tencentSkillhubApiBaseUrl',
   // plugin-server(Plugin/Skill 市场、组织管理与发布)的 API 基址。
   'pluginApiBaseUrl',
   // Independent sharing website. Missing disables preparation; never guess a domain.
@@ -168,6 +172,7 @@ const FIELD_PROTOCOLS: Record<ClientEndpointKey, readonly string[]> = {
   githubApiBaseUrl: ['https:'],
   skillhubApiBaseUrl: ['https:'],
   cindySkillHubApiBaseUrl: ['https:'],
+  tencentSkillhubApiBaseUrl: ['https:'],
   pluginApiBaseUrl: ['https:'],
   shareBaseUrl: ['https:'],
   cdnBaseUrl: ['https:'],

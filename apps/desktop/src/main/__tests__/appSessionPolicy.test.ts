@@ -12,7 +12,21 @@ describe('local app-session policy', () => {
       canUseSkillHubCloud: false,
       canUseCindyOAuthBroker: false,
       canUseCindyHeartbeat: false,
+      // 腾讯 SkillHub 不是 Cindy 账号能力：本地模式可用。
+      canUseTencentSkillhub: true,
     });
+  });
+
+  it.each([
+    ['hr', false, true],
+    ['cloud', false, true],
+    ['signed-out', false, false],
+    ['hr', true, false],
+  ] as const)('opens the Tencent SkillHub source in %s mode (boundaryPending=%s) → %s', (mode, pending, expected) => {
+    // HR 模式没有 Cindy 账号，只放开腾讯来源，不放开 Cindy 云端 SkillHub（方案 §6.2）。
+    const caps = deriveAppCapabilities(mode, pending);
+    expect(caps.canUseTencentSkillhub).toBe(expected);
+    if (mode === 'hr') expect(caps.canUseSkillHubCloud).toBe(false);
   });
 
   it('fails closed while a cloud owner boundary is pending', () => {

@@ -17,6 +17,11 @@ export interface AppCapabilities {
   canUseCindyGateway: boolean;
   canUseDeviceLink: boolean;
   canUseSkillHubCloud: boolean;
+  /**
+   * 「技能 → 公开」的腾讯 SkillHub 来源：浏览与安装不需要 Cindy 账号，cloud、local、
+   * hr 三种模式都可用（方案 §6.2：按来源放行，不整体放开 canUseSkillHubCloud）。
+   */
+  canUseTencentSkillhub: boolean;
   canUseCindyOAuthBroker: boolean;
   canUseCindyHeartbeat: boolean;
 }
@@ -26,11 +31,13 @@ export function deriveAppCapabilities(
   boundaryPending = false,
 ): AppCapabilities {
   const cloud = mode === 'cloud' && !boundaryPending;
+  const tencent = (mode === 'cloud' || mode === 'local' || mode === 'hr') && !boundaryPending;
   return {
     canUseCindyAccountServices: cloud,
     canUseCindyGateway: cloud,
     canUseDeviceLink: cloud,
     canUseSkillHubCloud: cloud,
+    canUseTencentSkillhub: tencent,
     canUseCindyOAuthBroker: cloud,
     canUseCindyHeartbeat: cloud,
   };

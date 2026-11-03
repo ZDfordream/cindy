@@ -24,6 +24,9 @@ vi.mock('../../serverApiClient', async () => {
 
 type FetchCall = { path: string; opts?: Omit<ApiFetchOptions, 'baseUrl'> };
 
+// 本文件锁的是 Cindy Hub 原路径的路由与映射契约，所以每个实例都传 `tencent: null`。
+// HRBuddy 把公开目录分派给腾讯来源后，分派本身见 tencentSkillhub.test.ts。
+
 function makeFetch(responses: unknown[]) {
   const calls: FetchCall[] = [];
   const impl: SkillhubMarketFetcher = async <T,>(path: string, opts?: Omit<ApiFetchOptions, 'baseUrl'>): Promise<T> => {
@@ -58,7 +61,7 @@ describe('SkillhubMarketService', () => {
       gates: [{ name: 'security-scan', status: 'passed' }],
     };
     const { fetch, calls } = makeFetch([rejected, { status: 'rejected', gates: [] }]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
     expect(await service.getScanStatus({ slug: 'review-helper', version: '1.0.1' }))
       .toEqual({ success: true, ...rejected });
     expect(calls[0]).toMatchObject({
@@ -73,7 +76,7 @@ describe('SkillhubMarketService', () => {
     const { fetch, calls } = makeFetch([
       { items: [makeHubSkill('alpha')], availableCount: 4 },
     ]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     const result = await service.sync({ slugs: ['alpha', '', 'alpha', 'beta', 'my_skill', ' bad ', 'x'.repeat(129)] });
 
@@ -97,7 +100,7 @@ describe('SkillhubMarketService', () => {
 
   it('blocks management mutations before issuing a request for read-only identities', async () => {
     const { fetch, calls } = makeFetch([]);
-    const service = new SkillhubMarketService({
+    const service = new SkillhubMarketService({ tencent: null,
       fetch,
       assertWriteAllowed: () => {
         throw new ServerApiError('SKILL_HUB_READ_ONLY', 403, 'read-only');
@@ -113,7 +116,7 @@ describe('SkillhubMarketService', () => {
   it('chunks sync requests at the broker batch limit', async () => {
     const slugs = Array.from({ length: 101 }, (_, i) => `skill-${i}`);
     const { fetch, calls: fetchCalls } = makeFetch([{ items: [] }, { items: [] }]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     await service.sync({ slugs });
 
@@ -127,7 +130,7 @@ describe('SkillhubMarketService', () => {
       { items: [makeHubSkill('same', { displayName: 'Market Same' })] },
       { items: [makeHubSkill('same', { displayName: 'Team Same', visibility: 'shared' })] },
     ]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     const result = await service.sync({ skills: [
       { slug: 'same', catalogScope: 'market' },
@@ -148,7 +151,7 @@ describe('SkillhubMarketService', () => {
     const { fetch, calls } = makeFetch([
       { items: [makeHubSkill('mine', { isMine: false })], total: 25 },
     ]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     const result = await service.listMarket({
       cursor: '1',
@@ -172,7 +175,7 @@ describe('SkillhubMarketService', () => {
     const { fetch, calls } = makeFetch([
       { items: [makeHubSkill('available')], total: 1 },
     ]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     const result = await service.listMarket({
       available: true,
@@ -202,7 +205,7 @@ describe('SkillhubMarketService', () => {
       { items: [makeHubSkill('public-skill')], total: 1 },
       { items: [makeHubSkill('organization-skill', { visibility: 'shared' })], total: 1 },
     ]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     const publicResult = await service.listMarket({ scope: 'market', sort: 'trending' });
     const organizationResult = await service.listMarket({ scope: 'team', sort: 'trending' });
@@ -224,7 +227,7 @@ describe('SkillhubMarketService', () => {
       { sharedTeams: [{ id: 1, slug: 'team-a', name: 'Team A' }], visibleDepts: ['od-1'] },
       { status: 'published' },
     ]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     await service.info('demo/skill', 'market');
     await service.getPublishedFiles({ name: 'demo/skill', version: '1.0.0', catalogScope: 'market' });
@@ -249,7 +252,7 @@ describe('SkillhubMarketService', () => {
 
   it('passes deleted detail results through without mapping missing hub fields', async () => {
     const { fetch } = makeFetch([{ deleted: true }]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     await expect(service.info('local-only')).resolves.toEqual({
       success: true,
@@ -264,7 +267,7 @@ describe('SkillhubMarketService', () => {
       { unpublished: true },
       { slug: 'demo', visibility: 'private', requestedVisibility: 'public', reviewStatus: 'pending' },
     ]);
-    const service = new SkillhubMarketService({
+    const service = new SkillhubMarketService({ tencent: null,
       fetch,
       assertWriteAllowed: vi.fn(),
       assertVisibilityAllowed: vi.fn(),
@@ -315,7 +318,7 @@ describe('SkillhubMarketService', () => {
       { slug: 'demo', visibility: 'private' },
       { slug: 'demo', visibility: 'shared', requestedVisibility: 'public', reviewStatus: 'pending' },
     ]);
-    const service = new SkillhubMarketService({
+    const service = new SkillhubMarketService({ tencent: null,
       fetch,
       assertWriteAllowed: vi.fn(),
       assertVisibilityAllowed: vi.fn(),
@@ -356,7 +359,7 @@ describe('SkillhubMarketService', () => {
       },
       [{ slug: 'team-a', name: 'Team A', type: 'team' }],
     ]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     await expect(service.listCategories()).resolves.toEqual({
       success: true,
@@ -385,7 +388,7 @@ describe('SkillhubMarketService', () => {
 
   it('requests category lists from the selected catalog scope', async () => {
     const { fetch, calls } = makeFetch([[]]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     await expect(service.listCategories('team')).resolves.toMatchObject({
       success: true,
@@ -403,7 +406,7 @@ describe('SkillhubMarketService', () => {
         children: [{ slug: 'used', name: 'Used', skillCount: 3, mySkillCount: 1 }] },
       { slug: 'missing-count', name: 'Missing' },
     ]]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
 
     await expect(service.listCategories(scope, false)).resolves.toEqual({
       success: true,
@@ -420,7 +423,7 @@ describe('SkillhubMarketService', () => {
 
   it.each(['market', 'team'] as const)('preserves the filtered category result from updated %s servers', async (scope) => {
     const { fetch } = makeFetch([[{ slug: 'used', name: 'Used', skillCount: 3 }], []]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
     await expect(service.listCategories(scope, false)).resolves.toMatchObject({
       categories: [{ slug: 'used', count: 3 }],
     });
@@ -429,7 +432,7 @@ describe('SkillhubMarketService', () => {
 
   it('keeps unused tags selectable in explicit full-list mode', async () => {
     const { fetch, calls } = makeFetch([[{ slug: 'empty', name: 'Empty', skillCount: 0 }]]);
-    const service = new SkillhubMarketService({ fetch });
+    const service = new SkillhubMarketService({ tencent: null, fetch });
     await expect(service.listCategories('market', true)).resolves.toMatchObject({
       categories: [{ slug: 'empty', count: 0 }],
     });

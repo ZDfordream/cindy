@@ -26,6 +26,7 @@ const VALID_MANIFEST = {
   githubApiBaseUrl: 'https://github-api.example.com',
   skillhubApiBaseUrl: 'https://skillhub.example.com',
   cindySkillHubApiBaseUrl: 'https://cindy-skillhub.example.com',
+  tencentSkillhubApiBaseUrl: 'https://tencent-skillhub.example.com',
   pluginApiBaseUrl: 'https://plugin.example.com',
   shareBaseUrl: 'https://share.example.com',
   cdnBaseUrl: 'https://cdn.example.com/app',

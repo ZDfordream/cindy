@@ -40,6 +40,7 @@ export const TEST_CLIENT_ENDPOINTS: ClientEndpointMap = {
   githubApiBaseUrl: 'https://github-api.test.invalid',
   skillhubApiBaseUrl: 'https://skillhub.test.invalid',
   cindySkillHubApiBaseUrl: 'https://cindy-skillhub.test.invalid',
+  tencentSkillhubApiBaseUrl: '',
   pluginApiBaseUrl: 'https://plugin.test.invalid',
   shareBaseUrl: '',
   cdnBaseUrl: TEST_CDN_BASE_URL,

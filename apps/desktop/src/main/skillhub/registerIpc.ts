@@ -33,6 +33,7 @@ import * as importLocalSkill from './importLocalSkill';
 import * as installService from './installService';
 import { ServerApiError } from '../serverApiClient';
 import { SkillhubMarketService, skillhubIpcError } from './marketService';
+import { isTencentSkillhubError } from './tencent';
 import type { PublishParams, PublishProgressEvent } from './publishService';
 import { SkillPublishService } from './publishService';
 import { configureSkillhubAgentServices } from './agentTools';
@@ -396,7 +397,7 @@ export function registerSkillhubIpc(options: RegisterSkillhubIpcOptions): void {
     policy: currentSkillhubIdentityPolicy,
     isManagedPath: (absolutePath) => isBuiltInSkillPath(absolutePath)
       || isPluginManagedSkillPath(absolutePath, options.getManagedSkillRoots()),
-    errorCode: (error) => error instanceof ServerApiError ? error.code : 'INTERNAL',
+    errorCode: (error) => error instanceof ServerApiError || isTencentSkillhubError(error) ? error.code : 'INTERNAL',
   });
   let usageRefreshBroadcastPromise: Promise<void> | null = null;
   const captureUsageDbSnapshot = (): CurrentDbClientSnapshot => {
@@ -647,9 +648,9 @@ export function registerSkillhubIpc(options: RegisterSkillhubIpcOptions): void {
       try {
         return await marketService.listMarket(params);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
         log.error('[skillhub:list-market] failed:', err);
-        return { success: false, error: message };
+        // D-A：透传 errorCode（腾讯来源的 message 已是可直接显示的中文原因）。
+        return skillhubIpcError(err);
       }
     },
   );

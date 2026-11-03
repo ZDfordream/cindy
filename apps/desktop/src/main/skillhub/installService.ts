@@ -76,6 +76,12 @@ import {
   isKnownAutoSyncCandidateSkill,
 } from './autoSyncPreferences';
 import { withSkillhubCatalogScope, type SkillhubCatalogScope } from '../../shared/skillhubCatalog';
+import {
+  TencentInstallCheckError,
+  TencentSkillhubError,
+  isTencentCatalogScope,
+  prepareTencentInstall,
+} from './tencent';
 
 import { createLogger } from '../logger';
 
@@ -83,6 +89,8 @@ const log = createLogger('skillhub:installService');
 const MAX_SKILL_ZIP = 200 * 1024 * 1024; // 200 MB
 const MAX_SKILL_UNCOMPRESSED = 500 * 1024 * 1024; // 500 MB
 const MAX_SKILL_ZIP_ENTRIES = 10_000;
+/** 与 marketService 相同；腾讯来源的目录名直接由 name 拼出，入口必须先校验。 */
+const HUB_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,127}$/;
 
 // ── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -120,7 +128,11 @@ export type InstallErrorCode =
   | 'CONFLICT_USER_OWNED'
   | 'WRITE_FAILED'
   | 'CANCELLED'
-  | 'INTERNAL';
+  | 'INTERNAL'
+  /** 腾讯来源：安装前复核时 keen 或 sanbu 安全报告不是 benign（方案 §5.6）。 */
+  | 'SECURITY_NOT_BENIGN'
+  /** 腾讯来源：付费技能，本期不支持（方案 §5.6）。 */
+  | 'PAID_SKILL';
 
 export type InstallProgressEvent =
   | { phase: 'fetching-info'; name: string }
@@ -516,8 +528,17 @@ function safeJoin(dest: string, relPath: string): string | null {
 // ── 主入口：install ─────────────────────────────────────────────────────────
 
 export async function install(p: InstallParams, onProgress: ProgressCb, remoteGuard?: { current(): boolean; beforeCommit(): Promise<boolean> }): Promise<InstallResult> {
+  // 腾讯来源（公开目录）不要求 Cindy 账号：HR 模式没有 Cindy 用户，以数据所有者为主体
+  // （方案 §6.1）。组织目录与 Cindy 管理视图仍要求 Cindy 登录。
+  // 自动同步装的是 Cindy Hub 的技能（见 autoSyncService），始终走原路径。
+  const tencentSource = isTencentCatalogScope(p.catalogScope) && p.autoSync !== true;
+  if (tencentSource && !HUB_SLUG_RE.test(p.name)) {
+    const message = '技能名不合法';
+    onProgress({ phase: 'failed', name: p.name, errorCode: 'NOT_FOUND', message });
+    return { success: false, errorCode: 'NOT_FOUND', message };
+  }
   const userId = getCurrentUserId();
-  if (!userId) {
+  if (!userId && !tencentSource) {
     onProgress({ phase: 'failed', name: p.name, errorCode: 'AUTH_REQUIRED', message: '未登录' });
     return { success: false, errorCode: 'AUTH_REQUIRED', message: '未登录' };
   }
@@ -558,10 +579,11 @@ export async function install(p: InstallParams, onProgress: ProgressCb, remoteGu
   inflight.set(p.name, ac);
 
   const checkAbort = (): boolean => {
+    const capabilities = getAppCapabilities();
     if (
       signal.aborted ||
       (remoteGuard !== undefined && !remoteGuard.current()) ||
-      !getAppCapabilities().canUseSkillHubCloud ||
+      !(tencentSource ? capabilities.canUseTencentSkillhub : capabilities.canUseSkillHubCloud) ||
       getCurrentDataOwnerId() !== installOwnerId
     ) {
       ac.abort();
@@ -587,79 +609,108 @@ export async function install(p: InstallParams, onProgress: ProgressCb, remoteGu
     onProgress({ phase: 'fetching-info', name: p.name });
     if (checkAbort()) return { success: false, errorCode: 'CANCELLED', message: '已取消' };
 
-    let info: DownloadInfoResponse;
     let downloadVersion: string = p.version ?? '';
-    try {
-      // 如果没传版本号，先查 hub 拿最新版本
-      if (!downloadVersion) {
-        const detail = await skillhubApiFetch<{ version: string }>(
+    let zipBuf: Uint8Array;
+    /** 安装后登记到 registry 的作者：腾讯来源取 namespace.handle（方案 §5.1 第 7 步）。 */
+    let tencentAuthorId: string | null = null;
+    let cindyFileHash = '';
+    if (tencentSource) {
+      // 腾讯来源：重新取详情 → 安全/付费硬门禁 → 下载 + md5=ETag → TOFU → shadow 验签。
+      try {
+        onProgress({ phase: 'downloading', name: p.name });
+        const pkg = await prepareTencentInstall(p.name, p.version, signal);
+        downloadVersion = pkg.version;
+        tencentAuthorId = pkg.handle;
+        zipBuf = pkg.zip.bytes;
+      } catch (err) {
+        if (checkAbort()) return { success: false, errorCode: 'CANCELLED', message: '已取消' };
+        const errorCode: InstallErrorCode = err instanceof TencentInstallCheckError
+          ? err.installCode
+          : err instanceof TencentSkillhubError && err.kind === 'NOT_FOUND'
+            ? 'NOT_FOUND'
+            : 'DOWNLOAD_FAILED';
+        const message = err instanceof Error ? err.message : String(err);
+        if (errorCode === 'CHECKSUM_MISMATCH') onProgress({ phase: 'verifying', name: p.name });
+        log.warn('[skillInstall] tencent download failed', { errorCode });
+        onProgress({ phase: 'failed', name: p.name, errorCode, message });
+        return { success: false, errorCode, message };
+      }
+      if (checkAbort()) return { success: false, errorCode: 'CANCELLED', message: '已取消' };
+      onProgress({ phase: 'verifying', name: p.name });
+    } else {
+      let info: DownloadInfoResponse;
+      try {
+        // 如果没传版本号，先查 hub 拿最新版本
+        if (!downloadVersion) {
+          const detail = await skillhubApiFetch<{ version: string }>(
+            withSkillhubCatalogScope(
+              `/api/skills-hub/skills/${encodeURIComponent(p.name)}`,
+              p.catalogScope,
+            ),
+          );
+          downloadVersion = detail.version;
+        }
+        const versionQs = downloadVersion ? `?version=${encodeURIComponent(downloadVersion)}` : '';
+        info = await skillhubApiFetch<DownloadInfoResponse>(
           withSkillhubCatalogScope(
-            `/api/skills-hub/skills/${encodeURIComponent(p.name)}`,
+            `/api/skills-hub/skills/${encodeURIComponent(p.name)}/download${versionQs}`,
             p.catalogScope,
           ),
         );
-        downloadVersion = detail.version;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const code: InstallErrorCode =
+          (err as { statusCode?: number }).statusCode === 404 ? 'NOT_FOUND' : 'DOWNLOAD_FAILED';
+        onProgress({ phase: 'failed', name: p.name, errorCode: code, message });
+        return { success: false, errorCode: code, message };
       }
-      const versionQs = downloadVersion ? `?version=${encodeURIComponent(downloadVersion)}` : '';
-      info = await skillhubApiFetch<DownloadInfoResponse>(
-        withSkillhubCatalogScope(
-          `/api/skills-hub/skills/${encodeURIComponent(p.name)}/download${versionQs}`,
-          p.catalogScope,
-        ),
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const code: InstallErrorCode =
-        (err as { statusCode?: number }).statusCode === 404 ? 'NOT_FOUND' : 'DOWNLOAD_FAILED';
-      onProgress({ phase: 'failed', name: p.name, errorCode: code, message });
-      return { success: false, errorCode: code, message };
-    }
 
-    if (checkAbort()) return { success: false, errorCode: 'CANCELLED', message: '已取消' };
-
-    // 2) Shared verified download; unpacking and install ownership stay here.
-    if (
-      !Number.isSafeInteger(info.fileSize) ||
-      info.fileSize <= 0 ||
-      info.fileSize > MAX_SKILL_ZIP
-    ) {
-      const message = 'Skill archive size is invalid';
-      onProgress({ phase: 'failed', name: p.name, errorCode: 'DOWNLOAD_FAILED', message });
-      return { success: false, errorCode: 'DOWNLOAD_FAILED', message };
-    }
-    onProgress({ phase: 'downloading', name: p.name });
-    let zipBuf: Uint8Array;
-    let downloadDir: string | undefined;
-    try {
-      downloadDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'cindy-skill-download-'));
-      const archive = path.join(downloadDir, 'skill.zip');
-      await download({
-        url: info.url,
-        targetPath: archive,
-        sha256: info.zipSha256,
-        expectedSize: info.fileSize,
-        maxBytes: MAX_SKILL_ZIP,
-        signal,
-        resume: false,
-        retry: { maxAttempts: 1 },
-      });
-      zipBuf = await fs.promises.readFile(archive);
-    } catch (error) {
       if (checkAbort()) return { success: false, errorCode: 'CANCELLED', message: '已取消' };
-      const checksum = error instanceof DownloadError && ['CHECKSUM', 'SIZE'].includes(error.code);
-      const errorCode = checksum ? 'CHECKSUM_MISMATCH' : 'DOWNLOAD_FAILED';
-      const message = checksum ? '下载校验失败：大小或 sha256 不匹配' : 'Skill download failed';
-      if (checksum) onProgress({ phase: 'verifying', name: p.name });
-      log.warn('[skillInstall] download failed', { errorCode });
-      onProgress({ phase: 'failed', name: p.name, errorCode, message });
-      return { success: false, errorCode, message };
-    } finally {
-      if (downloadDir)
-        await fs.promises.rm(downloadDir, { recursive: true, force: true }).catch(() => undefined);
+
+      // 2) Shared verified download; unpacking and install ownership stay here.
+      if (
+        !Number.isSafeInteger(info.fileSize) ||
+        info.fileSize <= 0 ||
+        info.fileSize > MAX_SKILL_ZIP
+      ) {
+        const message = 'Skill archive size is invalid';
+        onProgress({ phase: 'failed', name: p.name, errorCode: 'DOWNLOAD_FAILED', message });
+        return { success: false, errorCode: 'DOWNLOAD_FAILED', message };
+      }
+      onProgress({ phase: 'downloading', name: p.name });
+      let downloadDir: string | undefined;
+      try {
+        downloadDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'cindy-skill-download-'));
+        const archive = path.join(downloadDir, 'skill.zip');
+        await download({
+          url: info.url,
+          targetPath: archive,
+          sha256: info.zipSha256,
+          expectedSize: info.fileSize,
+          maxBytes: MAX_SKILL_ZIP,
+          signal,
+          resume: false,
+          retry: { maxAttempts: 1 },
+        });
+        zipBuf = await fs.promises.readFile(archive);
+      } catch (error) {
+        if (checkAbort()) return { success: false, errorCode: 'CANCELLED', message: '已取消' };
+        const checksum = error instanceof DownloadError && ['CHECKSUM', 'SIZE'].includes(error.code);
+        const errorCode = checksum ? 'CHECKSUM_MISMATCH' : 'DOWNLOAD_FAILED';
+        const message = checksum ? '下载校验失败：大小或 sha256 不匹配' : 'Skill download failed';
+        if (checksum) onProgress({ phase: 'verifying', name: p.name });
+        log.warn('[skillInstall] download failed', { errorCode });
+        onProgress({ phase: 'failed', name: p.name, errorCode, message });
+        return { success: false, errorCode, message };
+      } finally {
+        if (downloadDir)
+          await fs.promises.rm(downloadDir, { recursive: true, force: true }).catch(() => undefined);
+      }
+      if (checkAbort()) return { success: false, errorCode: 'CANCELLED', message: '已取消' };
+      // A resolved download has already passed size and SHA-256 verification.
+      onProgress({ phase: 'verifying', name: p.name });
+      cindyFileHash = info.fileHash;
     }
-    if (checkAbort()) return { success: false, errorCode: 'CANCELLED', message: '已取消' };
-    // A resolved download has already passed size and SHA-256 verification.
-    onProgress({ phase: 'verifying', name: p.name });
 
     // 4) 同名冲突判定（F-DATA-4）:
     //    - finalDir 不存在                       → 直接装
@@ -785,24 +836,26 @@ export async function install(p: InstallParams, onProgress: ProgressCb, remoteGu
 
     // 拉 hub 元数据 — 落盘 authorId 给渲染层兜底用（离线 fallback）。
     // 与 info / batch sync 使用同一 owner slug，组织归属不能换成当前成员 ID。
-    let authorId = '';
-    try {
-      const resp = await skillhubApiFetch<{
-        items: Array<{ slug: string; owner: { slug: string }; isMine: boolean }>;
-        availableCount?: number;
-      }>(withSkillhubCatalogScope('/api/skills-hub/skills/batch-detail', p.catalogScope), {
-        method: 'POST',
-        body: { slugs: [p.name] },
-      });
-      const matched = resp.items?.find((i) => i.slug === p.name);
-      authorId = matched?.owner.slug ?? '';
-    } catch (err) {
-      log.warn('[skillInstall] batch-detail after install warn:', err);
+    let authorId = tencentAuthorId ?? '';
+    if (tencentAuthorId === null) {
+      try {
+        const resp = await skillhubApiFetch<{
+          items: Array<{ slug: string; owner: { slug: string }; isMine: boolean }>;
+          availableCount?: number;
+        }>(withSkillhubCatalogScope('/api/skills-hub/skills/batch-detail', p.catalogScope), {
+          method: 'POST',
+          body: { slugs: [p.name] },
+        });
+        const matched = resp.items?.find((i) => i.slug === p.name);
+        authorId = matched?.owner.slug ?? '';
+      } catch (err) {
+        log.warn('[skillInstall] batch-detail after install warn:', err);
+      }
     }
 
     const folderHash = (await computeFolderHash(finalDir).catch(() => null)) ?? '';
     const nowSec = Math.floor(Date.now() / 1000);
-    const versionStr = downloadVersion || info.fileHash.slice(0, 8);
+    const versionStr = downloadVersion || cindyFileHash.slice(0, 8);
     const registrySnapshots = await readRegistryInstallSnapshots(
       p.name,
       logicalFinalDir,
@@ -938,7 +991,8 @@ export async function install(p: InstallParams, onProgress: ProgressCb, remoteGu
       rollbackState.backupDir = null;
     }
 
-    if (p.autoSync !== true) {
+    // 腾讯来源不参与 Cindy 云端自动同步；HR 模式下也没有 Cindy userId。
+    if (p.autoSync !== true && userId && !tencentSource) {
       await clearIgnoredAutoSyncSkill(p.name, userId).catch((err) => {
         log.warn('[skillInstall] clear auto-sync ignore failed:', err);
       });
