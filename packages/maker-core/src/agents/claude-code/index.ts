@@ -1539,10 +1539,17 @@ export class ClaudeCodeAgent extends BaseAgent {
     // #3557:会话模型 id 带命名空间前缀(anthropic/... 等网关目录形态)时,CLI
     // 内部小模型调用(bash 前缀判定/标题/摘要)不能用它内置的裸名默认值 ——
     // 网关白名单字面比对,裸名必 403。钉到会话自身 wire 模型(唯一确定已授权);
-    // 裸名会话(订阅直连/自定义中继)不传,CLI 默认行为零变化。
+    // 裸名订阅直连会话不传,CLI 默认行为零变化(订阅端点认 haiku,别名解析也正常)。
     // 受邀者会话的内部小模型调用同样钉到会话模型：本机 proxy 只放行分享供应商提供的模型，
     // CLI 内置的裸名默认值(haiku)不一定在其中。
-    const smallFastModel = opts.model.includes('/') || guestProvider ? sdkModel : undefined;
+    // 自定义供应商(BYOM,credentialMode=provider-oauth)同理且更常见：端点只认用户配置的
+    // 自己的模型目录,CLI 内置默认(haiku)或 ANTHROPIC_DEFAULT_HAIKU_MODEL 改写出来的
+    // 任意模型名都不在目录里 → 内部小模型调用(标题生成等)必 400,被上游错误观察器弹成
+    // 「供应商请求失败」toast,而用户的模型配置其实完好(2026-11-04 deepseek-flash 实报)。
+    const smallFastModel =
+      opts.model.includes('/') || guestProvider || credentialMode === 'provider-oauth'
+        ? sdkModel
+        : undefined;
     const companionEnvironment = opts.botRuntimeProfile && !opts.remoteHostId && opts.sessionId
       ? await this.deps.resolveSessionEnvironment?.(opts.sessionId) : undefined;
     const env = await buildClaudeEnv(this.deps.auth, this.deps.runtimeConfig, {

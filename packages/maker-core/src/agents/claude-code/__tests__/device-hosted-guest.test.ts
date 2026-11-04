@@ -134,7 +134,7 @@ const HOST_MODELS = ['shared/model-a', 'shared/model-b', 'other/model-c'].map((i
 
 async function startHostedSession(
   guest: boolean,
-  overrides: { guestProvider?: DeviceHostedGuestProvider | null; providerId?: string; local?: boolean } = {},
+  overrides: { guestProvider?: DeviceHostedGuestProvider | null; providerId?: string; local?: boolean; model?: string } = {},
 ): Promise<{ options: CapturedOptions; sessionRoot: string }> {
   const configDir = await makeTempDir();
   process.env.CLAUDE_CONFIG_DIR = configDir;
@@ -195,7 +195,7 @@ async function startHostedSession(
   };
   const handle = await new ClaudeCodeAgent(deps).startSession({
     sessionId: 'hosted-session',
-    model: 'shared/model-a',
+    model: overrides.model ?? 'shared/model-a',
     providerId: overrides.providerId ?? 'shared-provider',
     workingDir,
     permissionMode: 'acceptEdits',
@@ -297,4 +297,37 @@ describe('Claude Code device-hosted guest sessions', () => {
     const { options } = await startHostedSession(false, { local: true });
     expect(options.env?.CINDY_INPUT_HANDOFF_ROUTE).toBe('route-hosted-session');
   });
+});
+
+/**
+ * 测试价值
+ * - 生产入口与可观察结果：`ClaudeCodeAgent.startSession` → SDK query `options.env.ANTHROPIC_SMALL_FAST_MODEL`。
+ *   CC 内部小模型调用（标题生成 / bash 前缀判定 / 摘要）必须走会话自身 wire 模型——自定义供应商端点
+ *   只认自己目录里的模型，请求一旦带别的模型名，上游 400 会被上游错误观察器弹成
+ *   「供应商请求失败」toast（用户配置其实完好）。
+ * - Bug／规则依据：2026-11-04 BYOM 会话（deepseek-flash[1m] → api.deepseek.com）首发消息时
+ *   `generate_session_title` 带着 haiku 档默认值（被 `ANTHROPIC_DEFAULT_HAIKU_MODEL` 改写成
+ *   `xiaomi/mimo-v2.6-pro-ultraspeed[1m]`）打到 deepseek → 400 → 误报 toast。#3557 的裸名豁免
+ *   只考虑了「订阅直连」，漏了同为裸名的自定义中继。
+ * - 现有覆盖缺口：env-builder.test.ts 只测 `smallFastModel` 选项的落盘，不测 index.ts 的
+ *   「要不要传」决策；guest 分支在上一 describe 有断言，自定义供应商裸名分支完全没有。
+ * - 最小失败输入：model=`deepseek-flash`（裸名）+ providerId=自定义供应商 → 修复前 env 无该键。
+ * - tier：unit（进程内 fake SDK，无网络）。
+ */
+describe('CC 内部小模型钉到会话 wire 模型', () => {
+  const CASES: Array<{ model: string; providerId: string; expected: string | undefined; why: string }> = [
+    // #3557 既有分支：命名空间模型必须钉（网关白名单字面比对，裸名必 403）。
+    { model: 'anthropic/claude-opus-5', providerId: 'xd', expected: 'anthropic/claude-opus-5', why: 'namespaced' },
+    // 本次回归：自定义供应商（BYOM）裸名会话同样必须钉——端点只认自己的模型目录。
+    { model: 'deepseek-flash', providerId: 'custom-deepseek', expected: 'deepseek-flash', why: 'custom-provider bare name' },
+    // 零变化守卫：订阅直连裸名会话保持 CLI 默认（haiku），不受本规则影响。
+    { model: 'claude-haiku-4-5', providerId: 'anthropic', expected: undefined, why: 'subscription direct' },
+  ];
+
+  for (const { model, providerId, expected, why } of CASES) {
+    it(`${why}: ${model} → ${expected ?? 'no pin'}`, async () => {
+      const { options } = await startHostedSession(false, { local: true, providerId, model });
+      expect(options.env?.ANTHROPIC_SMALL_FAST_MODEL).toBe(expected);
+    });
+  }
 });
